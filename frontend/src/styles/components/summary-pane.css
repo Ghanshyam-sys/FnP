@@ -1,0 +1,365 @@
+/* ---- Assessment summary slide-over ---- */
+
+.pane-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  animation: fade 0.18s ease both;
+}
+
+.pane {
+  width: min(46rem, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border-left: 1px solid var(--hairline);
+  box-shadow: var(--shadow-lg);
+  animation: slide-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(2rem);
+    opacity: 0;
+  }
+}
+
+.pane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.35rem;
+  border-bottom: 1px solid var(--hairline);
+  background: var(--surface-sunken);
+}
+
+.pane-head h2 {
+  font-size: 1.0625rem;
+  margin: 0;
+}
+
+.pane-sub {
+  margin: 0.15rem 0 0;
+  font-size: var(--fs-md);
+  color: var(--ink-3);
+}
+
+.pane-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: none;
+}
+
+.pane-close {
+  display: inline-flex;
+  padding: 0.35rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.pane-close:hover {
+  background: var(--surface-sunken);
+}
+
+.pane-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.35rem;
+}
+
+.pane-section + .pane-section {
+  margin-top: 1.6rem;
+  padding-top: 1.35rem;
+  border-top: 1px solid var(--hairline);
+}
+
+.pane-section h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.65rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.pane-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.3rem;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  letter-spacing: 0;
+}
+
+.pane-verdict {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+}
+
+.pane-verdict-reco {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pane-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.85rem 1rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+}
+
+/* Stat and question-split labels in the summary share one style. */
+.pane-stats dt,
+.pane-qsplit dt {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  margin-bottom: 0.15rem;
+}
+
+.pane-stats dd {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.pane-prose {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  color: var(--ink-2);
+}
+
+.pane-concern {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--warning);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.pane-concern + .pane-concern {
+  margin-top: 0.75rem;
+}
+
+.pane-concern-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.5rem;
+}
+
+.pane-concern-type {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.pane-concern-section {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.pane-quote {
+  margin: 0.7rem 0;
+  padding: 0.55rem 0.75rem;
+  border-left: 2px solid var(--hairline);
+  background: var(--surface-sunken);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.pane-quote-text::before {
+  content: "\201C";
+}
+
+.pane-quote-text::after {
+  content: "\201D";
+}
+
+.pane-quote a {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.4rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.pane-condition {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+
+.pane-condition-id {
+  flex: none;
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--r-xs);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.pane-condition p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.pane-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pane-list li {
+  display: flex;
+  gap: 0.55rem;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.pane-list li svg {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--good);
+}
+
+.pane-list-questions li svg {
+  color: var(--warning);
+}
+
+.pane-qsplit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.pane-qsplit dd {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.pane-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin-top: 1.6rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.pane-digest {
+  word-break: break-all;
+}
+
+.pane-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 3rem 1.5rem;
+  text-align: center;
+  color: var(--ink-3);
+}
+
+.pane-empty svg {
+  color: var(--ink-3);
+}
+
+.pane-empty p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.6;
+  max-width: 26rem;
+}
+
+@media (max-width: 540px) {
+  .pane-head {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+}
+
+/* Printing the pane yields the PDF: everything behind it is dropped so the page starts at the
+   summary rather than the scoring report. */
+@media print {
+  body > *:not(.pane-overlay) {
+    display: none !important;
+  }
+
+  .pane-overlay {
+    position: static;
+    display: block;
+    background: none;
+    backdrop-filter: none;
+  }
+
+  .pane {
+    width: 100%;
+    height: auto;
+    border: 0;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .pane-head-actions,
+  .pane-close {
+    display: none !important;
+  }
+
+  .pane-body {
+    overflow: visible;
+    padding: 0;
+  }
+
+  .pane-section,
+  .pane-concern {
+    break-inside: avoid;
+  }
+}

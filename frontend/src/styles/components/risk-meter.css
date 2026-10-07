@@ -1,0 +1,130 @@
+/* ---- Risk meter: a linear read of the gauge's number ---- */
+
+.verdict-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1.1rem;
+  flex: 0 0 auto;
+}
+
+.riskmeter {
+  width: 100%;
+  min-width: 13rem;
+  max-width: 17rem;
+}
+
+.riskmeter-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.riskmeter-title {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.riskmeter-reading {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Colour stops sit on the band boundaries from the scoring model (10 / 25 / 45), so each band
+   holds its own colour across its width and blends only where one band meets the next. */
+.riskmeter-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: linear-gradient(
+    90deg,
+    var(--good) 0%,
+    var(--good) 8%,
+    var(--warning) 14%,
+    var(--warning) 22%,
+    var(--serious) 30%,
+    var(--serious) 42%,
+    var(--critical) 52%,
+    var(--critical) 100%
+  );
+}
+
+.riskmeter-tick {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--surface);
+  opacity: 0.85;
+}
+
+.riskmeter-marker {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: block;
+}
+
+.riskmeter-thumb {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 3px solid var(--ink);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.28);
+}
+
+.riskmeter-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.riskmeter-band {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.riskmeter-band.is-current {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.riskmeter-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--tone);
+}
+
+.tone-good {
+  --tone: var(--good);
+}
+.tone-warning {
+  --tone: var(--warning);
+}
+.tone-serious {
+  --tone: var(--serious);
+}
+.tone-critical {
+  --tone: var(--critical);
+}
+
+.riskmeter-range {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}

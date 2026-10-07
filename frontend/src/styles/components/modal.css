@@ -1,0 +1,87 @@
+/* ============================================================
+   Modal
+   ============================================================ */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+  animation: fade 0.18s ease both;
+}
+
+.modal {
+  width: 100%;
+  max-width: 400px;
+  padding: 1.5rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.modal h2 {
+  font-size: 1.0625rem;
+}
+
+.modal-sub {
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  margin-top: -0.5rem;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.modal-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 0 0 0.35rem;
+  padding: 0.8rem 0.9rem;
+  background: var(--surface-sunken);
+  border-radius: var(--r-md);
+}
+
+.modal-detail dt {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.modal-detail dd {
+  margin: 0.1rem 0 0;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.modal-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: var(--critical-wash);
+  color: var(--critical);
+}
+
+.hero-hint {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  text-align: center;
+  line-height: 1.45;
+}

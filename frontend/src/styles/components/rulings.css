@@ -1,0 +1,77 @@
+/* ---- Rulings on the authentication report ---- */
+
+.ruling-actions,
+.ruling-block,
+.resubmit-block {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  border-top: 1px dashed var(--hairline);
+}
+
+.ruling-prompt {
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+.ruling-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.reviewer-note {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  border-left: 3px solid var(--ink-3);
+}
+
+.reviewer-note.is-accepted {
+  border-left-color: var(--good);
+  background: var(--good-wash);
+}
+
+.reviewer-note.is-rejected {
+  border-left-color: var(--warning);
+  background: var(--warning-wash);
+}
+
+.reviewer-note svg {
+  flex: none;
+  margin-top: 0.15rem;
+  color: var(--ink-3);
+}
+
+.reviewer-note-label {
+  display: block;
+  font-size: var(--fs-2xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 0.2rem;
+}
+
+.reviewer-note p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.ruling-block .btn {
+  margin-top: 0.5rem;
+}
+
+/* A flagged question the reviewer has settled reads as resolved, not as an open issue. */
+.auth-question.review-overridden {
+  border-left-color: var(--good);
+}
+
+.auth-question.review-rejected {
+  border-left-color: var(--warning);
+}

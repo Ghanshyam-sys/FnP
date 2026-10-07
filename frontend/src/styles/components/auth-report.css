@@ -1,0 +1,294 @@
+/* ============================================================
+   Outcome tabs
+   ============================================================ */
+.outcome-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 1rem;
+  padding: 0.3rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+}
+
+.outcome-tab {
+  padding: 0.4rem 1rem;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink-2);
+  text-decoration: none;
+}
+
+.outcome-tab:hover {
+  text-decoration: none;
+  color: var(--ink);
+}
+
+.outcome-tab.is-active {
+  background: var(--accent);
+  color: var(--white);
+}
+
+.outcome-tab.is-disabled {
+  color: var(--ink-3);
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.outcome-tab-status {
+  margin-left: auto;
+  padding-right: 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+/* ============================================================
+   Authentication report
+   ============================================================ */
+.auth-summary-card {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2.5rem;
+  padding: 1.1rem 1.25rem;
+}
+
+.auth-stat {
+  display: flex;
+  flex-direction: column;
+}
+
+.auth-stat-label {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.auth-stat-value {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.auth-stat-value.is-critical {
+  color: var(--critical);
+}
+
+.section-head-static {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.85rem 1.25rem;
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.auth-question + .auth-question {
+  border-top: 1px solid var(--hairline);
+}
+
+.auth-question.is-issue {
+  background: var(--critical-wash);
+}
+
+.auth-question-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.75rem 1.25rem;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.auth-chevron {
+  display: grid;
+  place-items: center;
+  color: var(--ink-3);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+
+.auth-question-head[aria-expanded="false"] .auth-chevron {
+  transform: rotate(-90deg);
+}
+
+.auth-question-text {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.auth-question-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-shrink: 0;
+}
+
+.auth-confidence {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5rem;
+  text-align: right;
+}
+
+.auth-question-body {
+  padding: 0 1.25rem 1rem 3rem;
+}
+
+.auth-summary {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  margin-bottom: 0.7rem;
+}
+
+.check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.check {
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.65rem 0.8rem;
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  border-left: 3px solid var(--hairline);
+}
+
+.check-good {
+  border-left-color: var(--good);
+}
+
+.check-warning {
+  border-left-color: var(--warning);
+}
+
+.check-critical {
+  border-left-color: var(--critical);
+  background: var(--critical-wash);
+}
+
+.check-icon {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.check-good .check-icon {
+  color: var(--good);
+}
+
+.check-warning .check-icon {
+  color: var(--warning-ink);
+}
+
+.check-critical .check-icon {
+  color: var(--critical);
+}
+
+.check-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.check-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.2rem;
+}
+
+.check-label {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.check-confidence {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.confidence-track {
+  display: block;
+  width: 54px;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--hairline);
+  overflow: hidden;
+}
+
+.confidence-fill {
+  display: block;
+  height: 100%;
+  border-radius: 0 3px 3px 0;
+  background: var(--good);
+}
+
+.check-warning .confidence-fill {
+  background: var(--warning);
+}
+
+.check-critical .confidence-fill {
+  background: var(--critical);
+}
+
+.check-note {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* ============================================================
+   Findings (authentication failures)
+   ============================================================ */
+.findings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.finding {
+  margin-bottom: 0;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--critical);
+}
+
+.finding-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.finding-head .chip {
+  font-family: var(--mono);
+  font-size: var(--fs-2xs);
+  letter-spacing: 0.02em;
+}

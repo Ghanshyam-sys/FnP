@@ -1,0 +1,66 @@
+/* ============================================================
+   Responsive
+   ============================================================ */
+@media (max-width: 720px) {
+  .page {
+    padding: 1.5rem 1rem 6rem;
+  }
+
+  .page-head-text h1 {
+    font-size: 1.5rem;
+  }
+
+  .meta-grid {
+    gap: 1rem 1.25rem;
+    width: 100%;
+  }
+
+  .verdict {
+    padding: 1.25rem;
+    gap: 1.25rem;
+    justify-content: center;
+  }
+
+  .verdict-body {
+    align-items: center;
+    text-align: center;
+  }
+
+  .verdict-stats {
+    justify-content: center;
+    gap: 1.25rem;
+  }
+
+  .sbar-row {
+    grid-template-columns: minmax(5.5rem, 1fr) minmax(0, 1.6fr) auto;
+    gap: 0.6rem;
+  }
+
+  .step-label {
+    display: none;
+  }
+
+  .stepper li:not(:last-child)::after {
+    min-width: 24px;
+  }
+}
+
+@media (max-width: 540px) {
+  .actionbar {
+    flex-wrap: wrap;
+  }
+
+  .actionbar-note {
+    flex: 1 0 100%;
+    margin-bottom: 0.2rem;
+  }
+
+  .qcard-main {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .segmented {
+    align-self: flex-start;
+  }
+}

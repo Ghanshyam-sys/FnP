@@ -1,0 +1,111 @@
+/* ============================================================
+   Evidence
+   ============================================================ */
+.evidence-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.evidence {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-top: 0.85rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+
+.evidence-list .evidence {
+  margin-top: 0;
+}
+
+.evidence-pending {
+  border-style: dashed;
+  border-color: var(--warning);
+  background: var(--warning-wash);
+  align-items: flex-end;
+}
+
+.evidence-icon {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  background: var(--accent-wash);
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.evidence-icon.is-pending {
+  background: var(--surface);
+  color: var(--warning-ink);
+}
+
+.evidence-meta {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.evidence-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Filenames stay verbatim; a document-type title gets a sentence capital. */
+.evidence-sub::first-letter {
+  text-transform: uppercase;
+}
+
+.evidence-sub {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.evidence-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.evidence-picker .field-label {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.evidence-pending .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: var(--hairline);
+  color: var(--ink-3);
+}
+
+.btn-remove {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  color: var(--critical);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.btn-remove:hover {
+  background: var(--critical-wash);
+  border-color: var(--critical);
+}

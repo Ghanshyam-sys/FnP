@@ -1,0 +1,72 @@
+/* ---- Section rows expand to the questions behind them ---- */
+
+.sbar-group + .sbar-group {
+  border-top: 1px solid transparent;
+}
+
+.sbar-group.is-open {
+  background: var(--surface-sunken);
+  border-radius: var(--r-sm);
+}
+
+button.sbar-row {
+  width: 100%;
+  grid-template-columns: auto minmax(7rem, 1.05fr) minmax(0, 2.2fr) auto;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.sbar-chevron {
+  display: inline-flex;
+  color: var(--ink-3);
+  transition: transform 0.18s ease;
+}
+
+.sbar-group.is-open .sbar-chevron {
+  transform: rotate(180deg);
+}
+
+.sbar-detail {
+  padding: 0.25rem 0.5rem 0.75rem 2rem;
+  overflow-x: auto;
+}
+
+.sbar-detail .data-table {
+  font-size: var(--fs-md);
+}
+
+.sbar-total {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 0.5rem;
+  padding: 0.6rem 0.5rem 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.sbar-total-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.sbar-total-value {
+  font-size: var(--fs-md);
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (max-width: 540px) {
+  /* The indent that lines detail up under the section label costs too much width here. */
+  .sbar-detail {
+    padding-left: 0.5rem;
+  }
+
+  .riskmeter {
+    max-width: none;
+  }
+}

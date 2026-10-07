@@ -1,0 +1,67 @@
+/* ---- Dialogs ---- */
+
+.modal-wide {
+  max-width: 34rem;
+}
+
+.modal-banner {
+  display: flex;
+  gap: 0.7rem;
+  padding: 0.85rem 1rem;
+  border-radius: var(--r-md);
+}
+
+.modal-banner h2 {
+  margin: 0 0 0.25rem;
+  font-size: 0.9375rem;
+}
+
+.modal-banner p {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+
+.modal-banner svg {
+  flex: none;
+  margin-top: 0.15rem;
+}
+
+.modal-banner.is-critical {
+  background: var(--critical-wash);
+  color: var(--critical-ink);
+}
+
+.modal-banner.is-info {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.modal-banner.is-good {
+  background: var(--good-wash);
+  color: var(--good-ink);
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 5rem;
+  font: inherit;
+  font-size: var(--fs-md);
+  line-height: 1.55;
+}
+
+.field-hint {
+  margin: 0.3rem 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.btn-critical {
+  background: var(--critical);
+  border-color: var(--critical);
+  color: var(--white);
+}
+
+.btn-critical:hover:not(:disabled) {
+  filter: brightness(0.94);
+}

@@ -1,0 +1,170 @@
+/* ============================================================
+   Layout
+   ============================================================ */
+.app-main {
+  min-height: 100svh;
+}
+
+.page {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 2rem 1.25rem 7rem;
+}
+
+.page-narrow {
+  max-width: 620px;
+}
+
+.page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.5rem;
+}
+
+.page-head-center {
+  justify-content: center;
+  text-align: center;
+}
+
+.page-head-text {
+  max-width: 52ch;
+}
+
+.page-head-text h1 {
+  font-size: 1.75rem;
+  letter-spacing: -0.022em;
+  margin-bottom: 0.35rem;
+}
+
+.page-head-text .chip {
+  margin-bottom: 0.6rem;
+}
+
+.page-sub {
+  color: var(--ink-2);
+  font-size: 0.875rem;
+}
+
+.meta-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 0;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+}
+
+.meta-grid dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.meta-grid dd {
+  margin: 0.15rem 0 0;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+/* ============================================================
+   Top bar + stepper
+   ============================================================ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--surface);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.topbar-inner {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.brand:hover {
+  text-decoration: none;
+}
+
+.brand-mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(145deg, var(--accent-bright), var(--accent-strong));
+  color: var(--white);
+  box-shadow: var(--shadow-sm);
+  flex-shrink: 0;
+}
+
+.brand-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.brand-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.brand-sub {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.session {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: 0;
+}
+
+.session-email {
+  font-size: var(--fs-md);
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 16rem;
+}
+
+.session-avatar {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}

@@ -1,0 +1,253 @@
+/* ============================================================
+   Report — verdict, gauge
+   ============================================================ */
+.verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2rem;
+  padding: 1.75rem;
+}
+
+.gauge {
+  position: relative;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.gauge svg {
+  display: block;
+}
+
+.gauge-fill {
+  transition: stroke-dashoffset 0.9s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.gauge-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+}
+
+.gauge-label {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.gauge-value {
+  font-size: 3rem;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+
+.gauge-scale {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.band-low {
+  --meter: var(--good);
+  --meter-track: var(--good-wash);
+}
+
+.band-moderate {
+  --meter: var(--warning);
+  --meter-track: var(--warning-wash);
+}
+
+.band-elevated {
+  --meter: var(--serious);
+  --meter-track: var(--serious-wash);
+}
+
+.band-high {
+  --meter: var(--critical);
+  --meter-track: var(--critical-wash);
+}
+
+.verdict-body {
+  flex: 1 1 18rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.verdict-reco {
+  font-size: 1.125rem;
+  line-height: 1.35;
+  letter-spacing: -0.015em;
+}
+
+.verdict-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin: 0.35rem 0 0;
+  padding-top: 0.85rem;
+  border-top: 1px solid var(--hairline);
+  width: 100%;
+}
+
+.verdict-stats dt {
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.verdict-stats dd {
+  margin: 0.1rem 0 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ============================================================
+   Report — section bars
+   ============================================================ */
+.sectionbars {
+  padding: 1rem 1.25rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.sbar-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(7rem, 1.05fr) minmax(0, 2.2fr) auto;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.4rem 0.5rem;
+  margin: 0 -0.5rem;
+  border-radius: var(--r-sm);
+}
+
+.sbar-row:hover,
+.sbar-row:focus-visible {
+  background: var(--surface-sunken);
+  outline: none;
+}
+
+.sbar-label {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  line-height: 1.3;
+}
+
+.sbar-track {
+  display: block;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bar-track);
+  overflow: hidden;
+}
+
+.sbar-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 0 4px 4px 0;
+  transition: width 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sbar-value {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 3.75rem;
+  text-align: right;
+}
+
+.sbar-denom {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* ============================================================
+   Report — data table
+   ============================================================ */
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-md);
+}
+
+.data-table thead th {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  font-size: var(--fs-2xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--ink-3);
+  background: var(--surface-sunken);
+  border-bottom: 1px solid var(--hairline);
+  white-space: nowrap;
+}
+
+/* Table content lines up with the padding of every other card on the page. */
+.data-table th:first-child,
+.data-table td:first-child {
+  padding-left: 1.25rem;
+}
+
+.data-table th:last-child,
+.data-table td:last-child {
+  padding-right: 1.25rem;
+}
+
+.data-table td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--hairline);
+  color: var(--ink-2);
+}
+
+.data-table tbody tr:hover {
+  background: var(--surface-sunken);
+}
+
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.data-table .strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.data-table tfoot td {
+  border-bottom: none;
+  padding-top: 0.7rem;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--surface-sunken);
+}
+
+.row-knockout {
+  background: var(--critical-wash);
+}
+
+.row-knockout:hover {
+  background: var(--critical-wash);
+}

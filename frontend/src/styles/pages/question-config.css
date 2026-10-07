@@ -1,0 +1,81 @@
+/* ---- Question configuration ---- */
+
+.qconfig {
+  padding: 1.1rem 1.25rem;
+}
+
+.qconfig + .qconfig {
+  border-top: 1px solid var(--hairline);
+}
+
+.qconfig-prompt {
+  display: flex;
+  gap: 0.7rem;
+  margin-bottom: 0.85rem;
+}
+
+.qconfig-prompt .qtext {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.qconfig-grid {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr) minmax(0, 1.4fr) 12rem;
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.qconfig-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.input-num {
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.chipset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.toggle-chip {
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.toggle-chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+@media (max-width: 900px) {
+  .qconfig-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 540px) {
+  .qconfig-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .case-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

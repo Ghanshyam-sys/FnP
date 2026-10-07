@@ -1,0 +1,231 @@
+/* ============================================================
+   Buttons, inputs, chips
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.55rem 1.1rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+    transform 0.1s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover {
+  text-decoration: none;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--white);
+  box-shadow: var(--shadow-sm);
+}
+
+.btn-primary:hover {
+  background: var(--accent-strong);
+}
+
+.btn-ghost {
+  background: var(--surface);
+  border-color: var(--hairline);
+  color: var(--ink);
+}
+
+.btn-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-sm {
+  padding: 0.3rem 0.65rem;
+  font-size: var(--fs-sm);
+  border-radius: var(--r-xs);
+}
+
+.btn-block {
+  width: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.input {
+  width: 100%;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface-raised);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-size: 0.875rem;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.input::placeholder {
+  color: var(--ink-3);
+}
+
+.input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.field-error {
+  font-size: var(--fs-sm);
+  color: var(--critical-ink);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.chip-low {
+  background: var(--good-wash);
+  color: var(--good-ink);
+}
+
+.chip-moderate,
+.chip-warning {
+  background: var(--warning-wash);
+  color: var(--warning-ink);
+}
+
+.chip-elevated,
+.chip-serious {
+  background: var(--serious-wash);
+  color: var(--serious-ink);
+}
+
+.chip-high,
+.chip-critical {
+  background: var(--critical-wash);
+  color: var(--critical-ink);
+}
+
+.chip-info {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.chip-neutral {
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+  border: 1px solid var(--hairline);
+}
+
+.answer-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline);
+  color: var(--ink-2);
+}
+
+.answer-yes {
+  background: var(--accent-wash);
+  border-color: transparent;
+  color: var(--accent-ink);
+}
+
+.answer-na {
+  border-style: dashed;
+  color: var(--ink-3);
+}
+
+/* ============================================================
+   Notices
+   ============================================================ */
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: var(--r-md);
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+
+.notice strong {
+  color: inherit;
+  font-weight: 600;
+}
+
+.notice svg {
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+}
+
+.notice-warning {
+  background: var(--warning-wash);
+  color: var(--warning-ink);
+}
+
+.notice-good {
+  background: var(--good-wash);
+  color: var(--good-ink);
+}
+
+.notice-critical {
+  background: var(--critical-wash);
+  color: var(--critical-ink);
+}
+
+.notice-info {
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+/* ============================================================
+   Action bar
+   ============================================================ */
+.actionbar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+  padding: 0.85rem 0 1.25rem;
+  background: linear-gradient(to top, var(--page) 62%, transparent);
+}
+
+.actionbar-note {
+  margin-right: auto;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}

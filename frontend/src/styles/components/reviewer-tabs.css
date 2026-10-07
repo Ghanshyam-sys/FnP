@@ -1,0 +1,34 @@
+/* ---- Reviewer tabs ---- */
+
+.reviewer-tabs {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.3rem;
+  margin-bottom: 1rem;
+  background: var(--surface-sunken);
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+}
+
+.reviewer-tabs > * {
+  padding: 0.45rem 1rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.reviewer-tabs > .is-active {
+  background: var(--accent);
+  color: var(--white);
+  cursor: default;
+}
+
+.reviewer-tabs > button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

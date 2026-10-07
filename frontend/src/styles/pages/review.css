@@ -1,0 +1,78 @@
+/* ============================================================
+   Review
+   ============================================================ */
+.review-table .col-answer {
+  width: 6rem;
+}
+
+/* Shrink to content and right-align, so the right inset matches the left */
+.review-table .col-attachment,
+.review-table td:last-child {
+  width: 1%;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* Section bands read as headings, not as a second row of column labels */
+.review-group-row th {
+  padding: 0.9rem 1.25rem 0.5rem;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  text-align: left;
+  border-top: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.review-table tbody:first-of-type .review-group-row th {
+  border-top: none;
+}
+
+.review-question-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.review-question {
+  color: var(--ink-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.review-evidence-link,
+.review-evidence-missing,
+.review-evidence-none {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+
+.review-evidence-link {
+  color: var(--good-ink);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.review-evidence-link:hover {
+  text-decoration: underline;
+}
+
+.review-evidence-link svg:last-child {
+  opacity: 0.6;
+}
+
+.review-evidence-missing {
+  color: var(--warning-ink);
+}
+
+.review-evidence-none {
+  color: var(--ink-3);
+}
