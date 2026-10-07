@@ -1,7 +1,8 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import { useAssessment } from "../state/useAssessment";
-import { getAssignment, departmentFor } from "../data/assignments";
+import { departmentFor } from "../data/assignments";
+import { getAssignment } from "../state/assignmentStore";
 import { CheckIcon, LogOutIcon, ShieldCheckIcon } from "./icons";
 import { parseApplyPath, routes } from "../routes";
 import type { ApplyStep } from "../routes";

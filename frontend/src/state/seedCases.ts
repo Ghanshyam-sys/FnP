@@ -1,5 +1,5 @@
 import { seedCase } from "./caseStore";
-import { REVIEWABLE_ASSIGNMENTS } from "../data/assignments";
+import { DEMO_ASSIGNMENTS } from "../data/assignments";
 
 const SEED_MARKER = "fnp-seeded-v1";
 const HOUR = 60 * 60 * 1000;
@@ -19,7 +19,7 @@ export function seedDemoCases(now: number = Date.now()): void {
     return;
   }
 
-  const byApplicant = new Map(REVIEWABLE_ASSIGNMENTS.map((a) => [a.applicantId, a.id]));
+  const byApplicant = new Map(DEMO_ASSIGNMENTS.map((a) => [a.applicantId, a.id]));
   const id = (applicantId: string) => byApplicant.get(applicantId);
 
   // APP001 — authenticated clean, scored, and already accepted by the reviewer.

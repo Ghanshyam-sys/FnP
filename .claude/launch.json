@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "fnp-poc",
+      "name": "frontend",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["--prefix", "fnp-poc", "run", "dev"],
+      "runtimeArgs": ["--prefix", "frontend", "run", "dev"],
       "port": 5173
     }
   ]

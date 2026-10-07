@@ -1,6 +1,6 @@
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useAssessment } from "../state/useAssessment";
-import { getAssignment } from "../data/assignments";
+import { getAssignment } from "../state/assignmentStore";
 import AssessmentNotFound from "../components/AssessmentNotFound";
 import AnswerTag from "../components/AnswerTag";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
@@ -14,6 +14,8 @@ import {
 } from "../components/icons";
 import { evidenceUrl, hasEvidenceFile } from "../data/fixtures";
 import { evidenceGaps } from "../domain/evidenceRules";
+import { incompleteApplicantFields } from "../domain/applicantDetails";
+import { ApplicantDetailsSummary } from "../components/ApplicantDetails";
 import { evidenceFileName } from "../domain/evidenceOptions";
 import { isSubmitted, recordSubmission } from "../state/caseStore";
 import { routes } from "../routes";
@@ -39,6 +41,7 @@ export default function ReviewPage() {
   const cv = form.cv_verification;
   const cvFile = cv?.evidence[0];
   const { missingTotal, missingIds } = evidenceGaps(form);
+  const incompleteDetails = incompleteApplicantFields(form.applicant);
 
   return (
     <div className="page">
@@ -53,6 +56,12 @@ export default function ReviewPage() {
       >
         <AssignmentMeta assignment={assignment} showDepartment />
       </PageHeader>
+
+      <ApplicantDetailsSummary
+        applicant={form.applicant}
+        email={assignment.email}
+        sub="Check these before submitting. Go back to edit to change them."
+      />
 
       <section className="card">
         <div className="table-wrap">
@@ -179,6 +188,20 @@ export default function ReviewPage() {
             )}
           </div>
         </section>
+      )}
+
+      {incompleteDetails.length > 0 && (
+        <div className="notice notice-warning">
+          <AlertTriangleIcon size={17} />
+          <div>
+            <strong>
+              {incompleteDetails.length} applicant detail{incompleteDetails.length > 1 ? "s" : ""}{" "}
+              {incompleteDetails.length > 1 ? "need" : "needs"} attention
+            </strong>{" "}
+            ({incompleteDetails.join(", ")}). You can still submit — the reviewer sees what was
+            provided.
+          </div>
+        </div>
       )}
 
       {missingTotal > 0 ? (

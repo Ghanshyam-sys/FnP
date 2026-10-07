@@ -15,6 +15,7 @@ import ReviewerQueuePage from "./pages/ReviewerQueuePage";
 import ReviewerAuthenticationPage from "./pages/ReviewerAuthenticationPage";
 import ReviewerResultPage from "./pages/ReviewerResultPage";
 import QuestionConfigPage from "./pages/QuestionConfigPage";
+import NewAssessmentPage from "./pages/NewAssessmentPage";
 import { seedDemoCases } from "./state/seedCases";
 import { ROUTE_PATTERNS } from "./routes";
 import "./styles/app.css";
@@ -47,6 +48,10 @@ export default function App() {
             <Route
               path={ROUTE_PATTERNS.reviewerQuestions}
               element={reviewer(<QuestionConfigPage />)}
+            />
+            <Route
+              path={ROUTE_PATTERNS.reviewerNewAssessment}
+              element={reviewer(<NewAssessmentPage />)}
             />
             <Route
               path={ROUTE_PATTERNS.reviewerAuthentication}

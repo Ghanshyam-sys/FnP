@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useAssessment } from "../state/useAssessment";
-import { getAssignment } from "../data/assignments";
+import { getAssignment } from "../state/assignmentStore";
 import QuestionCard from "../components/QuestionCard";
 import EvidenceBlock from "../components/EvidenceBlock";
 import AssessmentNotFound from "../components/AssessmentNotFound";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
+import { ApplicantDetailsSection } from "../components/ApplicantDetails";
 import { ArrowRightIcon, AlertTriangleIcon, ChevronDownIcon } from "../components/icons";
 import { evidenceGaps, hasMissingMandatoryEvidence } from "../domain/evidenceRules";
 import { buildEvidenceRef, CV_QID } from "../domain/evidenceOptions";
@@ -18,8 +19,15 @@ import type { Answer, EvidenceRole } from "../domain/types";
 export default function ApplyPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const { getForm, updateAnswer, attachEvidence, removeEvidence, attachCvEvidence, removeCvEvidence } =
-    useAssessment();
+  const {
+    getForm,
+    updateAnswer,
+    updateApplicant,
+    attachEvidence,
+    removeEvidence,
+    attachCvEvidence,
+    removeCvEvidence,
+  } = useAssessment();
   // Only sections the filer has explicitly toggled appear here; the rest fall back to the
   // default of opening the first section and leaving the others collapsed.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
@@ -76,6 +84,12 @@ export default function ApplyPage() {
       >
         <AssignmentMeta assignment={assignment} showDepartment />
       </PageHeader>
+
+      <ApplicantDetailsSection
+        applicant={form.applicant}
+        email={assignment.email}
+        onChange={(field, value) => updateApplicant(assignment, field, value)}
+      />
 
       {sections.map((section, index) => {
         const items = form.responses.filter((r) => r.section === section);

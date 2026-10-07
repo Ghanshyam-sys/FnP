@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REVIEWABLE_ASSIGNMENTS } from "../data/assignments";
+import { DEMO_ASSIGNMENTS } from "../data/assignments";
 import { getDraft, resetDraft } from "../state/draftStore";
 import { authenticate, issuesIn } from "./authentication";
 import { score } from "./engine";
@@ -13,7 +13,7 @@ import { defaultConfig } from "../state/questionConfigStore";
  * so these snapshots are the contract: any refactor of the domain layer must leave them
  * unchanged.
  */
-describe.each(REVIEWABLE_ASSIGNMENTS.map((a) => [a.applicantId, a] as const))(
+describe.each(DEMO_ASSIGNMENTS.map((a) => [a.applicantId, a] as const))(
   "%s seeded draft",
   (_applicantId, assignment) => {
     it("authenticates to the same outcome", () => {
@@ -29,7 +29,7 @@ describe.each(REVIEWABLE_ASSIGNMENTS.map((a) => [a.applicantId, a] as const))(
 
 describe("flagged questions", () => {
   const flagsFor = (applicantId: string) => {
-    const assignment = REVIEWABLE_ASSIGNMENTS.find((a) => a.applicantId === applicantId)!;
+    const assignment = DEMO_ASSIGNMENTS.find((a) => a.applicantId === applicantId)!;
     return issuesIn(authenticate(assignment.id, applicantId, getDraft(assignment))).map(
       (q) => q.qid
     );
@@ -46,7 +46,7 @@ describe("flagged questions", () => {
 
 describe("blank new application", () => {
   it("authenticates and scores the same", () => {
-    const assignment = REVIEWABLE_ASSIGNMENTS[0];
+    const assignment = DEMO_ASSIGNMENTS[0];
     const blank = resetDraft(assignment);
     const { submitted_at: _ignored, ...stable } = blank;
     expect(stable).toMatchSnapshot();

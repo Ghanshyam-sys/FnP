@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { getAssignment } from "../data/assignments";
+import { getAssignment } from "./assignmentStore";
 import { authenticate } from "../domain/authentication";
 import { flaggedQids } from "./reviewState";
 import { useAssessment } from "./useAssessment";

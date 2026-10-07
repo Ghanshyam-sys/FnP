@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { draftIdForStorageKey, getDraft, saveDraft, resetDraft } from "./draftStore";
 import { clearCase } from "./caseStore";
 import { AssessmentContext, roleFor } from "./useAssessment";
+import type { EditableApplicantField } from "./useAssessment";
 import { isEvidenceRequired } from "../domain/evidenceRules";
 import type { Assignment } from "../data/assignments";
 import type { Answer, ApplicationForm, EvidenceRef } from "../domain/types";
@@ -111,6 +112,14 @@ export function AssessmentProvider({ children }: { children: ReactNode }) {
     [currentForm, persist]
   );
 
+  const updateApplicant = useCallback(
+    (assignment: Assignment, field: EditableApplicantField, value: string) => {
+      const base = currentForm(assignment);
+      persist(assignment.id, { ...base, applicant: { ...base.applicant, [field]: value } });
+    },
+    [currentForm, persist]
+  );
+
   const attachEvidence = useCallback(
     (assignment: Assignment, qid: string, evidence: EvidenceRef) => {
       const base = currentForm(assignment);
@@ -200,6 +209,7 @@ export function AssessmentProvider({ children }: { children: ReactNode }) {
       signOut,
       getForm,
       updateAnswer,
+      updateApplicant,
       attachEvidence,
       removeEvidence,
       attachCvEvidence,
@@ -212,6 +222,7 @@ export function AssessmentProvider({ children }: { children: ReactNode }) {
       signOut,
       getForm,
       updateAnswer,
+      updateApplicant,
       attachEvidence,
       removeEvidence,
       attachCvEvidence,

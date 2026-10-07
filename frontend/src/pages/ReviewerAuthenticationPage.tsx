@@ -13,11 +13,15 @@ import {
 import { useCaseView } from "../state/useCaseView";
 import { useStageTicker } from "../state/useStageTicker";
 import { routes } from "../routes";
+import type { QueueNotice } from "../routes";
+import { isCreatedAssignment, removeAssignment } from "../state/assignmentStore";
+import NotSubmittedPanel from "../components/NotSubmittedPanel";
 import AssessmentNotFound from "../components/AssessmentNotFound";
 import AuthenticationReport from "../components/AuthenticationReport";
 import OverrideDialog from "../components/OverrideDialog";
 import ReviewerTabs from "../components/ReviewerTabs";
 import { ReviewerCaseHeader } from "../components/PageHeader";
+import { ApplicantDetailsSummary } from "../components/ApplicantDetails";
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
@@ -45,9 +49,38 @@ export default function ReviewerAuthenticationPage() {
   const now = useStageTicker(anyCaseInFlight([id]));
 
   if (!view) return <AssessmentNotFound />;
-  const { assignment, outcome, flagged } = view;
+  const { assignment, form, outcome, flagged } = view;
 
   const stage = stageFor(id, flagged, now);
+
+  // Nothing has been submitted, so there is nothing to authenticate or rule on yet.
+  if (stage === "NOT_SUBMITTED") {
+    const remove = () => {
+      if (!removeAssignment(id)) return;
+      const state: QueueNotice = {
+        notice: `Assessment ${id} for ${assignment.applicantName} was removed.`,
+      };
+      navigate(routes.reviewer(), { state });
+    };
+    return (
+      <div className="page">
+        <ReviewerCaseHeader assignment={assignment} stage={stage} />
+        <ReviewerTabs assessmentId={id} active="authentication" scoringReady={false} />
+        <NotSubmittedPanel
+          assignment={assignment}
+          canRemove={isCreatedAssignment(id)}
+          onRemove={remove}
+        />
+        <footer className="actionbar">
+          <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+            <ArrowLeftIcon size={15} />
+            Back to the queue
+          </button>
+        </footer>
+      </div>
+    );
+  }
+
   const record = readCase(id);
   const open = unresolvedFlags(id, outcome);
   const issues = issuesIn(outcome);
@@ -157,6 +190,12 @@ export default function ReviewerAuthenticationPage() {
       <ReviewerCaseHeader assignment={assignment} stage={stage} />
 
       <ReviewerTabs assessmentId={id} active="authentication" scoringReady={isScored(stage)} />
+
+      <ApplicantDetailsSummary
+        applicant={form.applicant}
+        email={assignment.email}
+        sub="As declared by the applicant on the form."
+      />
 
       <AuthenticationReport
         assessmentId={id}

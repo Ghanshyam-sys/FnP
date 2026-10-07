@@ -64,15 +64,26 @@ export interface CvVerificationResult {
   scoringImpact: string;
 }
 
+/**
+ * Who the applicant is, as declared on the form. The first four keys have always been in the
+ * submission payload; the last three were added with the applicant details section and are
+ * optional so drafts saved before it still load.
+ */
+export interface ApplicantDetails {
+  full_name: string;
+  proposed_role: string;
+  /** ISO date, YYYY-MM-DD. */
+  date_of_birth: string;
+  town: string;
+  nationality?: string;
+  national_id_number?: string;
+  phone?: string;
+}
+
 export interface ApplicationForm {
   application_id: string;
   licensee: string;
-  applicant: {
-    full_name: string;
-    proposed_role: string;
-    date_of_birth: string;
-    town: string;
-  };
+  applicant: ApplicantDetails;
   submitted_at: string;
   responses: ResponseItem[];
   cv_verification?: CvSubmission;

@@ -28,3 +28,6 @@
 @import "./components/rulings.css";
 @import "./components/dialogs.css";
 @import "./pages/question-config.css";
+@import "./components/field-grid.css";
+@import "./components/applicant-details.css";
+@import "./components/not-submitted.css";

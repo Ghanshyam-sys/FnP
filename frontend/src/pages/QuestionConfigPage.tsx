@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { QUESTIONS } from "../domain/questions";
 import { displaySection } from "../domain/sectionLabels";
-import { REVIEWABLE_ASSIGNMENTS } from "../data/assignments";
+import { reviewableAssignments } from "../state/assignmentStore";
 import { isSubmitted } from "../state/caseStore";
 import { routes } from "../routes";
 import {
@@ -33,7 +33,7 @@ export default function QuestionConfigPage() {
 
   // Which applicants a change would actually reach.
   const notSubmitted = useMemo(
-    () => REVIEWABLE_ASSIGNMENTS.filter((a) => !isSubmitted(a.id)).map((a) => a.applicantName),
+    () => reviewableAssignments().filter((a) => !isSubmitted(a.id)).map((a) => a.applicantName),
     []
   );
 

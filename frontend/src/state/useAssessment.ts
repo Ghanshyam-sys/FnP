@@ -1,6 +1,10 @@
 import { createContext, useContext } from "react";
 import type { Assignment } from "../data/assignments";
 import type { Answer, ApplicationForm, EvidenceRef } from "../domain/types";
+import type { ApplicantField } from "../domain/applicantDetails";
+
+/** The name is fixed by the assessment record, so it is the one detail the filer cannot set. */
+export type EditableApplicantField = Exclude<ApplicantField, "full_name">;
 
 type Role = "applicant" | "reviewer";
 
@@ -18,6 +22,7 @@ interface AssessmentContextValue {
   signOut: () => void;
   getForm: (assignment: Assignment) => ApplicationForm;
   updateAnswer: (assignment: Assignment, qid: string, answer: Answer) => void;
+  updateApplicant: (assignment: Assignment, field: EditableApplicantField, value: string) => void;
   attachEvidence: (assignment: Assignment, qid: string, evidence: EvidenceRef) => void;
   removeEvidence: (assignment: Assignment, qid: string, docType: string) => void;
   attachCvEvidence: (assignment: Assignment, evidence: EvidenceRef) => void;

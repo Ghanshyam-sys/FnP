@@ -9,7 +9,8 @@ import { hasDraft } from "../state/draftStore";
 import { caseStatusOf } from "../state/reviewState";
 import { STAGE_LABELS } from "../state/caseLabels";
 import type { CaseStage } from "../state/caseStore";
-import { assignmentsForEmail, departmentFor } from "../data/assignments";
+import { departmentFor } from "../data/assignments";
+import { assignmentsForEmail } from "../state/assignmentStore";
 import { formatDate } from "../utils/format";
 import type { Assignment } from "../data/assignments";
 import {

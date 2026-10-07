@@ -1,0 +1,6 @@
+# Office lock files created while a workbook or document is open
+~$*
+
+# OS and editor clutter
+.DS_Store
+Thumbs.db

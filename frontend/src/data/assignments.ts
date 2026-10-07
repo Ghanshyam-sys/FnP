@@ -150,19 +150,19 @@ const DUMMY_ASSIGNMENTS: Assignment[] = LIVE_ASSIGNMENTS.flatMap((live, applican
   })
 );
 
-const ASSIGNMENTS: Assignment[] = [...LIVE_ASSIGNMENTS, ...DUMMY_ASSIGNMENTS];
+/**
+ * Every assessment that ships with the demo, decorative cards included. Assessments the reviewer
+ * creates are kept separately (state/assignmentStore.ts), which is also where lookups that must
+ * see both — getAssignment, assignmentsForEmail, reviewableAssignments — live.
+ */
+export const BUILT_IN_ASSIGNMENTS: Assignment[] = [...LIVE_ASSIGNMENTS, ...DUMMY_ASSIGNMENTS];
 
-/** The assessments the reviewer works: the live ones. The queue page orders them by stage. */
-export const REVIEWABLE_ASSIGNMENTS: Assignment[] = LIVE_ASSIGNMENTS;
+/** The five demo assessments that actually run, and the only ones the demo seed touches. */
+export const DEMO_ASSIGNMENTS: Assignment[] = LIVE_ASSIGNMENTS;
 
-export function assignmentsForEmail(email: string): Assignment[] {
-  const normalized = email.trim().toLowerCase();
-  return ASSIGNMENTS.filter((a) => a.email === normalized);
-}
-
-export function getAssignment(assignmentId: string): Assignment | undefined {
-  return ASSIGNMENTS.find((a) => a.id === assignmentId);
-}
+/** The reviewer portal handles one department, so every assessment it creates belongs to it. */
+export const REVIEWER_DEPARTMENT_KEY = "banking";
+export const REVIEWER_DEPARTMENT: Department = DEPARTMENTS[REVIEWER_DEPARTMENT_KEY];
 
 export function departmentFor(assignment: Assignment): Department {
   return (

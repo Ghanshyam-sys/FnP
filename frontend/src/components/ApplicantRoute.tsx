@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import { useAssessment } from "../state/useAssessment";
-import { getAssignment } from "../data/assignments";
+import { getAssignment } from "../state/assignmentStore";
 import { routes } from "../routes";
 import AssessmentNotFound from "./AssessmentNotFound";
 

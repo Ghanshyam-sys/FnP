@@ -3564,6 +3564,9 @@ exports[`blank new application > authenticates and scores the same 1`] = `
   "applicant": {
     "date_of_birth": "1974-06-18",
     "full_name": "Johanna N. Amutenya",
+    "national_id_number": "",
+    "nationality": "",
+    "phone": "",
     "proposed_role": "Non-Executive Director",
     "town": "Windhoek",
   },

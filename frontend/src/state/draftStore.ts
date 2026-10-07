@@ -1,6 +1,7 @@
 import { APPLICATION_FORMS } from "../data/fixtures";
 import { QUESTIONS } from "../domain/questions";
 import { isEvidenceRequired } from "../domain/evidenceRules";
+import { DEMO_APPLICANT_DETAILS } from "../data/stubs/applicantDetails";
 import type { Assignment } from "../data/assignments";
 import type { ApplicationForm } from "../domain/types";
 
@@ -14,13 +15,23 @@ export function draftIdForStorageKey(key: string | null): string | null {
   return key?.startsWith(KEY_PREFIX) ? key.slice(KEY_PREFIX.length) : null;
 }
 
-/** Entity and position always come from the parent application, never from the draft. */
+/**
+ * Entity, position and the applicant's name always come from the parent application, never from
+ * the draft. The demo's synthetic details fill only keys a draft does not have yet — drafts saved
+ * before the applicant details section existed — so anything the filer typed, including an
+ * emptied field, is kept.
+ */
 function withParentDetails(form: ApplicationForm, assignment: Assignment): ApplicationForm {
   return {
     ...form,
     application_id: assignment.id,
     licensee: assignment.entity,
-    applicant: { ...form.applicant, proposed_role: assignment.position },
+    applicant: {
+      ...DEMO_APPLICANT_DETAILS[assignment.applicantId],
+      ...form.applicant,
+      full_name: assignment.applicantName,
+      proposed_role: assignment.position,
+    },
   };
 }
 
@@ -34,6 +45,10 @@ function blankForm(assignment: Assignment): ApplicationForm {
       proposed_role: assignment.position,
       date_of_birth: source?.applicant.date_of_birth ?? "",
       town: source?.applicant.town ?? "",
+      // A new application starts without these, so the filer enters them.
+      nationality: "",
+      national_id_number: "",
+      phone: "",
     },
     submitted_at: new Date().toISOString(),
     responses: QUESTIONS.map((q) => ({
@@ -110,4 +125,13 @@ export function resetDraft(assignment: Assignment): ApplicationForm {
   const fresh = blankForm(assignment);
   saveDraft(assignment.id, fresh);
   return fresh;
+}
+
+/** Deletes a draft outright. Used when the reviewer removes the assessment it belongs to. */
+export function removeDraft(assignmentId: string): void {
+  try {
+    localStorage.removeItem(storageKey(assignmentId));
+  } catch {
+    // ignored
+  }
 }

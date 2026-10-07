@@ -1,0 +1,37 @@
+/* ---- Applicant details: the form section's note and the read-only summary ---- */
+/* The form's field layout is the shared field grid (field-grid.css). */
+
+.applicant-note {
+  margin-top: 0.9rem;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.applicant-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.9rem 1.25rem;
+  margin: 0;
+  padding: 1rem 1.25rem 1.15rem;
+}
+
+.applicant-summary-grid dt {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.applicant-summary-grid dd {
+  margin: 0.15rem 0 0;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.applicant-missing {
+  color: var(--ink-3);
+  font-weight: 400;
+}

@@ -38,6 +38,18 @@ There are no passwords. Sign-in lasts for the browser tab.
 
 The seed is written once per browser. To reset the demo, clear the site's local storage.
 
+### Adding an applicant
+
+Sign in as `Admin` and choose **New assessment** in the queue. Enter the applicant's name and
+email, the entity, the position and the parent application reference. The applicant then signs
+in with that email, starts the assessment from a blank form and submits it as usual.
+
+Assessments created this way are stored in the browser like the rest of the demo, so they exist
+only in that browser. While the applicant has not submitted, the reviewer can remove one from
+its case page. The five built-in assessments cannot be removed. Built-in demo data is in
+`src/data/assignments.ts`; every lookup goes through `src/state/assignmentStore.ts`, which
+merges in the created ones.
+
 ## Layout
 
 ```
@@ -69,6 +81,10 @@ public/evidence/     The evidence PDFs the review pages link to
 - **A question's rules** (weight, polarity, knock-out, when evidence is required, N/A,
   supporting documents, which checks run) all live on its entry in `domain/questions.ts`.
   The document dropdown for each question is in `domain/evidenceOptions.ts`.
+- **An applicant detail** (a field in the "Applicant details" card): add the key to
+  `ApplicantDetails` in `domain/types.ts` and an entry to `APPLICANT_FIELDS` in
+  `domain/applicantDetails.ts`. The form, the review summary and the reviewer's card all render
+  from that list. Demo values for the five seeded applicants are in `data/stubs/applicantDetails.ts`.
 - **A new route**: add the pattern and a builder to `routes.ts`, register it in `App.tsx`
   behind `ApplicantRoute` or `ReviewerRoute`.
 - **A new case page**: start from `useCaseView(id)`, which returns the assessment, its form,

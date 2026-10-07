@@ -1,0 +1,24 @@
+/* ---- Not-submitted panel: the remove confirmation inside the empty state ---- */
+
+.remove-confirm {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: 0.6rem;
+  padding: 0.9rem 1.1rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--critical-wash);
+}
+
+.remove-confirm p {
+  color: var(--critical-ink);
+}
+
+.remove-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}

@@ -1,0 +1,28 @@
+/* ---- Field grid: a card section of labelled inputs, two columns, one on narrow screens ---- */
+
+/* Same inset as a question card, so a form section lines up with the cards around it. */
+.field-section {
+  padding: 1.1rem 1.25rem;
+}
+
+.field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem 1.25rem;
+}
+
+/* Values that come from a record read as fixed, not as an input awaiting text. */
+.field-grid .input[readonly] {
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+
+.field-grid .input[aria-invalid="true"] {
+  border-color: var(--critical);
+}
+
+@media (max-width: 720px) {
+  .field-grid {
+    grid-template-columns: 1fr;
+  }
+}
