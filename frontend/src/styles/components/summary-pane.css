@@ -288,6 +288,36 @@
   gap: 0.3rem;
 }
 
+/* The reviewer's decision and feedback, at the top of the summary. */
+.pane-decision-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.pane-decision-date {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.pane-decision-label {
+  margin: 0 0 0.2rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.pane-decision-feedback {
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+.pane-decision.is-pending .pane-prose {
+  color: var(--ink-3);
+}
+
 .pane-qsplit-none {
   color: var(--ink-3);
 }
@@ -479,8 +509,7 @@
     margin: 10pt 0 0;
   }
 
-  .pane-print-meta dt,
-  .pane-print-remarks span {
+  .pane-print-meta dt {
     display: block;
     font-size: 7pt;
     font-weight: 600;
@@ -496,16 +525,10 @@
     color: var(--ink);
   }
 
-  .pane-print-remarks {
-    margin: 9pt 0 0;
-    font-size: 9.5pt;
-    line-height: 1.5;
-    color: var(--ink-2);
-  }
-
   /* Browsers drop background colours when printing unless told otherwise: the verdict, severity
      and question chips are read by their colour as much as their words. */
   .pane .chip,
+  .pane-decision .chip,
   .pane .qid,
   .pane-condition-id,
   .pane-count,

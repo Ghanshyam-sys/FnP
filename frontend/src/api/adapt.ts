@@ -2,7 +2,6 @@
  * Turns backend responses into the shapes the screens render. Keeping the screens' own types means
  * the report, form and score components did not have to change to read live data.
  */
-import type { EditableApplicantField } from "../domain/applicantDetails";
 import type {
   ApplicantDetails,
   ApplicationForm,
@@ -28,20 +27,12 @@ export function evidenceRef(item: EvidenceItem): EvidenceRef {
 
 /**
  * The API's name for each applicant detail the screens show. The one place the two namings meet:
- * reading the form, saving a change and reading a refusal all go through it.
+ * reading the form goes through it.
  */
 export const APPLICANT_API_FIELD = {
   full_name: "fullName",
   proposed_role: "proposedRole",
-  date_of_birth: "dateOfBirth",
-  town: "town",
-  nationality: "nationality",
-  national_id_number: "nationalIdNumber",
-  phone: "phone",
 } as const satisfies Record<keyof ApplicantDetails, keyof ApplicantInfo>;
-
-/** The API's name for a detail the applicant can change. */
-export type EditableApplicantApiField = (typeof APPLICANT_API_FIELD)[EditableApplicantField];
 
 /** The applicant's declared details as the details card and summaries render them. */
 export function toApplicantDetails(form: Form): ApplicantDetails {

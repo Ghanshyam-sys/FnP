@@ -27,6 +27,8 @@ export class ApiError extends Error {
 export function refusalMessage(error: unknown, field: string): string {
   if (error instanceof ApiError) {
     if (error.status === 400) return error.field(field) ?? error.message;
+    // Not allowed: the server says why (a reviewer's own application, say).
+    if (error.status === 403) return error.message;
     if (error.status === 409) return "The case changed in the meantime and has been refreshed. Cancel, then review it again.";
   }
   return "Not saved. Check your connection and try again.";

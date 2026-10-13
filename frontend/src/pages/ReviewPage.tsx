@@ -1,9 +1,10 @@
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useSubmit } from "../api/queries";
 import { ApiError } from "../api/client";
 import { useApplication } from "../api/useApplication";
 import { Loading, LoadError } from "../components/LoadState";
 import FormAnswers from "../components/FormAnswers";
+import LeaveLockedPage from "../components/LeaveLockedPage";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
 import {
   AlertTriangleIcon,
@@ -12,8 +13,6 @@ import {
   CheckCircleIcon,
 } from "../components/icons";
 import { documentRuleBreaks, evidenceGaps } from "../domain/evidenceRules";
-import { incompleteApplicantFields } from "../domain/applicantDetails";
-import { ApplicantDetailsSummary } from "../components/ApplicantDetails";
 import { routes } from "../routes";
 
 export default function ReviewPage() {
@@ -28,14 +27,13 @@ export default function ReviewPage() {
 
   // A submitted assessment never shows this page — see the matching lock on the form. The backend
   // refuses a second submission regardless.
-  if (raw.locked) return <Navigate to={routes.applyStatus(assignment.id)} replace />;
+  if (raw.locked) return <LeaveLockedPage to={routes.applyStatus(assignment.id)} />;
 
   const { missingTotal, missingIds } = evidenceGaps(form);
-  const incompleteDetails = incompleteApplicantFields(form.applicant);
   const ruleBreaks = documentRuleBreaks(raw, catalogue.cvFileTypes);
   // Submitting needs every required detail and document, each within the question's settings; the
   // backend refuses it otherwise.
-  const blockers = incompleteDetails.length + missingTotal + ruleBreaks.length;
+  const blockers = missingTotal + ruleBreaks.length;
 
   return (
     <div className="page">
@@ -51,27 +49,7 @@ export default function ReviewPage() {
         <AssignmentMeta assignment={assignment} showDepartment />
       </PageHeader>
 
-      <ApplicantDetailsSummary
-        applicant={form.applicant}
-        email={assignment.applicantEmail}
-        sub="Check these before submitting. Go back to edit to change them."
-      />
-
       <FormAnswers form={form} />
-
-      {incompleteDetails.length > 0 && (
-        <div className="notice notice-warning">
-          <AlertTriangleIcon size={17} />
-          <div>
-            <strong>
-              {incompleteDetails.length} applicant detail{incompleteDetails.length > 1 ? "s" : ""}{" "}
-              {incompleteDetails.length > 1 ? "need" : "needs"} attention
-            </strong>{" "}
-            ({incompleteDetails.join(", ")}). Go back to edit and complete{" "}
-            {incompleteDetails.length > 1 ? "them" : "it"} before submitting.
-          </div>
-        </div>
-      )}
 
       {missingTotal > 0 ? (
         <div className="notice notice-warning">
@@ -135,7 +113,8 @@ export default function ReviewPage() {
           className="btn btn-primary"
           disabled={submit.isPending || blockers > 0}
           aria-describedby={blockers > 0 ? "submit-blocked" : undefined}
-          onClick={() => submit.mutate(undefined, { onSuccess: () => navigate(routes.applyStatus(assignment.id)) })}
+          // Replaces this page in the history: once submitted, Back should not return to it.
+          onClick={() => submit.mutate(undefined, { onSuccess: () => navigate(routes.applyStatus(assignment.id), { replace: true }) })}
         >
           {submit.isPending ? "Submitting…" : "Submit application"}
           <ArrowRightIcon size={15} />

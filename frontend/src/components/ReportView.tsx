@@ -11,6 +11,7 @@ import {
 import { displaySection } from "../domain/sectionLabels";
 import { reportQuestions } from "../api/adapt";
 import AnswerTag from "./AnswerTag";
+import ConcernCard, { type Concern } from "./ConcernCard";
 import type {
   AuthenticationOutcome,
   Band,
@@ -71,8 +72,78 @@ function OutcomeTag({ line }: { line: SectionScoreLine }) {
   );
 }
 
+/**
+ * One question's line in the breakdown. A line that carries risk, or that the AI engine wrote a
+ * concern about, opens to the question and that concern (as the assessment summary shows it).
+ */
+function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: Concern[] }) {
+  const [open, setOpen] = useState(false);
+  const expandable = l.riskFlag === 1 || concerns.length > 0;
+  const detailId = `risk-detail-${l.qid.replace(/[^a-z0-9]+/gi, "-")}`;
+  const rowClass = [l.knockOutTriggered && "row-knockout", open && "is-open"].filter(Boolean).join(" ");
+
+  return (
+    <>
+      <tr className={rowClass || undefined}>
+        <td>
+          <span className="qid">{l.qid}</span>
+        </td>
+        <td>
+          <AnswerTag answer={l.answer} />
+        </td>
+        <td className="num">{l.applicableWeight}</td>
+        <td>
+          {expandable ? (
+            <button
+              type="button"
+              className="outcome-toggle"
+              aria-expanded={open}
+              aria-controls={detailId}
+              title={open ? "Hide the details" : "Show why this question carries risk"}
+              onClick={() => setOpen((v) => !v)}
+            >
+              <OutcomeTag line={l} />
+              <span className="outcome-toggle-chevron">
+                <ChevronDownIcon size={13} />
+              </span>
+            </button>
+          ) : (
+            <OutcomeTag line={l} />
+          )}
+        </td>
+        <td className="num strong">{l.weightedRisk.toFixed(1)}</td>
+      </tr>
+      {expandable && open && (
+        <tr className="risk-detail-row" id={detailId}>
+          <td colSpan={5}>
+            <div className="risk-detail">
+              {l.question && <p className="risk-detail-question">{l.question}</p>}
+              {l.knockOutTriggered && (
+                <p className="risk-detail-note risk-detail-knockout">
+                  <AlertOctagonIcon size={14} />
+                  This is a knock-out question: the case is referred regardless of the weighted score.
+                </p>
+              )}
+              {concerns.length > 0 ? (
+                concerns.map((c) => <ConcernCard key={c.condition_id} concern={c} showSection={false} />)
+              ) : (
+                <p className="risk-detail-note">
+                  <InfoIcon size={14} />
+                  The answer "{l.answer}" counts as a risk for this question, adding{" "}
+                  {l.weightedRisk.toFixed(1)} to the score. The AI engine wrote no further concern
+                  about it.
+                </p>
+              )}
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
 /** A section's contribution, expanding to the questions that produced it. */
-function SectionRow({ total }: { total: SectionTotal }) {
+function SectionRow({ total, concerns }: { total: SectionTotal; concerns: Concern[] }) {
   const [open, setOpen] = useState(false);
   const bodyId = `risk-${total.section.replace(/[^a-z0-9]+/gi, "-")}`;
 
@@ -118,19 +189,7 @@ function SectionRow({ total }: { total: SectionTotal }) {
             </thead>
             <tbody>
               {total.lines.map((l) => (
-                <tr key={l.qid} className={l.knockOutTriggered ? "row-knockout" : undefined}>
-                  <td>
-                    <span className="qid">{l.qid}</span>
-                  </td>
-                  <td>
-                    <AnswerTag answer={l.answer} />
-                  </td>
-                  <td className="num">{l.applicableWeight}</td>
-                  <td>
-                    <OutcomeTag line={l} />
-                  </td>
-                  <td className="num strong">{l.weightedRisk.toFixed(1)}</td>
-                </tr>
+                <QuestionRow key={l.qid} line={l} concerns={concerns.filter((c) => c.qid === l.qid)} />
               ))}
             </tbody>
           </table>
@@ -143,9 +202,12 @@ function SectionRow({ total }: { total: SectionTotal }) {
 export default function ReportView({
   authentication,
   scoreResult,
+  concerns = [],
 }: {
   authentication: AuthenticationOutcome;
   scoreResult: ScoreResult;
+  /** The AI engine's concerns from its written assessment, shown under the questions they are about. */
+  concerns?: Concern[];
 }) {
   const cautions = reportQuestions(authentication).filter((q) => q.checks.some((c) => c.status === "caution"));
   const sections = sectionTotals(scoreResult);
@@ -211,13 +273,14 @@ export default function ReportView({
           <h2>Where the risk comes from</h2>
           <p className="card-sub">
             Weighted risk points contributed by each section, against that section's maximum.
-            Select a section to see the questions behind it.
+            Select a section to see the questions behind it, and a question's Risk outcome to see
+            why.
           </p>
         </header>
 
         <div className="sectionbars">
           {sections.map((s) => (
-            <SectionRow key={s.section} total={s} />
+            <SectionRow key={s.section} total={s} concerns={concerns} />
           ))}
 
           <div className="sbar-total">

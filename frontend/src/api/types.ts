@@ -41,6 +41,8 @@ export interface Assessment {
   updatedAt: string;
   /** Whether the person viewing it may remove it (only before submission). */
   removable: boolean;
+  /** The viewer's own application: a reviewer may not rule on or decide it. */
+  ownApplication: boolean;
   /** Started by the applicant themselves, rather than opened for them by the reviewer. */
   startedByApplicant: boolean;
   /** Whether the applicant has saved anything yet. */
@@ -177,15 +179,11 @@ export interface EvidenceItem {
   url: string;
 }
 
+/** Who the applicant is, from the assessment record. Personal details are not collected. */
 export interface ApplicantInfo {
   fullName: string;
   email: string;
   proposedRole: string;
-  dateOfBirth: string;
-  town: string;
-  nationality: string;
-  nationalIdNumber: string;
-  phone: string;
 }
 
 export interface Form {

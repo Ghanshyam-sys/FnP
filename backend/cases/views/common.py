@@ -20,6 +20,13 @@ def require_owner(user: User, assessment: Assessment) -> None:
         raise PermissionDenied("Only the applicant can change this assessment.")
 
 
+def require_not_own(user: User, assessment: Assessment) -> None:
+    """A reviewer never rules on or decides their own application (possible once an applicant is
+    given reviewer access at /admin/)."""
+    if assessment.applicant_id == user.id:
+        raise PermissionDenied("You cannot review your own application. Another reviewer must do it.")
+
+
 def lock(assessment: Assessment) -> Assessment:
     """The assessment's row, locked until the transaction ends. A stage check made on it holds
     while the change is written: a submit at the same moment waits, or has already moved the

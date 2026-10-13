@@ -40,10 +40,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Weights are the scoring engine's and are shown, not edited. */
-.input-num[readonly] {
-  background: var(--surface-sunken);
-  color: var(--ink-2);
+.input-num[aria-invalid="true"] {
+  border-color: var(--critical);
+}
+
+/* Whether a section's question weights add up to its fixed weight. */
+.weight-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: normal;
+  text-align: right;
+}
+
+.weight-check svg {
+  flex: none;
+}
+
+.weight-check.is-ok svg {
+  color: var(--good);
+}
+
+.weight-check.is-off {
+  font-weight: 600;
+  color: var(--critical);
 }
 
 .chipset {

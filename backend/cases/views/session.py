@@ -59,9 +59,17 @@ class SessionView(APIView):
         data = SignInSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         email = data.validated_data["email"]
+        # A new email becomes an applicant. An existing account signs in with the role it has, which
+        # an administrator may have changed at /admin/ (applicant to reviewer or back); "admin" is
+        # always the reviewer.
         role = Role.REVIEWER if email == REVIEWER_USERNAME else Role.APPLICANT
         user = User.objects.get_or_create_for_email(email, role)
-        if not user.is_active or user.role != role:
+        refused = not user.is_active or (
+            user.role != Role.REVIEWER if email == REVIEWER_USERNAME
+            # Staff accounts sign in to the admin site with their password, never here without one.
+            else user.is_staff
+        )
+        if refused:
             return Response({"detail": "This account cannot sign in."}, status=status.HTTP_403_FORBIDDEN)
         # Rotates the session key, so a session id planted before sign-in is worthless after it.
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")

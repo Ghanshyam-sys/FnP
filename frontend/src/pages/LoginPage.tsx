@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { keys, useSignIn } from "../api/queries";
+import { keys, useSession, useSignIn, useSignOut } from "../api/queries";
 import { ApiError } from "../api/client";
 import { ArrowRightIcon, ShieldCheckIcon } from "../components/icons";
 import { routes } from "../routes";
@@ -19,8 +19,25 @@ export default function LoginPage() {
     client.getQueryData(keys.sessionEnded) ? "Your session ended. Sign in again to continue." : ""
   );
 
+  // Reaching this page while signed in (pressing Back from the dashboard, say) ends the session, so
+  // it is a real sign-in page and Forward cannot return into the app. It is decided once, as soon
+  // as who is signed in is known: signing in here afterwards must not sign straight back out.
+  const session = useSession();
+  const signOut = useSignOut();
+  const [signedOut, setSignedOut] = useState(false);
+  const arrivalChecked = useRef(false);
+  useEffect(() => {
+    if (arrivalChecked.current || session.isPending) return;
+    arrivalChecked.current = true;
+    if (session.data) signOut.mutate(undefined, { onSettled: () => setSignedOut(true) });
+  }, [session.isPending, session.data, signOut]);
+  // Signing in waits for that check and its sign-out to finish, so a late sign-out cannot end the
+  // new session.
+  const busy = signIn.isPending || signOut.isPending || session.isPending;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     const value = emailInput.trim();
     const isReviewer = value.toLowerCase() === REVIEWER_USERNAME;
     if (!isReviewer && !EMAIL_PATTERN.test(value)) {
@@ -68,8 +85,13 @@ export default function LoginPage() {
               autoFocus
             />
             {error && <p className="field-error">{error}</p>}
+            {signedOut && !error && (
+              <p className="field-hint" role="status">
+                You have been signed out. Sign in again to continue.
+              </p>
+            )}
           </div>
-          <button className="btn btn-primary btn-block" type="submit" disabled={signIn.isPending}>
+          <button className="btn btn-primary btn-block" type="submit" disabled={busy}>
             Continue
             <ArrowRightIcon size={15} />
           </button>

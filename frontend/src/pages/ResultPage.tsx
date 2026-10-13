@@ -8,7 +8,8 @@ import OutcomeTabs from "../components/OutcomeTabs";
 import { Loading, LoadError } from "../components/LoadState";
 import AssessmentSummaryPane from "../components/AssessmentSummaryPane";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
-import { ArrowLeftIcon, FileTextIcon } from "../components/icons";
+import EmptyState from "../components/EmptyState";
+import { AlertTriangleIcon, ArrowLeftIcon, CheckCircleIcon, FileTextIcon, InfoIcon } from "../components/icons";
 
 export default function ResultPage() {
   const { id = "" } = useParams();
@@ -19,10 +20,12 @@ export default function ResultPage() {
   if (view.status === "loading") return <Loading />;
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
   const { assessment: assignment, data, outcome, score: scoreResult } = view;
+  const decision = data.decision;
 
-  // Scoring only exists once authentication has cleared and the engine has finished.
-  if (!isScored(data.stage) || !scoreResult || !outcome) {
-    // A cached copy can predate the score; only a fresh one decides that scoring is not ready.
+  // Open once the case is with the reviewer for a decision, or decided. It may have no score: the
+  // AI engine scores only a submission in which every answer was authenticated.
+  if (!isScored(data.stage) || !outcome) {
+    // A cached copy can predate the decision stage; only a fresh one decides it is not ready.
     if (view.refreshing) return <Loading />;
     return <Navigate to={routes.applyStatus(id)} replace />;
   }
@@ -30,11 +33,11 @@ export default function ResultPage() {
   return (
     <div className="page">
       <PageHeader
-        title="Scoring result"
+        title={scoreResult ? "Scoring result" : "Result"}
         sub={
           <>
-            Weighted against authenticated answers only. {assignment.department.name} ·{" "}
-            {assignment.reference}
+            {scoreResult ? "Weighted against authenticated answers only. " : ""}
+            {assignment.department.name} · {assignment.reference}
           </>
         }
       >
@@ -43,7 +46,40 @@ export default function ResultPage() {
 
       <OutcomeTabs assessmentId={id} active="scoring" scoringReady />
 
-      <ReportView authentication={outcome} scoreResult={scoreResult} />
+      {decision && (
+        <div className={`notice notice-${decision.verdict === "accepted" ? "good" : "critical"}`}>
+          {decision.verdict === "accepted" ? <CheckCircleIcon size={17} /> : <AlertTriangleIcon size={17} />}
+          <div>
+            <strong>
+              {decision.verdict === "accepted"
+                ? "The reviewer accepted this assessment."
+                : "The reviewer rejected this assessment."}
+            </strong>{" "}
+            Feedback: {decision.remarks}
+          </div>
+        </div>
+      )}
+
+      {data.score?.source === "backend_override" && (
+        <div className="notice notice-info">
+          <InfoIcon size={17} />
+          <div>
+            <strong>Scored by the app's own rules.</strong> This score was calculated by the app, not
+            the AI engine, before only AI-engine scores were used. It is shown because the decision
+            was made on it.
+          </div>
+        </div>
+      )}
+
+      {scoreResult ? (
+        <ReportView authentication={outcome} scoreResult={scoreResult} concerns={data.assessment?.concerns} />
+      ) : (
+        <EmptyState icon={<InfoIcon size={22} />} title="No risk score">
+          The AI engine scores only a submission in which every answer was authenticated, so this
+          assessment has no risk score. {decision ? "The reviewer decided" : "The reviewer decides"} on
+          the authentication report; you can read it on the Authentication tab.
+        </EmptyState>
+      )}
 
       <footer className="actionbar">
         <button className="btn btn-ghost" onClick={() => navigate(routes.assessments())}>
@@ -60,7 +96,7 @@ export default function ResultPage() {
         <AssessmentSummaryPane
           assessment={data.assessment}
           assignment={assignment}
-          decision={data.decision}
+          decision={decision}
           onClose={() => setSummaryOpen(false)}
         />
       )}

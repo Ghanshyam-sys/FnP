@@ -1,14 +1,13 @@
 import datetime
 import json
 from contextlib import contextmanager
-from decimal import Decimal
 
 import pytest
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.utils import timezone
 
-from cases import adapt, catalogue, scoring
-from cases.models import AuditEvent, EvidenceFile, Stage, Submission
+from cases import adapt, catalogue
+from cases.models import AuditEvent, EvidenceFile, Score, Stage, Submission
 from cases.tests import factories as make
 from conftest import Api, engine_fixture
 from engine import client
@@ -78,18 +77,13 @@ REQUIRED_DOCUMENTS = (
 
 @pytest.fixture
 def case(reviewer, applicant):
-    """An assessment opened by the reviewer and completed by the applicant: details filled in, A1
-    answered Yes, and every required document attached, the CV included."""
+    """An assessment opened by the reviewer and completed by the applicant: A1 answered Yes and
+    every required document attached, the CV included."""
     aid = reviewer.post("/api/assessments", {
         "applicantName": "Maria L. van Wyk", "email": "m.vanwyk@example.na", "entity": "Some Bank",
         "position": "Executive Director", "reference": "BL-2026-0398", "initiatedOn": "2026-08-25", "department": "banking",
     }).json()["id"]
-    applicant.patch(f"/api/assessments/{aid}/form", {
-        "answers": {"A1": "Yes"},
-        "applicant": {
-            "dateOfBirth": "1972-01-27", "town": "Windhoek", "nationality": "Namibian", "nationalIdNumber": "72012700462",
-        },
-    })
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {"A1": "Yes"}})
     for qid, code in REQUIRED_DOCUMENTS:
         attach(applicant, aid, qid, code)
     return aid
@@ -108,39 +102,19 @@ def stage(aid):
     return Assessment.objects.get(public_id=aid).stage
 
 
-# ---- Scoring parity ---------------------------------------------------------------------------
-
-def test_scoring_here_matches_the_engines_score_for_the_same_answers():
-    engine_score = engine_fixture("score-APP001-clear.json")
-    answers = {q["qid"]: q["answer"] for q in engine_score["questions"]}
-    ours = scoring.score(catalogue.questions(catalogue.active_version().pk), answers)
-    summary = engine_score["score_summary"]
-    assert ours["risk_score"] == Decimal(str(summary["risk_score"])).quantize(Decimal("0.001"))
-    assert ours["band"] == summary["risk_band"]
-    assert ours["recommendation"] == summary["recommendation"]
-    assert ours["knock_out"] is summary["knock_out_triggered"]
-
-
-def test_a_knock_out_answer_forces_rejection():
-    questions = catalogue.questions(catalogue.active_version().pk)
-    result = scoring.score(questions, {"PC1": "Yes"})
-    assert result["knock_out"] is True
-    assert result["recommendation"].startswith("Recommend rejection")
-
-
 # ---- Submitting -------------------------------------------------------------------------------
 
-def test_a_first_submission_needs_every_required_detail_and_document(monkeypatch, applicant, case):
+def test_a_first_submission_needs_every_required_document_but_no_personal_details(monkeypatch, applicant, case):
     fake = FakeEngine(monkeypatch)
-    applicant.patch(f"/api/assessments/{case}/form", {"applicant": {"nationality": ""}})
+    # Personal details are not collected, so none hold a submission back.
     cv = EvidenceFile.objects.get(assessment__public_id=case, qid="CV")
     assert applicant.delete(f"/api/assessments/{case}/evidence/{cv.public_id}").status_code == 204
     response = applicant.post(f"/api/assessments/{case}/submit")
     assert response.status_code == 409
-    assert response.json()["detail"] == "Complete the form before submitting. Still missing: Nationality; documents for CV."
+    assert response.json()["detail"] == "Complete the form before submitting. Still missing: documents for CV."
     assert stage(case) == Stage.NOT_SUBMITTED and fake.sent == [] and not Submission.objects.exists()
     # Answering Yes where a document is needed only if Yes asks for that document too.
-    applicant.patch(f"/api/assessments/{case}/form", {"applicant": {"nationality": "Namibian"}, "answers": {"FC5": "Yes"}})
+    applicant.patch(f"/api/assessments/{case}/form", {"answers": {"FC5": "Yes"}})
     attach(applicant, case, "CV", "CURRICULUM_VITAE")
     assert "documents for FC5." in applicant.post(f"/api/assessments/{case}/submit").json()["detail"]
     attach(applicant, case, "FC5", "BANK_REFERENCE_LETTER")
@@ -395,7 +369,7 @@ def test_a_return_with_no_answer_at_fault_goes_straight_to_the_decision(monkeypa
     fake.finish()
     body = applicant.get(f"/api/assessments/{case}/case").json()
     assert body["stage"] == "DECISION_PENDING" and body["flags"] == []
-    assert body["score"]["source"] == "backend_override"
+    assert body["score"] is None and not Score.objects.exists()  # only the engine scores
 
 
 def test_a_rejected_document_follows_the_settings_the_case_was_submitted_under(reviewer, applicant, case, flagged):
@@ -416,10 +390,10 @@ def test_the_reviewer_rules_only_on_flagged_answers(reviewer, applicant, case, f
     assert reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "accepted"}).status_code == 400
 
 
-def test_accepting_every_flag_scores_the_case_here(reviewer, case, flagged):
+def test_accepting_every_flag_sends_the_case_to_the_decision_without_a_score(reviewer, case, flagged):
     body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "accepted", "comment": "Expunged."}).json()
     assert body["stage"] == "DECISION_PENDING"
-    assert body["score"]["source"] == "backend_override"
+    assert body["score"] is None and not Score.objects.exists()  # the engine scores only a CLEAR run
     assert body["rulings"]["PC1"]["verdict"] == "accepted"
     assert body["assessment"] is None  # the engine writes one only for a clear run
 
@@ -742,3 +716,24 @@ def test_a_highlight_stream_is_released_even_if_never_read():
     body.close()  # as Django does when the browser leaves before the first chunk
     body.close()
     assert stream.exited == 1
+
+
+def test_a_score_the_app_calculated_itself_shows_only_once_the_case_was_decided_on_it(reviewer):
+    from decimal import Decimal
+
+    from cases.models import Decision, QuestionnaireVersion
+
+    assessment = make.assessment(stage=Stage.DECISION_PENDING)
+    submission = Submission.objects.create(
+        assessment=assessment, attempt_no=1, version=QuestionnaireVersion.objects.get(is_active=True), payload={},
+    )
+    Score.objects.create(
+        submission=submission, source="backend_override", risk_score=Decimal("32"), normalised=Decimal("0.32"),
+        band="Elevated", knock_out=False, recommendation="Refer", lines=[],
+    )
+    url = f"/api/assessments/{assessment.public_id}/case"
+    assert reviewer.get(url).json()["score"] is None
+    Decision.objects.create(assessment=assessment, verdict="accepted", remarks="On the old score.", reviewer=make.reviewer())
+    type(assessment).objects.filter(pk=assessment.pk).update(stage=Stage.ACCEPTED)
+    score = reviewer.get(url).json()["score"]
+    assert score["source"] == "backend_override" and score["band"] == "Elevated"

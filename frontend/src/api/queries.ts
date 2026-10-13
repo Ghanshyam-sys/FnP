@@ -114,7 +114,10 @@ export function useQuestionnaire() {
   return useQuery({ queryKey: keys.questionnaire, queryFn: () => api<QuestionnaireSettings>("GET", "/questionnaire") });
 }
 
-export type QuestionSettings = Record<string, { allowedAnswers: Answer[]; fileTypes: string[]; maxFiles: number }>;
+export type QuestionSettings = Record<
+  string,
+  { allowedAnswers: Answer[]; fileTypes: string[]; maxFiles: number; weight?: number }
+>;
 
 /** Publishes settings edited from `version`; refused (409) if someone has published since. */
 export function useSaveQuestionnaire() {
@@ -211,7 +214,6 @@ export function useForm(id: string) {
 
 export interface FormChanges {
   answers?: Record<string, Answer>;
-  applicant?: Partial<Record<"dateOfBirth" | "town" | "nationality" | "nationalIdNumber" | "phone", string>>;
 }
 
 /** A save the server refused, and the change it carried. */
@@ -221,7 +223,7 @@ export interface SaveRefusal {
 }
 
 /**
- * Saves answers and details. The change shows at once. Several saves can be waiting (one per field
+ * Saves answers. The change shows at once. Several saves can be waiting (one per field
  * left); they are sent one at a time, in the order they were made, so the server applies them in
  * that order and the last to finish carries the server's copy after all of them. Only that one
  * settles the form: with the server's copy if it saved, or by reloading it if it was refused.
@@ -246,7 +248,6 @@ export function useSaveForm(id: string) {
       client.setQueryData<Form>(keys.form(id), (form) =>
         form && {
           ...form,
-          applicant: { ...form.applicant, ...changes.applicant },
           answers: form.answers.map((a) => (changes.answers?.[a.qid] ? { ...a, value: changes.answers[a.qid] } : a)),
         }
       );

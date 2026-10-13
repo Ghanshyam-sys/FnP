@@ -14,6 +14,9 @@ import { AlertTriangleIcon, ArrowRightIcon, MailIcon, PencilIcon, PlusIcon } fro
 
 type ModalStep = "choose" | "confirm" | "remove";
 
+/** How many applications an applicant may have started and not submitted (the server's limit). */
+const MAX_OPEN_DRAFTS = 3;
+
 /**
  * Where the second choice goes, given where the case actually stands. Only an unsubmitted form
  * is still editable: once it is with the reviewer, dropping the filer back into data collection
@@ -49,6 +52,8 @@ export default function AssessmentsPage() {
   const [selected, setSelected] = useState<Assessment | null>(null);
   const removal = useRemoveAssessment(selected?.id ?? "");
   const [step, setStep] = useState<ModalStep>("choose");
+  // "Start a new application" first offers the applications not yet submitted, if there are any.
+  const [choosingStart, setChoosingStart] = useState(false);
 
   if (!user) return <Navigate to={routes.login()} replace />;
   // The reviewer's list of assessments is the queue.
@@ -83,8 +88,22 @@ export default function AssessmentsPage() {
 
   const confirmRemove = () => removal.mutate(undefined, { onSuccess: close });
 
+  // Applications not yet submitted, which "Start a new application" offers to continue. Only those
+  // the applicant started count towards the limit; one a department opened for them does not.
+  const drafts = assignments.filter((a) => a.stage === "NOT_SUBMITTED");
+  const ownDrafts = drafts.filter((a) => a.startedByApplicant).length;
+  const atLimit = ownDrafts >= MAX_OPEN_DRAFTS;
+
+  const startNew = () => {
+    if (drafts.length === 0) {
+      navigate(routes.newApplication());
+      return;
+    }
+    setChoosingStart(true);
+  };
+
   const startApplication = (
-    <button className="btn btn-primary" onClick={() => navigate(routes.newApplication())}>
+    <button className="btn btn-primary" onClick={startNew}>
       <PlusIcon size={15} />
       Start a new application
     </button>
@@ -160,6 +179,78 @@ export default function AssessmentsPage() {
             );
           })}
         </div>
+      )}
+
+      {choosingStart && (
+        <Modal labelledBy="start-modal-title" portal={false} onClose={() => setChoosingStart(false)}>
+          <h2 id="start-modal-title">Start a new application</h2>
+          <p className="modal-sub">
+            {drafts.length === 1
+              ? "You have an application that is not submitted yet. Continue it, or start another."
+              : `You have ${drafts.length} applications that are not submitted yet. Continue one, or start another.`}
+          </p>
+
+          {drafts.length === 1 && (
+            <dl className="modal-detail">
+              <div>
+                <dt>Department</dt>
+                <dd>{drafts[0].department.name}</dd>
+              </div>
+              <div>
+                <dt>Entity</dt>
+                <dd>{drafts[0].entity}</dd>
+              </div>
+              <div>
+                <dt>Position applied for</dt>
+                <dd>{drafts[0].position}</dd>
+              </div>
+            </dl>
+          )}
+
+          {drafts.map((draft) => (
+            <button className="choice" key={draft.id} onClick={() => navigate(routes.apply(draft.id))}>
+              <span className="choice-icon">
+                <PencilIcon size={17} />
+              </span>
+              <span className="choice-text">
+                <span className="choice-title">Edit previous draft</span>
+                <span className="choice-sub">
+                  {drafts.length === 1
+                    ? draft.hasDraft
+                      ? "Continue where you left off"
+                      : "Not started yet — open the form"
+                    : `${draft.department.name} · ${draft.entity} · ${draft.reference}`}
+                </span>
+              </span>
+              <ArrowRightIcon size={15} className="choice-arrow" />
+            </button>
+          ))}
+
+          <button
+            className={`choice${atLimit ? " is-disabled" : ""}`}
+            disabled={atLimit}
+            onClick={() => navigate(routes.newApplication())}
+          >
+            <span className="choice-icon">
+              <PlusIcon size={17} />
+            </span>
+            <span className="choice-text">
+              <span className="choice-title">Start a new application</span>
+              <span className="choice-sub">
+                {atLimit
+                  ? `You have ${MAX_OPEN_DRAFTS} applications not submitted yet. Submit or remove one first.`
+                  : "Open a new form for another application"}
+              </span>
+            </span>
+            <ArrowRightIcon size={15} className="choice-arrow" />
+          </button>
+
+          <div className="modal-actions">
+            <button className="btn btn-ghost" onClick={() => setChoosingStart(false)}>
+              Cancel
+            </button>
+          </div>
+        </Modal>
       )}
 
       {selected && resume && (

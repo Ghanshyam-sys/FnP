@@ -240,37 +240,35 @@ def test_a_new_form_starts_with_no_and_the_name_from_the_record(applicant, opene
     assert form["locked"] is False
     assert applicant.get(f"/api/assessments/{opened}").json()["hasDraft"] is False
     assert form["applicant"]["fullName"] == "Anna M. Nghipandulwa"
-    assert form["applicant"]["nationality"] == ""
+    # Personal details are not collected, so none are part of the form.
+    assert set(form["applicant"]) == {"fullName", "email", "proposedRole"}
     assert {a["value"] for a in form["answers"]} == {"No"}
     a1 = next(a for a in form["answers"] if a["qid"] == "A1")
     assert a1["evidenceRequired"] is True  # A1 always needs its document
 
 
-def test_answers_and_details_save_together(applicant, opened):
-    response = applicant.patch(f"/api/assessments/{opened}/form", {
-        "answers": {"A4": "Yes"},
-        "applicant": {"dateOfBirth": "1970-05-04", "nationalIdNumber": "70050400111", "town": " Windhoek "},
+def test_answers_save_and_personal_details_are_refused(applicant, opened):
+    refused = applicant.patch(f"/api/assessments/{opened}/form", {
+        "answers": {"A4": "Yes"}, "applicant": {"nationalIdNumber": "70050400111"},
     })
+    assert refused.status_code == 400 and "applicant" in refused.json()
+    assert not ApplicantProfile.objects.exists()
+    response = applicant.patch(f"/api/assessments/{opened}/form", {"answers": {"A4": "Yes"}})
     assert response.status_code == 200
     body = response.json()
     assert next(a for a in body["answers"] if a["qid"] == "A4") == {
         "qid": "A4", "value": "Yes", "evidenceRequired": True, "evidenceRule": "if_yes",
         "allowedAnswers": ["Yes", "No"], "fileTypes": ["pdf"], "maxFiles": 1,
     }
-    assert body["applicant"]["town"] == "Windhoek"
-    assert ApplicantProfile.objects.get().national_id_number == "70050400111"
     assert applicant.get(f"/api/assessments/{opened}").json()["hasDraft"] is True
 
 
 def test_an_invalid_field_saves_nothing_and_names_every_problem(applicant, opened):
     response = applicant.patch(f"/api/assessments/{opened}/form", {
         "answers": {"A1": "Maybe", "ZZ": "Yes", "A4": "Yes"},
-        "applicant": {"dateOfBirth": "2999-01-01", "phone": "call me", "fullName": "Someone Else"},
     })
     assert response.status_code == 400
-    assert set(response.json()) == {
-        "answers.A1", "answers.ZZ", "applicant.dateOfBirth", "applicant.phone", "applicant.fullName",
-    }
+    assert set(response.json()) == {"answers.A1", "answers.ZZ"}
     form = applicant.get(f"/api/assessments/{opened}/form").json()
     assert next(a for a in form["answers"] if a["qid"] == "A4")["value"] == "No"
 
@@ -293,11 +291,11 @@ def test_a_submitted_form_is_locked(applicant, opened):
 
 
 def test_reset_starts_the_form_over(applicant, opened):
-    applicant.patch(f"/api/assessments/{opened}/form", {"answers": {"A4": "Yes"}, "applicant": {"town": "Rundu"}})
+    applicant.patch(f"/api/assessments/{opened}/form", {"answers": {"A4": "Yes"}})
     applicant.post(f"/api/assessments/{opened}/evidence", {"file": pdf(), "qid": "A1", "optionCode": "NATIONAL_ID"}, multipart=True)
     form = applicant.post(f"/api/assessments/{opened}/form/reset").json()
     assert {a["value"] for a in form["answers"]} == {"No"}
-    assert form["applicant"]["town"] == "" and form["evidence"] == []
+    assert form["evidence"] == []
 
 
 # ---- Evidence ---------------------------------------------------------------------------------
@@ -533,6 +531,48 @@ def test_question_settings_are_validated_and_reviewer_only(reviewer, applicant):
     assert applicant.get("/api/questionnaire").status_code == 403
 
 
+def _settings(version: dict, qid: str, **change) -> dict:
+    q = next(q for q in version["questions"] if q["qid"] == qid)
+    return {"allowedAnswers": q["allowedAnswers"], "fileTypes": q["fileTypes"], "maxFiles": q["maxFiles"], **change}
+
+
+def test_question_weights_can_be_shared_differently_within_a_fixed_section_weight(reviewer):
+    current = reviewer.get("/api/questionnaire").json()["current"]
+    response = reviewer.put("/api/questionnaire", {"version": "v1", "questions": {
+        "CoI2": _settings(current, "CoI2", weight=7.5), "CoI6": _settings(current, "CoI6", weight=6.5),
+    }})
+    assert response.status_code == 200
+    body = response.json()
+    weights = {q["qid"]: q["weight"] for q in body["questions"]}
+    assert body["version"] == "v2" and weights["CoI2"] == 7.5 and weights["CoI6"] == 6.5
+    # The section weights, and so the total, are unchanged.
+    assert body["sections"] == current["sections"]
+    assert sum(weights.values()) == sum(s["weight"] for s in current["sections"])
+    event = AuditEvent.objects.get(action="questionnaire.publish")
+    assert event.metadata == {"changed": ["CoI2", "CoI6"]}
+
+
+def test_question_weights_that_do_not_add_up_to_the_section_weight_are_refused(reviewer):
+    current = reviewer.get("/api/questionnaire").json()["current"]
+    over = reviewer.put("/api/questionnaire", {"version": "v1", "questions": {"CoI2": _settings(current, "CoI2", weight=6)}})
+    assert over.status_code == 400
+    message = over.json()["sections"]["Conflict of interest. (Entity/Enterprise based)"]
+    assert "add up to 15" in message and "section weight, 14" in message
+    negative = reviewer.put("/api/questionnaire", {"version": "v1", "questions": {"CoI2": _settings(current, "CoI2", weight=-1)}})
+    assert negative.status_code == 400 and "CoI2" in negative.json()
+    assert QuestionnaireVersion.objects.count() == 1
+
+
 def test_initiated_on_today_is_allowed(reviewer):
     today = datetime.date.today().isoformat()
     assert reviewer.post("/api/assessments", {**NEW, "initiatedOn": today}).status_code == 201
+
+
+def test_a_section_without_questions_is_reported_not_a_server_error(reviewer):
+    from cases.models import QuestionSection
+
+    current = QuestionnaireVersion.objects.get(is_active=True)
+    QuestionSection.objects.create(version=current, name="Empty", weight=5, position=99)
+    response = reviewer.put("/api/questionnaire", {"version": current.label, "questions": {}})
+    assert response.status_code == 400
+    assert "add up to 0" in response.json()["sections"]["Empty"]

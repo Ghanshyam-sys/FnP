@@ -4,6 +4,7 @@ import { useAssessment, useSession, useSignOut } from "../api/queries";
 import { CheckIcon, LogOutIcon, ShieldCheckIcon } from "./icons";
 import { parseApplyPath, routes } from "../routes";
 import type { ApplyStep } from "../routes";
+import { useTrackHistoryEntry } from "../state/backNavigation";
 
 const STEPS = ["Data collection", "Review", "Authentication", "Result"] as const;
 
@@ -17,6 +18,8 @@ const STEP_INDEX: Record<ApplyStep, number> = {
 
 export default function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
+  // Lets a page tell a Back press from a reload or Forward (see state/backNavigation).
+  useTrackHistoryEntry();
   const navigate = useNavigate();
   const { data: user } = useSession();
   const signOut = useSignOut();

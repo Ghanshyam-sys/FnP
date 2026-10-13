@@ -49,8 +49,14 @@ none). Create one, then open http://127.0.0.1:8001/admin/:
 ```
 
 Staff can browse every record, but case data and the audit trail are read-only (`cases/admin.py`):
-the only changes possible are a user's active status (recorded in the audit trail) and department
-names. National ID numbers are never shown. Outside development, run `manage.py collectstatic` and
+the only changes possible are a user's active status, a user's role, and department names. National
+ID numbers are never shown.
+
+**Giving or removing reviewer (admin) access:** under Users, open the user and set **Role** to
+Reviewer or Applicant, or tick several users and pick an action from the list. Each change is
+recorded in the audit trail, and the user is signed out, so their next sign-in opens the app for the
+new role. Your own account, staff accounts and the built-in `admin` account keep their role. A
+reviewer can never rule on or decide their own application. Outside development, run `manage.py collectstatic` and
 serve `staticfiles/` from the reverse proxy for the admin's stylesheets.
 
 The reviewer's own **Admin panel** in the app (`/reviewer/admin`: user and assessment counts, the

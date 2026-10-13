@@ -67,20 +67,10 @@ export interface CvVerificationResult {
   flagCount: number;
 }
 
-/**
- * Who the applicant is, as declared on the form. The first four keys have always been in the
- * submission payload; the last three were added with the applicant details section and are
- * optional so drafts saved before it still load.
- */
+/** Who the applicant is, from the assessment record. Personal details are not collected. */
 export interface ApplicantDetails {
   full_name: string;
   proposed_role: string;
-  /** ISO date, YYYY-MM-DD. */
-  date_of_birth: string;
-  town: string;
-  nationality?: string;
-  national_id_number?: string;
-  phone?: string;
 }
 
 export interface ApplicationForm {

@@ -38,6 +38,104 @@ button.sbar-row {
   font-size: var(--fs-md);
 }
 
+/* A question's Risk outcome opens to why: the question and the AI engine's concern about it. */
+.outcome-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.1rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.outcome-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.outcome-toggle-chevron {
+  display: inline-flex;
+  color: var(--ink-3);
+  transition: transform 0.18s ease;
+}
+
+.outcome-toggle:hover .outcome-toggle-chevron {
+  color: var(--ink);
+}
+
+.outcome-toggle[aria-expanded="true"] .outcome-toggle-chevron {
+  transform: rotate(180deg);
+}
+
+/* The opened row and its detail read as one: no rule between them. */
+.data-table tr.is-open td {
+  border-bottom-color: transparent;
+}
+
+.data-table tbody tr.risk-detail-row:hover {
+  background: none;
+}
+
+.risk-detail-row > td {
+  padding-top: 0;
+}
+
+/* The table may scroll sideways on a phone; the detail stays within the visible width (the
+   container's, less the cell's padding) and in view while it does, so its text wraps on screen. */
+.sbar-detail {
+  container-type: inline-size;
+}
+
+.risk-detail {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  max-width: calc(100cqi - 2.5rem);
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.risk-detail-question {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.risk-detail-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.risk-detail-note svg {
+  flex: none;
+  margin-top: 0.2rem;
+  color: var(--ink-3);
+}
+
+.risk-detail-knockout,
+.risk-detail-knockout svg {
+  color: var(--critical);
+}
+
+/* The concern card sits inside the detail box, which already frames it. */
+.risk-detail .pane-concern + .pane-concern {
+  margin-top: 0;
+}
+
 .sbar-total {
   display: flex;
   align-items: baseline;

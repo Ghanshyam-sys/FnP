@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models import Max
 from rest_framework import serializers
@@ -75,6 +77,24 @@ class QuestionSettingSerializer(serializers.Serializer):
     allowedAnswers = serializers.ListField(child=serializers.ChoiceField(choices=Answer.values), min_length=1)
     fileTypes = serializers.ListField(child=serializers.ChoiceField(choices=CONFIGURABLE_FILE_TYPES), min_length=1)
     maxFiles = serializers.ChoiceField(choices=[1, 2])
+    # Optional: left out, the question keeps its weight.
+    weight = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"), required=False)
+
+
+def _section_weight_errors(sections, questions: dict, weights: dict) -> dict:
+    """Each section's weight is fixed: its questions' weights, as edited, must add up to it
+    exactly, so the sections keep their share of the score and the total stays the same."""
+    errors = {}
+    for section in sections:
+        total = sum(
+            (weights.get(q.qid, q.weight) for q in questions.values() if q.section_id == section.pk), Decimal(0)
+        )
+        if total != section.weight:
+            errors[section.name] = (
+                f"The question weights add up to {total.normalize():f}; they must add up to the "
+                f"section weight, {section.weight.normalize():f}."
+            )
+    return errors
 
 
 _STALE = "These settings were changed by someone else. Reload them and make your changes again."
@@ -82,8 +102,9 @@ _STALE = "These settings were changed by someone else. Reload them and make your
 
 class QuestionnaireView(APIView):
     """Reviewer: the question settings in force, and the published defaults to restore. PUT
-    publishes a new version with changed answer options, formats and file counts; weights are the
-    engine's and stay read-only. PUT names the version it was edited from, so a reviewer who
+    publishes a new version with changed answer options, formats, file counts and question weights.
+    Section weights are fixed: a section's question weights must add up to its weight, so only how
+    a section's weight is shared between its questions changes. PUT names the version it was edited from, so a reviewer who
     edited settings another reviewer has since replaced is told, rather than undoing that change."""
 
     permission_classes = [IsReviewer]
@@ -121,10 +142,17 @@ class QuestionnaireView(APIView):
                     "file_types": [t for t in CONFIGURABLE_FILE_TYPES if t in v["fileTypes"]],
                     "max_files": v["maxFiles"],
                 }
+                if "weight" in v:
+                    changes[qid]["weight"] = v["weight"]
             else:
                 errors[qid] = data.errors
         if errors:
             raise ValidationError(errors)
+        current_sections = list(QuestionSection.objects.filter(version=current).order_by("position"))
+        weights = {qid: c["weight"] for qid, c in changes.items() if "weight" in c}
+        section_errors = _section_weight_errors(current_sections, questions, weights)
+        if section_errors:
+            raise ValidationError({"sections": section_errors})
 
         unchanged = all(
             getattr(questions[qid], field) == value for qid, c in changes.items() for field, value in c.items()
@@ -142,12 +170,12 @@ class QuestionnaireView(APIView):
             new = QuestionnaireVersion.objects.create(label=f"v{next_number}", is_active=False)
             sections = {
                 s.pk: QuestionSection.objects.create(version=new, name=s.name, weight=s.weight, position=s.position)
-                for s in QuestionSection.objects.filter(version=current)
+                for s in current_sections
             }
             Question.objects.bulk_create([
                 Question(
                     version=new, section=sections[q.section_id], qid=q.qid, text=q.text, polarity=q.polarity,
-                    weight=q.weight, is_knockout=q.is_knockout, evidence_required=q.evidence_required,
+                    weight=changes.get(q.qid, {}).get("weight", q.weight), is_knockout=q.is_knockout, evidence_required=q.evidence_required,
                     allows_na=q.allows_na, accepts_supporting=q.accepts_supporting, checks=q.checks,
                     allowed_answers=changes.get(q.qid, {}).get("allowed_answers", q.allowed_answers),
                     file_types=changes.get(q.qid, {}).get("file_types", q.file_types),

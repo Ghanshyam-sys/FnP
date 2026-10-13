@@ -4,7 +4,10 @@ import { AlertTriangleIcon, CheckCircleIcon } from "./icons";
 import type { Verdict } from "../api/types";
 import type { Band } from "../domain/types";
 
-/** The reviewer's final call on a scored assessment. Remarks are required either way. */
+/**
+ * The reviewer's final call on an assessment. Feedback is required either way: it is recorded on
+ * the case, shown to the applicant and printed in the assessment summary.
+ */
 export default function DecisionDialog({
   verdict,
   applicantName,
@@ -17,8 +20,9 @@ export default function DecisionDialog({
 }: {
   verdict: Verdict;
   applicantName: string;
-  band: Band;
-  riskScore: number;
+  /** Absent when the AI engine did not score the assessment. */
+  band?: Band;
+  riskScore?: number;
   onConfirm: (remarks: string) => void;
   /** The call is being saved: the confirm button waits for it. */
   busy: boolean;
@@ -39,8 +43,8 @@ export default function DecisionDialog({
         title={isAccept ? "Accept this assessment" : "Reject this assessment"}
       >
         {isAccept
-          ? "The assessment closes as accepted. Your remarks are recorded on the case and shown to the applicant."
-          : "The assessment closes as rejected. Your remarks are recorded on the case and shown to the applicant."}
+          ? "The assessment closes as accepted. Your feedback is recorded on the case, shown to the applicant and included in the assessment summary."
+          : "The assessment closes as rejected. Your feedback is recorded on the case, shown to the applicant and included in the assessment summary."}
       </ModalBanner>
 
       <dl className="modal-detail">
@@ -50,24 +54,22 @@ export default function DecisionDialog({
         </div>
         <div>
           <dt>Risk score</dt>
-          <dd>
-            {riskScore.toFixed(1)} · {band}
-          </dd>
+          <dd>{riskScore !== undefined && band ? `${riskScore.toFixed(1)} · ${band}` : "Not scored by the AI engine"}</dd>
         </div>
       </dl>
 
       <RequiredTextArea
         id="decision-remarks"
-        label="Remarks"
+        label="Feedback"
         value={remarks}
         onChange={setRemarks}
         placeholder={
           isAccept
-            ? "Record any conditions or monitoring attached to the approval."
-            : "Record the grounds for rejection."
+            ? "Your feedback for the applicant, and any conditions or monitoring attached to the approval."
+            : "Your feedback for the applicant, and the grounds for rejection."
         }
         maxLength={4000}
-        hint="Remarks are required."
+        hint="Feedback is required."
       />
 
       {error && (

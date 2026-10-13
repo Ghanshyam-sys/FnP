@@ -62,19 +62,19 @@ const COPY: Record<
     tone: "good",
   },
   DECISION_PENDING: {
-    title: "Scored · with the reviewer for a decision",
+    title: "With the reviewer for a decision",
     detail:
-      "Authentication and scoring are both finished. The reviewer is considering the outcome; both reports are available below.",
+      "Authentication is finished. The reviewer is considering the outcome; the reports are available below.",
     tone: "good",
   },
   ACCEPTED: {
     title: "Accepted",
-    detail: "The reviewer accepted this assessment. Both reports are available below.",
+    detail: "The reviewer accepted this assessment. Their feedback and the reports are available below.",
     tone: "good",
   },
   REJECTED: {
     title: "Rejected",
-    detail: "The reviewer rejected this assessment. Both reports are available below.",
+    detail: "The reviewer rejected this assessment. Their feedback and the reports are available below.",
     tone: "critical",
   },
 };

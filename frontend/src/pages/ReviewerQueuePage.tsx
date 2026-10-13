@@ -198,7 +198,7 @@ function CaseFootNote({ row }: { row: QueueRow }) {
     return <span className="case-note">Rejected {rejected.join(", ")} — waiting on new evidence</span>;
   }
   if (row.stage === "DECISION_PENDING") {
-    return <span className="case-note">Scored — accept or reject</span>;
+    return <span className="case-note">Ready for your decision — accept or reject</span>;
   }
   if (row.stage === "AUTH_FAILED") {
     return <span className="case-note is-critical">Authentication failed — open to send it again</span>;

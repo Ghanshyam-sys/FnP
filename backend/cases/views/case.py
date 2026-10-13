@@ -9,9 +9,9 @@ from rest_framework.views import APIView
 from engine import client as engine
 
 from .. import adapt, workflow
-from ..models import Assessment, RunStatus, Stage, Verdict
+from ..models import Assessment, RunStatus, ScoreSource, Stage, Verdict
 from ..permissions import IsReviewer, assessment_for
-from .common import Conflict, ServiceUnavailable, require_owner
+from .common import Conflict, ServiceUnavailable, require_not_own, require_owner
 
 _HIGHLIGHT_NAME = re.compile(r"[A-Za-z0-9._-]{1,120}\.pdf")  # used with fullmatch
 
@@ -90,7 +90,10 @@ def case_payload(assessment: Assessment) -> dict:
             for r in submission.rulings.all()
         }
     score = getattr(submission, "score", None)
-    if score is not None:
+    # Only the AI engine's scores are shown, with one exception: a score this app once calculated
+    # itself (an older case whose flags the reviewer accepted) is still shown on a case that was
+    # decided on it, so the record shows what the decision was based on. Its source says which.
+    if score is not None and (score.source == ScoreSource.ENGINE or decision is not None):
         payload["score"] = _score_payload(score)
     if docs and docs.assessment:
         payload["assessment"] = adapt.final_assessment(assessment, docs.assessment)
@@ -158,6 +161,7 @@ class RulingView(APIView):
 
     def put(self, request, public_id, qid):
         assessment = _assessment(request, public_id)
+        require_not_own(request.user, assessment)
         data = RulingSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         _transition(workflow.rule, assessment, qid, data.validated_data["verdict"],
@@ -167,6 +171,7 @@ class RulingView(APIView):
 
     def delete(self, request, public_id, qid):
         assessment = _assessment(request, public_id)
+        require_not_own(request.user, assessment)
         _transition(workflow.undo_ruling, assessment, qid, request.user)
         assessment.refresh_from_db()
         return Response(case_payload(assessment))
@@ -182,6 +187,7 @@ class DecisionView(APIView):
 
     def post(self, request, public_id):
         assessment = _assessment(request, public_id)
+        require_not_own(request.user, assessment)
         data = DecisionSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         _transition(workflow.decide, assessment, data.validated_data["verdict"],

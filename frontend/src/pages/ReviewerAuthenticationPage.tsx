@@ -6,7 +6,6 @@ import { useCaseView } from "../api/useCaseView";
 import {
   questionsWithIssues,
   reviewStateFor,
-  toApplicantDetails,
   toApplicationForm,
   unresolvedFlags,
 } from "../api/adapt";
@@ -20,7 +19,6 @@ import OverrideDialog from "../components/OverrideDialog";
 import ReviewerTabs from "../components/ReviewerTabs";
 import EmptyState from "../components/EmptyState";
 import { ReviewerCaseHeader } from "../components/PageHeader";
-import { ApplicantDetailsSummary } from "../components/ApplicantDetails";
 import { Loading, LoadError } from "../components/LoadState";
 import {
   AlertTriangleIcon,
@@ -90,11 +88,6 @@ export default function ReviewerAuthenticationPage() {
                 entered so far. It can still change, and nothing is authenticated until they submit.
               </div>
             </div>
-            <ApplicantDetailsSummary
-              applicant={toApplicantDetails(form.data)}
-              email={assignment.applicantEmail}
-              sub="As entered so far on the draft."
-            />
             <FormAnswers form={toApplicationForm(form.data, catalogue.data, assignment)} />
           </>
         )}
@@ -141,7 +134,9 @@ export default function ReviewerAuthenticationPage() {
 
   const open = unresolvedFlags(data);
   const issues = questionsWithIssues(outcome);
-  const canRule = stage === "REVIEW_PENDING";
+  // A reviewer never rules on their own application (the server refuses it too).
+  const ownApplication = assignment.ownApplication;
+  const canRule = stage === "REVIEW_PENDING" && !ownApplication;
 
   const confirm = (comment: string) => {
     if (!pending) return;
@@ -170,7 +165,7 @@ export default function ReviewerAuthenticationPage() {
               <p>{ruling.comment}</p>
             </div>
           </div>
-          {stage === "REVIEW_PENDING" && (
+          {canRule && (
             <button
               className="btn btn-ghost btn-sm"
               disabled={undo.isPending}
@@ -218,7 +213,15 @@ export default function ReviewerAuthenticationPage() {
   };
 
   const notice =
-    issues.length === 0 ? (
+    ownApplication && stage === "REVIEW_PENDING" && open.length > 0 ? (
+      <div className="notice notice-warning">
+        <AlertTriangleIcon size={17} />
+        <div>
+          <strong>This is your own application.</strong> {open.length} flagged answer
+          {open.length > 1 ? "s" : ""} ({open.join(", ")}) must be ruled on by another reviewer.
+        </div>
+      </div>
+    ) : issues.length === 0 ? (
       <div className="notice notice-good">
         <CheckCircleIcon size={17} />
         <div>
@@ -234,7 +237,7 @@ export default function ReviewerAuthenticationPage() {
             {open.length} question{open.length > 1 ? "s" : ""} awaiting your ruling
           </strong>{" "}
           ({open.join(", ")}). Once every flagged answer has a ruling, the assessment moves on: to
-          scoring if you accept them all, back to the applicant if you reject any.
+          your decision if you accept them all, back to the applicant if you reject any.
         </div>
       </div>
     ) : (
@@ -244,7 +247,7 @@ export default function ReviewerAuthenticationPage() {
           <strong>All flagged answers have been ruled on.</strong>{" "}
           {stage === "AWAITING_APPLICANT"
             ? "The applicant has been asked for new evidence."
-            : "The assessment has moved on to scoring."}
+            : "The assessment has moved on for the decision."}
         </div>
       </div>
     );
@@ -254,12 +257,6 @@ export default function ReviewerAuthenticationPage() {
       <ReviewerCaseHeader assignment={assignment} stage={stage} />
 
       <ReviewerTabs assessmentId={id} active="authentication" scoringReady={isScored(stage)} />
-
-      <ApplicantDetailsSummary
-        applicant={toApplicantDetails(form.data)}
-        email={assignment.applicantEmail}
-        sub="As declared by the applicant on the form."
-      />
 
       <AuthenticationReport
         outcome={outcome}

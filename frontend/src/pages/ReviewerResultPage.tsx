@@ -7,6 +7,7 @@ import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
 import { Loading, LoadError } from "../components/LoadState";
 import ReportView from "../components/ReportView";
+import EmptyState from "../components/EmptyState";
 import AssessmentSummaryPane from "../components/AssessmentSummaryPane";
 import DecisionDialog from "../components/DecisionDialog";
 import ReviewerTabs from "../components/ReviewerTabs";
@@ -16,6 +17,7 @@ import {
   ArrowLeftIcon,
   CheckCircleIcon,
   FileTextIcon,
+  InfoIcon,
   MessageIcon,
 } from "../components/icons";
 import type { Verdict } from "../api/types";
@@ -34,13 +36,17 @@ export default function ReviewerResultPage() {
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
   const { assessment: assignment, data, outcome, score: scoreResult } = view;
   const stage = data.stage;
-  if (!isScored(stage) || !scoreResult || !outcome) {
-    // A cached copy can predate the score; only a fresh one decides that scoring is not ready.
+  // Open once the case is waiting on (or has) a decision. It may have no score: the AI engine
+  // scores only a submission in which every answer was authenticated.
+  if (!isScored(stage) || !outcome) {
+    // A cached copy can predate the decision stage; only a fresh one decides it is not ready.
     if (view.refreshing) return <Loading />;
     return <Navigate to={routes.reviewerAuthentication(id)} replace />;
   }
 
   const decision = data.decision;
+  // A reviewer never decides their own application (the server refuses it too).
+  const ownApplication = assignment.ownApplication;
 
   const confirm = (remarks: string) => {
     if (!pending) return;
@@ -77,20 +83,60 @@ export default function ReviewerResultPage() {
                 ? "You accepted this assessment."
                 : "You rejected this assessment."}
             </strong>{" "}
-            {decision.remarks}
+            Feedback: {decision.remarks}
+          </div>
+        </div>
+      ) : ownApplication ? (
+        <div className="notice notice-warning">
+          <AlertTriangleIcon size={17} />
+          <div>
+            <strong>This is your own application.</strong> Another reviewer must accept or reject
+            it.
           </div>
         </div>
       ) : (
         <div className="notice notice-info">
           <MessageIcon size={17} />
           <div>
-            <strong>This assessment is scored and waiting on your decision.</strong> Accept or
-            reject it below; your remarks are recorded on the case and shown to the applicant.
+            <strong>
+              {scoreResult
+                ? "This assessment is scored and waiting on your decision."
+                : "This assessment is waiting on your decision."}
+            </strong>{" "}
+            Accept or reject it below; your feedback is recorded on the case, shown to the
+            applicant and included in the assessment summary.
           </div>
         </div>
       )}
 
-      <ReportView authentication={outcome} scoreResult={scoreResult} />
+      {data.score?.source === "backend_override" && (
+        <div className="notice notice-info">
+          <InfoIcon size={17} />
+          <div>
+            <strong>Scored by the app's own rules.</strong> This score was calculated by the app, not
+            the AI engine, before only AI-engine scores were used. It is shown because the decision
+            was made on it.
+          </div>
+        </div>
+      )}
+
+      {scoreResult ? (
+        <ReportView authentication={outcome} scoreResult={scoreResult} concerns={data.assessment?.concerns} />
+      ) : (
+        <EmptyState
+          icon={<InfoIcon size={22} />}
+          title="Not scored by the AI engine"
+          action={
+            <button className="btn btn-ghost" onClick={() => navigate(routes.reviewerAuthentication(id))}>
+              View the authentication report
+            </button>
+          }
+        >
+          The AI engine scores only a submission in which every answer was authenticated. This one
+          had flagged answers (which you accepted) or was not scored by the engine, so it has no
+          risk score or band. Base your decision on the authentication report.
+        </EmptyState>
+      )}
 
 
       <footer className="actionbar">
@@ -102,7 +148,7 @@ export default function ReviewerResultPage() {
           <FileTextIcon size={15} />
           Assessment summary
         </button>
-        {!decision && (
+        {!decision && !ownApplication && (
           <>
             <button className="btn btn-ghost" onClick={() => {
                 decide.reset();
@@ -135,8 +181,8 @@ export default function ReviewerResultPage() {
         <DecisionDialog
           verdict={pending}
           applicantName={assignment.applicantName}
-          band={scoreResult.band}
-          riskScore={scoreResult.riskScore100}
+          band={scoreResult?.band}
+          riskScore={scoreResult?.riskScore100}
           busy={decide.isPending}
           error={decide.isError ? refusalMessage(decide.error, "remarks") : undefined}
           onConfirm={confirm}

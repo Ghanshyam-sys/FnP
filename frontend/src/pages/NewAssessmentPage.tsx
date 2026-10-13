@@ -104,13 +104,14 @@ export default function NewAssessmentPage({ mode }: { mode: NewAssessmentMode })
     create.mutate(body, {
       onSuccess: (created) => {
         if (byApplicant) {
-          navigate(routes.apply(created.id));
+          // Replaces the form in the history, so Back does not reopen it to start a second one.
+          navigate(routes.apply(created.id), { replace: true });
           return;
         }
         const state: QueueNotice = {
           notice: `Assessment ${created.id} opened for ${created.applicantName}. They see it the next time they sign in as ${created.applicantEmail}.`,
         };
-        navigate(routes.reviewer(), { state });
+        navigate(routes.reviewer(), { state, replace: true });
       },
       onError: (error) => {
         const refused = serverFieldErrors(error, fields);

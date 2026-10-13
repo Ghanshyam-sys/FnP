@@ -31,9 +31,11 @@ const ACTIONS: Record<string, string> = {
   "case.returned_to_applicant": "Returned to the applicant",
   "case.scoring": "Moved to scoring",
   "case.scored": "Scored",
+  "case.ready_for_decision": "Sent for the reviewer's decision",
   "questionnaire.publish": "Published question settings",
   "user.activate": "Reactivated an account",
   "user.deactivate": "Deactivated an account",
+  "user.role_change": "Changed an account's role",
 };
 
 /** Where the reviewer works on a case: the decision page once it is waiting for one. */

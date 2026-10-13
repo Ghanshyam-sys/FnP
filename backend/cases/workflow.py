@@ -22,7 +22,7 @@ from django.utils import timezone
 
 from engine import client as engine
 
-from . import adapt, audit, catalogue, scoring, validation
+from . import adapt, audit, catalogue, validation
 from .models import (
     Answer,
     AnswerValue,
@@ -84,23 +84,11 @@ UNCONFIRMED_SEND = (
     "check with the engine team before sending it again, or a second run will start."
 )
 
-# The applicant details a first submission needs (phone is optional). Their values were already
-# checked when they were saved; here they only have to be present.
-REQUIRED_DETAILS = (
-    ("date_of_birth", "Date of birth"),
-    ("nationality", "Nationality"),
-    ("national_id_number", "National ID number"),
-    ("town", "Town of residence"),
-)
-
-
-def incomplete_for_submission(
-    questions: dict, answers: dict[str, str], profile: ApplicantProfile | None, evidence: list[EvidenceFile]
-) -> list[str]:
-    """What a form still lacks before it can first be submitted: each required applicant detail,
-    and the document for every answer that needs one, the CV included. The data collection and
-    review pages apply the same rule, and keep Submit disabled until it is met."""
-    missing = [label for field, label in REQUIRED_DETAILS if not (profile and getattr(profile, field))]
+def incomplete_for_submission(questions: dict, answers: dict[str, str], evidence: list[EvidenceFile]) -> list[str]:
+    """What a form still lacks before it can be submitted: the document for every answer that
+    needs one, the CV included. (Personal details are not collected from the applicant.) The data
+    collection and review pages apply the same rule, and keep Submit disabled until it is met."""
+    missing: list[str] = []
     attached = {e.qid for e in evidence}
     documents = [
         qid for qid, q in questions.items() if catalogue.evidence_required(q, answers[qid]) and qid not in attached
@@ -167,7 +155,7 @@ def _start_run(assessment: Assessment, actor: User, action: str, *from_stages: S
         # A first submission and a resubmission send what the applicant has now, so both must be
         # complete and within the question settings in force. A retry resends the failed run as it was.
         if Stage.NOT_SUBMITTED in from_stages or Stage.AWAITING_APPLICANT in from_stages:
-            missing = incomplete_for_submission(questions, answers, profile, evidence)
+            missing = incomplete_for_submission(questions, answers, evidence)
             if missing:
                 raise TransitionError(f"Complete the form before submitting. Still missing: {'; '.join(missing)}.")
             broken = evidence_rule_breaks(questions, evidence)
@@ -455,9 +443,9 @@ def _advance(submission: Submission, fetched: dict) -> None:
                 _move_run(submission, Stage.REVIEW_PENDING, "case.review_pending")
             else:
                 # Returned with no answer at fault (only the CV, say): there is nothing to rule on,
-                # so it is scored here and goes to the reviewer's decision, report in view.
-                _score_here(submission)
-                _move_run(submission, Stage.DECISION_PENDING, "case.scored")
+                # so it goes to the reviewer's decision, report in view. The engine does not score a
+                # submission that did not authenticate CLEAR, so it is decided without a score.
+                _move_run(submission, Stage.DECISION_PENDING, "case.ready_for_decision")
             return
         _move_run(submission, Stage.SCORING, "case.scoring")
 
@@ -472,11 +460,10 @@ def _advance(submission: Submission, fetched: dict) -> None:
             docs.score = document
             docs.save(update_fields=["score"])
             Score.objects.create(submission=submission, source=ScoreSource.ENGINE, **_rounded(adapt.score_from_engine(document)))
-        elif score_stage in ("NOT_PRODUCED", "FAILED"):
-            # CLEAR but unscored by the engine: score it here so the case can still be decided.
-            _score_here(submission)
-        else:
+        elif score_stage not in ("NOT_PRODUCED", "FAILED"):
             return
+        # NOT_PRODUCED or FAILED: CLEAR but unscored by the engine. Only the engine scores, so the
+        # case goes on to the decision without one.
     if assessment_stage == "READY" and docs.assessment is None:
         document = fetched.get("assessment")
         if document is None:
@@ -486,7 +473,8 @@ def _advance(submission: Submission, fetched: dict) -> None:
     elif assessment_stage not in ("READY", "NOT_PRODUCED", "FAILED"):
         return
     _finish_run(submission)
-    _move_run(submission, Stage.DECISION_PENDING, "case.scored")
+    scored = Score.objects.filter(submission=submission).exists()
+    _move_run(submission, Stage.DECISION_PENDING, "case.scored" if scored else "case.ready_for_decision")
 
 
 def _move_run(submission: Submission, stage: Stage, action: str) -> None:
@@ -515,20 +503,13 @@ def _rounded(score: dict) -> dict:
     }
 
 
-def _score_here(submission: Submission) -> None:
-    questions = catalogue.questions(submission.version_id)
-    answers = {
-        q["qid"]: q["answer"] for s in submission.payload["sections"] for q in s["questions"]
-    }
-    Score.objects.create(submission=submission, source=ScoreSource.BACKEND_OVERRIDE, **scoring.score(questions, answers))
-
-
 # ---- The reviewer's work ----------------------------------------------------------------------
 
 def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer: User) -> None:
     """Records the reviewer's ruling on one flagged answer. Once every flag has a ruling, the case
     moves on: back to the applicant if any was rejected (with every rejection at once), otherwise
-    scored here and on to the decision. Until then, any ruling can be undone."""
+    on to the decision. That decision has no score: the engine scores only a submission that
+    authenticated CLEAR, and this one did not. Until then, any ruling can be undone."""
     with transaction.atomic():
         row = _locked(assessment, Stage.REVIEW_PENDING)
         submission = latest_submission(row)
@@ -546,8 +527,7 @@ def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer:
         if Verdict.REJECTED in verdicts.values():
             _move(row, Stage.AWAITING_APPLICANT, "case.returned_to_applicant", reviewer)
         else:
-            _score_here(submission)
-            _move(row, Stage.DECISION_PENDING, "case.scored", reviewer)
+            _move(row, Stage.DECISION_PENDING, "case.ready_for_decision", reviewer)
 
 
 def undo_ruling(assessment: Assessment, qid: str, reviewer: User) -> None:

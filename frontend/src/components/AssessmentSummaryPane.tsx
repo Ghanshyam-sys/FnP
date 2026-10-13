@@ -4,12 +4,11 @@ import {
   AlertTriangleIcon,
   CheckCircleIcon,
   DownloadIcon,
-  ExternalLinkIcon,
   InfoIcon,
   ShieldCheckIcon,
   XIcon,
 } from "./icons";
-import { displaySection } from "../domain/sectionLabels";
+import ConcernCard from "./ConcernCard";
 import type { Assessment, Case, FinalAssessment } from "../api/types";
 
 const VERDICT_TONE: Record<string, string> = {
@@ -63,7 +62,7 @@ const cssString = (value: string) => `"${value.replace(/[\\"]/g, "\\$&").replace
  * is, for what, and where it stands once it has left the app. Hidden on screen, where the page
  * behind the pane already says all of this.
  */
-function PrintHeader({ assignment, decision }: { assignment: Assessment; decision: Case["decision"] }) {
+function PrintHeader({ assignment }: { assignment: Assessment }) {
   return (
     <header className="pane-print-head">
       <div className="pane-print-brand">
@@ -90,22 +89,38 @@ function PrintHeader({ assignment, decision }: { assignment: Assessment; decisio
           <dt>Department</dt>
           <dd>{assignment.department.name}</dd>
         </div>
-        <div>
-          <dt>Reviewer decision</dt>
-          <dd>
-            {decision
-              ? `${decision.verdict === "accepted" ? "Accepted" : "Rejected"} · ${formatDay(decision.at)}`
-              : "Not yet decided"}
-          </dd>
-        </div>
       </dl>
-      {decision?.remarks && (
-        <p className="pane-print-remarks">
-          <span>Reviewer remarks</span>
-          {decision.remarks}
-        </p>
-      )}
     </header>
+  );
+}
+
+/**
+ * The reviewer's decision and the feedback they gave with it, at the top of the summary for both
+ * the reviewer and the applicant, and in the PDF. Before a decision, it says the case is waiting.
+ */
+function ReviewerDecision({ decision }: { decision: Case["decision"] }) {
+  if (!decision) {
+    return (
+      <section className="pane-section pane-decision is-pending">
+        <h3>Reviewer decision</h3>
+        <p className="pane-prose">Not decided yet. The reviewer's decision and feedback appear here once given.</p>
+      </section>
+    );
+  }
+  const accepted = decision.verdict === "accepted";
+  return (
+    <section className="pane-section pane-decision">
+      <h3>Reviewer decision</h3>
+      <div className="pane-decision-head">
+        <span className={`chip chip-${accepted ? "low" : "critical"}`}>
+          {accepted ? <CheckCircleIcon size={12} /> : <AlertTriangleIcon size={12} />}
+          {accepted ? "Accepted" : "Rejected"}
+        </span>
+        <span className="pane-decision-date">{formatDay(decision.at)}</span>
+      </div>
+      <p className="pane-decision-label">Feedback</p>
+      <p className="pane-prose pane-decision-feedback">{decision.remarks}</p>
+    </section>
   );
 }
 
@@ -117,9 +132,9 @@ function Empty({ applicantName }: { applicantName: string }) {
         <strong>No assessment summary yet.</strong>
       </p>
       <p>
-        There is no narrative assessment for {applicantName}. The engine writes one only when it
-        scores a submission itself, so there is none when the score was calculated after the
-        reviewer accepted flagged answers, or when the engine could not produce one.
+        There is no written assessment for {applicantName}. The AI engine writes one only for a
+        submission in which every answer was authenticated, so there is none when answers were
+        flagged (even if the reviewer then accepted them) or when the engine could not produce one.
       </p>
     </div>
   );
@@ -218,7 +233,8 @@ export default function AssessmentSummaryPane({
 
         <div className="pane-body">
           <style>{pageFooter}</style>
-          <PrintHeader assignment={assignment} decision={decision} />
+          <PrintHeader assignment={assignment} />
+          <ReviewerDecision decision={decision} />
           {!assessment || !determination ? (
             <Empty applicantName={applicantName} />
           ) : (
@@ -261,28 +277,7 @@ export default function AssessmentSummaryPane({
                   <span className="pane-count">{assessment.concerns.length}</span>
                 </h3>
                 {assessment.concerns.map((c) => (
-                  <article className="pane-concern" key={c.condition_id}>
-                    <div className="pane-concern-head">
-                      <span className="qid">{c.qid}</span>
-                      <span className="chip chip-warning">{c.severity}</span>
-                      <span className="pane-concern-type">{c.risk_type}</span>
-                      <span className="pane-concern-section">{displaySection(c.section)}</span>
-                    </div>
-                    <p className="pane-prose">{c.statement}</p>
-                    <blockquote className="pane-quote">
-                      <span className="pane-quote-text">{c.quote}</span>
-                      {c.evidence_url && (
-                        <a href={c.evidence_url} target="_blank" rel="noreferrer">
-                          View in evidence
-                          <ExternalLinkIcon size={11} />
-                        </a>
-                      )}
-                    </blockquote>
-                    <div className="pane-condition">
-                      <span className="pane-condition-id">{c.condition_id}</span>
-                      <p>{c.condition}</p>
-                    </div>
-                  </article>
+                  <ConcernCard concern={c} key={c.condition_id} />
                 ))}
               </section>
 

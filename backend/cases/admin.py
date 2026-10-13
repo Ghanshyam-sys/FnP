@@ -3,17 +3,20 @@
 Staff may look at everything, but case records stay as the workflow made them: assessments,
 answers, documents, runs, rulings, scores, decisions and the audit trail are read-only, so a case
 can never be put into a state the workflow would not produce, and the trail cannot be edited. The
-only changes possible are a user's active status (recorded in the audit trail) and the departments'
-names. National ID numbers are never shown, and documents are listed without a link to the file.
+only changes possible are a user's active status and role (both recorded in the audit trail) and the
+departments' names. National ID numbers are never shown, and documents are listed without a link to
+the file.
 """
 
 import json
 
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 from django.contrib.auth.models import Group
 from django.utils.html import format_html
 
 from . import audit
+from .auth_sessions import end_sessions
 from .models import (
     AnswerValue,
     ApplicantProfile,
@@ -26,12 +29,15 @@ from .models import (
     QuestionnaireVersion,
     QuestionResult,
     QuestionSection,
+    Role,
+    Stage,
     Ruling,
     Score,
     Submission,
     SubmissionDocument,
     User,
 )
+from .views.session import REVIEWER_USERNAME
 
 # Accounts have a role, not groups or per-user permissions: Django's own Groups page would only
 # offer records that mean nothing here.
@@ -87,19 +93,71 @@ class ReadOnlyInline(admin.TabularInline):
 
 # ---- People and reference data -----------------------------------------------------------------
 
+# Stages in which the applicant still has to act: fill in and submit, or send new evidence.
+WAITING_ON_APPLICANT = (Stage.NOT_SUBMITTED, Stage.AWAITING_APPLICANT)
+
+
+def waiting_on(user: User) -> list[str]:
+    """The user's own applications that are still waiting on them as the applicant."""
+    return list(
+        Assessment.objects.filter(applicant=user, stage__in=WAITING_ON_APPLICANT)
+        .order_by("public_id").values_list("public_id", flat=True)
+    )
+
+
+def promotion_refused(user: User) -> str | None:
+    """Why the user cannot be given reviewer access yet, if they cannot. A reviewer is sent to the
+    reviewer pages, so applications still waiting on them as the applicant could not be finished."""
+    pending = waiting_on(user)
+    if not pending:
+        return None
+    return (
+        f"{user.email} still has applications to finish as an applicant ({', '.join(pending)}). "
+        "They must submit them, or the applications must be removed, before reviewer access is given."
+    )
+
+
+class UserAdminForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = "__all__"
+        help_texts = {
+            "role": (
+                "Reviewer gives access to every case, rulings, decisions and question settings. "
+                "The app's development sign-in has no password, so anyone who knows a reviewer's "
+                "email can sign in as them: give reviewer access only on a server where sign-in is "
+                "limited to people you trust, until real authentication replaces it."
+            ),
+        }
+
+    def clean_role(self):
+        role = self.cleaned_data["role"]
+        if role == Role.REVIEWER and self.instance.pk and self.instance.role != Role.REVIEWER:
+            refused = promotion_refused(self.instance)
+            if refused:
+                raise forms.ValidationError(refused)
+        return role
+
+
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
+    form = UserAdminForm
     list_display = ("email", "role", "is_active", "is_staff", "created_at", "last_login")
     list_filter = ("role", "is_active", "is_staff")
     search_fields = ("email",)
     ordering = ("-created_at",)
     fields = ("email", "role", "is_active", "is_staff", "created_at", "last_login")
+    actions = ("make_reviewer", "make_applicant")
 
     def get_readonly_fields(self, request, obj=None):
-        # Only whether the account may sign in can change here; a staff member cannot lock
-        # themselves out.
-        fixed = ["email", "role", "is_staff", "created_at", "last_login"]
-        return fixed + ["is_active"] if obj is not None and obj.pk == request.user.pk else fixed
+        # Whether the account may sign in, and its role, can change here. A staff member cannot
+        # lock themselves out, and some accounts keep their role (see role_fixed).
+        fixed = ["email", "is_staff", "created_at", "last_login"]
+        if obj is not None and obj.pk == request.user.pk:
+            fixed.append("is_active")
+        if obj is not None and role_fixed(request, obj):
+            fixed.append("role")
+        return fixed
 
     def has_add_permission(self, request):
         return False
@@ -112,6 +170,61 @@ class UserAdmin(admin.ModelAdmin):
         if "is_active" in form.changed_data:
             action = "user.activate" if obj.is_active else "user.deactivate"
             audit.record(request.user, action, target_type="user", target_id=obj.pk)
+        if "role" in form.changed_data:
+            role_changed(request, obj, form.initial.get("role"))
+
+    @admin.action(description="Give reviewer (admin) access to the selected users")
+    def make_reviewer(self, request, queryset):
+        self._set_role(request, queryset, Role.REVIEWER)
+
+    @admin.action(description="Make the selected users applicants (remove reviewer access)")
+    def make_applicant(self, request, queryset):
+        self._set_role(request, queryset, Role.APPLICANT)
+
+    def _set_role(self, request, queryset, role):
+        changed, skipped, blocked = 0, [], 0
+        for user in queryset:
+            if user.role == role:
+                continue
+            if role_fixed(request, user):
+                skipped.append(user.email)
+                continue
+            refused = promotion_refused(user) if role == Role.REVIEWER else None
+            if refused:
+                self.message_user(request, f"Not changed: {refused}", messages.WARNING)
+                blocked += 1
+                continue
+            before = user.role
+            user.role = role
+            user.save(update_fields=["role"])
+            role_changed(request, user, before)
+            changed += 1
+        label = Role(role).label.lower()
+        if changed:
+            self.message_user(request, f"{changed} user(s) are now {label}s.", messages.SUCCESS)
+        if skipped:
+            self.message_user(
+                request,
+                f"Not changed (your own account, a staff account or the built-in admin): {', '.join(skipped)}.",
+                messages.WARNING,
+            )
+        if not changed and not skipped and not blocked:
+            self.message_user(request, f"The selected users are already {label}s.", messages.INFO)
+
+
+def role_fixed(request, user: User) -> bool:
+    """Accounts whose role cannot change: your own (no locking yourself out), staff accounts (the
+    admin site's own, always reviewers) and the built-in reviewer sign-in "admin", without which
+    nobody could sign in to the app as a reviewer."""
+    return user.pk == request.user.pk or user.is_staff or user.email == REVIEWER_USERNAME
+
+
+def role_changed(request, user: User, before) -> None:
+    """Records the change and signs the user out everywhere, so their next sign-in opens the app
+    for their new role instead of a session made for the old one."""
+    audit.record(request.user, "user.role_change", target_type="user", target_id=user.pk,
+                 metadata={"from": before, "to": user.role})
+    end_sessions(user)
 
 
 @admin.register(Department)

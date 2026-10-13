@@ -1,49 +1,17 @@
 """Input rules shared by the views. The frontend applies the same rules for instant feedback
-(domain/applicantDetails.ts, domain/newAssessment.ts); these are the ones that count."""
+(domain/newAssessment.ts); these are the ones that count."""
 
 import datetime
-import re
 import zipfile
 
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from django.utils import timezone
 
-ID_NUMBER = re.compile(r"^[A-Za-z0-9]{4,20}$")
-PHONE = re.compile(r"^\+?[0-9][0-9 -]{5,19}$")
 
 
 def today() -> datetime.date:
     return timezone.localdate()
-
-
-# ---- Applicant details ------------------------------------------------------------------------
-
-def date_of_birth(value: str) -> datetime.date | None:
-    """Empty clears the field; anything else must be a real past date after 1900."""
-    if not value:
-        return None
-    try:
-        parsed = datetime.date.fromisoformat(value)
-    except ValueError:
-        raise ValidationError("Enter a valid date.") from None
-    if parsed >= today():
-        raise ValidationError("Date of birth must be in the past.")
-    if parsed < datetime.date(1900, 1, 1):
-        raise ValidationError("Enter a date after 1900.")
-    return parsed
-
-
-def national_id_number(value: str) -> str:
-    if value and not ID_NUMBER.match(value):
-        raise ValidationError("Use 4–20 letters or digits, without spaces.")
-    return value
-
-
-def phone(value: str) -> str:
-    if value and not PHONE.match(value):
-        raise ValidationError("Use digits, spaces, + and - only.")
-    return value
 
 
 # ---- Opening an assessment --------------------------------------------------------------------

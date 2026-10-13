@@ -135,6 +135,8 @@ def assessment_payload(a: Assessment, viewer: User) -> dict:
         "decidedAt": a.decided_at,
         "updatedAt": a.updated_at,
         "removable": removable_by(viewer, a),
+        # The viewer's own application: a reviewer never rules on or decides it.
+        "ownApplication": a.applicant_id == viewer.id,
         # Started by the applicant themselves, rather than opened for them by the reviewer.
         "startedByApplicant": a.created_by_id == a.applicant_id,
         # Whether the applicant has saved anything yet (the list shows "Draft saved").

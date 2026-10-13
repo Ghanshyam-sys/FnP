@@ -1,45 +1,28 @@
-from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .. import audit, catalogue, validation
+from .. import audit, catalogue
 from ..models import Answer, AnswerValue, ApplicantProfile, Assessment, EvidenceFile, Stage
 from ..permissions import assessment_for
 from .common import lock, require_editable, require_owner
 from .evidence import evidence_payload, remove_files
-
-# The editable applicant details: API name -> (model field, validator returning the stored value).
-PROFILE_FIELDS = {
-    "dateOfBirth": ("date_of_birth", validation.date_of_birth),
-    "town": ("town", lambda v: v),
-    "nationality": ("nationality", lambda v: v),
-    "nationalIdNumber": ("national_id_number", validation.national_id_number),
-    "phone": ("phone", validation.phone),
-}
-PROFILE_MAX_LENGTH = {"town": 120, "nationality": 80, "nationalIdNumber": 20, "phone": 30}
-
 
 def form_payload(assessment: Assessment) -> dict:
     """The form as the applicant fills it in. A question with no saved answer reads "No", which is
     what a blank form starts from."""
     questions = catalogue.questions(catalogue.version_for(assessment).pk)
     saved = dict(assessment.answers.values_list("qid", "value"))
-    profile = ApplicantProfile.objects.filter(pk=assessment.pk).first() or ApplicantProfile(assessment=assessment)
     evidence = assessment.evidence.filter(superseded_at__isnull=True).order_by("uploaded_at")
     return {
         "locked": assessment.stage != Stage.NOT_SUBMITTED,
+        # Personal details (date of birth, ID number and the like) are not collected or shown.
         "applicant": {
             "fullName": assessment.applicant_name,
             "email": assessment.applicant.email,
             "proposedRole": assessment.position,
-            "dateOfBirth": profile.date_of_birth.isoformat() if profile.date_of_birth else "",
-            "town": profile.town,
-            "nationality": profile.nationality,
-            "nationalIdNumber": profile.national_id_number,
-            "phone": profile.phone,
         },
         "answers": [
             {
@@ -60,14 +43,17 @@ def form_payload(assessment: Assessment) -> dict:
     }
 
 
-def _validated_changes(body: dict, questions: dict) -> tuple[dict, dict]:
-    """Checks every submitted field and returns (answers, profile fields) to save, or raises one
-    ValidationError listing every problem, so a partly valid body changes nothing."""
+def _validated_answers(body: dict, questions: dict) -> dict:
+    """Checks every submitted answer and returns those to save, or raises one ValidationError
+    listing every problem, so a partly valid body changes nothing."""
+    if "applicant" in body:
+        # Personal details are no longer collected; nothing here stores them.
+        raise ValidationError({"applicant": "Applicant details are not collected."})
     errors: dict[str, str] = {}
     answers: dict[str, str] = {}
-    raw_answers, raw_profile = body.get("answers") or {}, body.get("applicant") or {}
-    if not isinstance(raw_answers, dict) or not isinstance(raw_profile, dict):
-        raise ValidationError({"detail": "answers and applicant must each be an object."})
+    raw_answers = body.get("answers") or {}
+    if not isinstance(raw_answers, dict):
+        raise ValidationError({"detail": "answers must be an object."})
     for qid, value in raw_answers.items():
         question = questions.get(qid)
         if question is None:
@@ -76,28 +62,14 @@ def _validated_changes(body: dict, questions: dict) -> tuple[dict, dict]:
             errors[f"answers.{qid}"] = f"Choose one of {', '.join(question.allowed_answers)}."
         else:
             answers[qid] = value
-
-    profile: dict[str, object] = {}
-    for name, value in raw_profile.items():
-        if name not in PROFILE_FIELDS:
-            errors[f"applicant.{name}"] = "This detail cannot be changed."
-            continue
-        if not isinstance(value, str) or len(value.strip()) > PROFILE_MAX_LENGTH.get(name, 10):
-            errors[f"applicant.{name}"] = "Invalid value."
-            continue
-        field, check = PROFILE_FIELDS[name]
-        try:
-            profile[field] = check(value.strip())
-        except DjangoValidationError as exc:
-            errors[f"applicant.{name}"] = exc.messages[0]
     if errors:
         raise ValidationError(errors)
-    return answers, profile
+    return answers
 
 
 class FormView(APIView):
     """GET: the form (applicant or reviewer). PATCH (applicant, before submission): save answers
-    and/or applicant details: {"answers": {"A1": "Yes"}, "applicant": {"town": "Windhoek"}}."""
+    answers: {"answers": {"A1": "Yes"}}."""
 
     def _assessment(self, request, public_id):
         return assessment_for(request.user, public_id, queryset=Assessment.objects.select_related("applicant"))
@@ -112,14 +84,12 @@ class FormView(APIView):
         if not isinstance(request.data, dict):
             raise ValidationError("Expected an object.")
         questions = catalogue.questions(catalogue.version_for(assessment).pk)
-        answers, profile = _validated_changes(request.data, questions)
+        answers = _validated_answers(request.data, questions)
 
         with transaction.atomic():
             require_editable(lock(assessment))
             for qid, value in answers.items():
                 AnswerValue.objects.update_or_create(assessment=assessment, qid=qid, defaults={"value": value})
-            if profile:
-                ApplicantProfile.objects.update_or_create(assessment=assessment, defaults=profile)
             # A document only exists to support an answer that needs one; drop it the moment the
             # answer stops needing it.
             no_longer_needed = [

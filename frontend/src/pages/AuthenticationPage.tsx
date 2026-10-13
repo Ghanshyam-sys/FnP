@@ -205,7 +205,7 @@ export default function AuthenticationPage() {
             className="btn btn-primary"
             disabled={resubmit.isPending || unreplaced.length > 0}
             aria-describedby={unreplaced.length > 0 ? "resubmit-blocked" : undefined}
-            onClick={() => resubmit.mutate(undefined, { onSuccess: () => navigate(routes.applyStatus(id)) })}
+            onClick={() => resubmit.mutate(undefined, { onSuccess: () => navigate(routes.applyStatus(id), { replace: true }) })}
           >
             {resubmit.isPending ? "Resubmitting…" : "Resubmit for authentication"}
             <ArrowRightIcon size={15} />
