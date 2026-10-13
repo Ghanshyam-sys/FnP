@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Modal, { ModalBanner, RequiredTextArea } from "./Modal";
 import { AlertTriangleIcon, InfoIcon } from "./icons";
-import type { RulingVerdict } from "../state/caseStore";
+import type { Verdict } from "../api/types";
 
 /**
  * Accepting a flagged answer overrides a finding the engine made against the evidence, so the
@@ -13,14 +13,20 @@ export default function OverrideDialog({
   question,
   verdict,
   failingChecks,
+  busy,
+  error,
   onConfirm,
   onCancel,
 }: {
   qid: string;
   question: string;
-  verdict: RulingVerdict;
+  verdict: Verdict;
   failingChecks: string[];
   onConfirm: (comment: string) => void;
+  /** The call is being saved: the confirm button waits for it. */
+  busy: boolean;
+  /** Why the last attempt was not saved; the dialog stays open so nothing typed is lost. */
+  error?: string;
   onCancel: () => void;
 }) {
   const [comment, setComment] = useState("");
@@ -37,7 +43,7 @@ export default function OverrideDialog({
       >
         {isOverride
           ? "The engine could not authenticate this answer against the evidence. Accepting it records your judgment in place of that finding, and the answer will be scored as submitted."
-          : "The applicant will be asked to attach new evidence for this question, and the assessment returns for authentication."}
+          : "Once every flagged answer has a ruling, the applicant is asked to attach new evidence for this question, and the assessment then goes back for authentication."}
       </ModalBanner>
 
       <dl className="modal-detail">
@@ -65,8 +71,15 @@ export default function OverrideDialog({
             ? "Record why the evidence is acceptable despite the finding."
             : "Name the document or correction you need."
         }
+        maxLength={2000}
         hint="A comment is required and is kept on the case."
       />
+
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="modal-actions">
         <button className="btn btn-ghost" onClick={onCancel}>
@@ -74,7 +87,7 @@ export default function OverrideDialog({
         </button>
         <button
           className={`btn ${isOverride ? "btn-critical" : "btn-primary"}`}
-          disabled={!canConfirm}
+          disabled={!canConfirm || busy}
           onClick={() => onConfirm(comment.trim())}
         >
           {isOverride ? "Override and accept" : "Reject and return"}

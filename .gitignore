@@ -4,3 +4,12 @@
 # OS and editor clutter
 .DS_Store
 Thumbs.db
+
+# Backend: secrets, local environment, uploads and caches
+.env
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+backend/media/
+backend/staticfiles/

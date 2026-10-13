@@ -1,13 +1,12 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import { issuesIn } from "../domain/authentication";
-import { reviewStateFor } from "../state/reviewState";
 import { displaySection } from "../domain/sectionLabels";
 import { percent } from "../utils/format";
 import CvVerificationCard from "./CvVerificationCard";
 import { CheckItem } from "./Confidence";
-import { AlertTriangleIcon, CheckCircleIcon, ChevronDownIcon, InfoIcon } from "./icons";
-import type { QuestionReviewState } from "../state/reviewState";
+import { AlertTriangleIcon, CheckCircleIcon, ChevronDownIcon, ExternalLinkIcon, FileTextIcon, InfoIcon } from "./icons";
+import { questionsWithIssues } from "../api/adapt";
+import type { QuestionReviewState } from "../api/adapt";
 import type { AuthenticationOutcome, CheckResult, QuestionAuthResult } from "../domain/types";
 
 const CHECK_TONE: Record<CheckResult["status"], string> = {
@@ -77,6 +76,19 @@ function QuestionRow({
         <div className="auth-question-body" id={bodyId}>
           <p className="auth-summary">{result.summary}</p>
 
+          {result.determination?.highlightUrl && (
+            <a
+              className="review-evidence-link"
+              href={result.determination.highlightUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <FileTextIcon size={13} />
+              View highlighted evidence
+              <ExternalLinkIcon size={11} />
+            </a>
+          )}
+
           {result.checks.length > 0 && (
             <ul className="check-list">
               {result.checks.map((check) => (
@@ -103,17 +115,18 @@ function QuestionRow({
  * reviewer's rulings, or the applicant's replacement evidence.
  */
 export default function AuthenticationReport({
-  assessmentId,
   outcome,
+  reviewState,
   notice,
   questionFooter,
 }: {
-  assessmentId: string;
   outcome: AuthenticationOutcome;
+  /** Where the reviewer has got to on each question (flagged, overridden, rejected). */
+  reviewState: (qid: string) => QuestionReviewState;
   notice?: ReactNode;
   questionFooter?: (result: QuestionAuthResult) => ReactNode;
 }) {
-  const issues = issuesIn(outcome);
+  const issues = questionsWithIssues(outcome);
 
   return (
     <>
@@ -157,7 +170,7 @@ export default function AuthenticationReport({
               <QuestionRow
                 key={q.qid}
                 result={q}
-                reviewState={reviewStateFor(assessmentId, q)}
+                reviewState={reviewState(q.qid)}
                 footer={questionFooter?.(q)}
               />
             ))}

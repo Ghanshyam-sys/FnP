@@ -1,34 +1,35 @@
-import type { CaseStage } from "./caseStore";
+import type { Stage } from "../api/types";
 
 /**
  * How each stage reads in the two queues. `tone` maps onto the existing chip palette: blue for
  * work sitting with someone, amber when it is waiting on the applicant, green once accepted,
- * red once rejected.
+ * red once rejected or when the engine failed.
  */
-export const STAGE_LABELS: Record<CaseStage, { reviewer: string; applicant: string; tone: string }> =
-  {
-    NOT_SUBMITTED: { reviewer: "Not submitted", applicant: "Draft saved", tone: "neutral" },
-    AUTH_RUNNING: {
-      reviewer: "Authentication running",
-      applicant: "Authentication pending",
-      tone: "info",
-    },
-    REVIEW_PENDING: { reviewer: "Review pending", applicant: "With the reviewer", tone: "critical" },
-    AWAITING_APPLICANT: {
-      reviewer: "Awaiting applicant",
-      applicant: "Authentication pending — resubmit",
-      tone: "warning",
-    },
-    SCORING: { reviewer: "Scoring in progress", applicant: "Scoring in progress", tone: "info" },
-    DECISION_PENDING: { reviewer: "Decision pending", applicant: "Awaiting decision", tone: "serious" },
-    ACCEPTED: { reviewer: "Accepted", applicant: "Accepted", tone: "low" },
-    REJECTED: { reviewer: "Rejected", applicant: "Rejected", tone: "critical" },
-  };
+export const STAGE_LABELS: Record<Stage, { reviewer: string; applicant: string; tone: string }> = {
+  NOT_SUBMITTED: { reviewer: "Not submitted", applicant: "Draft saved", tone: "neutral" },
+  AUTH_RUNNING: {
+    reviewer: "Authentication running",
+    applicant: "Authentication pending",
+    tone: "info",
+  },
+  AUTH_FAILED: { reviewer: "Authentication failed", applicant: "Authentication failed", tone: "critical" },
+  REVIEW_PENDING: { reviewer: "Review pending", applicant: "With the reviewer", tone: "critical" },
+  AWAITING_APPLICANT: {
+    reviewer: "Awaiting applicant",
+    applicant: "Authentication pending — resubmit",
+    tone: "warning",
+  },
+  SCORING: { reviewer: "Scoring in progress", applicant: "Scoring in progress", tone: "info" },
+  DECISION_PENDING: { reviewer: "Decision pending", applicant: "Awaiting decision", tone: "serious" },
+  ACCEPTED: { reviewer: "Accepted", applicant: "Accepted", tone: "low" },
+  REJECTED: { reviewer: "Rejected", applicant: "Rejected", tone: "critical" },
+};
 
 /** Cases needing the reviewer's hands come first, then work in flight, then settled ones. */
-const ORDER: CaseStage[] = [
+const ORDER: Stage[] = [
   "REVIEW_PENDING",
   "DECISION_PENDING",
+  "AUTH_FAILED",
   "AWAITING_APPLICANT",
   "SCORING",
   "AUTH_RUNNING",
@@ -37,12 +38,17 @@ const ORDER: CaseStage[] = [
   "NOT_SUBMITTED",
 ];
 
-export function queueRank(stage: CaseStage): number {
+export function queueRank(stage: Stage): number {
   const index = ORDER.indexOf(stage);
   return index === -1 ? ORDER.length : index;
 }
 
-/** True when the stage is one the reviewer has to act on. */
-export function needsReviewer(stage: CaseStage): boolean {
-  return stage === "REVIEW_PENDING" || stage === "DECISION_PENDING";
+/** True when the stage is one the reviewer has to act on (a failed run can be retried). */
+export function needsReviewer(stage: Stage): boolean {
+  return stage === "REVIEW_PENDING" || stage === "DECISION_PENDING" || stage === "AUTH_FAILED";
+}
+
+/** True once scoring has finished, which is what gates the scoring report. */
+export function isScored(stage: Stage): boolean {
+  return stage === "DECISION_PENDING" || stage === "ACCEPTED" || stage === "REJECTED";
 }

@@ -1,16 +1,23 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { REVIEWER_USERNAME, useAssessment } from "../state/useAssessment";
+import { useQueryClient } from "@tanstack/react-query";
+import { keys, useSignIn } from "../api/queries";
+import { ApiError } from "../api/client";
 import { ArrowRightIcon, ShieldCheckIcon } from "../components/icons";
 import { routes } from "../routes";
 
+/** The development sign-in's reviewer account (see backend/cases/views/session.py). */
+const REVIEWER_USERNAME = "admin";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const { signIn } = useAssessment();
+  const signIn = useSignIn();
   const [emailInput, setEmailInput] = useState("");
-  const [error, setError] = useState("");
+  const client = useQueryClient();
+  const [error, setError] = useState(() =>
+    client.getQueryData(keys.sessionEnded) ? "Your session ended. Sign in again to continue." : ""
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,8 +28,17 @@ export default function LoginPage() {
       return;
     }
     setError("");
-    signIn(value);
-    navigate(isReviewer ? routes.reviewer() : routes.assessments());
+    signIn.mutate(value, {
+      onSuccess: ({ user }) => navigate(user.role === "reviewer" ? routes.reviewer() : routes.assessments()),
+      onError: (err) =>
+        setError(
+          err instanceof ApiError && err.status === 429
+            ? "Too many attempts. Wait a minute and try again."
+            : err instanceof ApiError && err.status === 403
+              ? err.message
+              : (err instanceof ApiError && err.field("email")) || "Sign-in failed. Try again."
+        ),
+    });
   };
 
   return (
@@ -53,7 +69,7 @@ export default function LoginPage() {
             />
             {error && <p className="field-error">{error}</p>}
           </div>
-          <button className="btn btn-primary btn-block" type="submit">
+          <button className="btn btn-primary btn-block" type="submit" disabled={signIn.isPending}>
             Continue
             <ArrowRightIcon size={15} />
           </button>

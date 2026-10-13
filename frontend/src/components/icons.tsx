@@ -259,3 +259,34 @@ export function ExternalLinkIcon({ size = 16, className }: IconProps) {
     </svg>
   );
 }
+
+export function UsersIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="9" cy="8" r="3.25" />
+      <path d="M3.75 19.25c.6-3 2.7-4.75 5.25-4.75s4.65 1.75 5.25 4.75" />
+      <path d="M15.5 4.9a3.25 3.25 0 0 1 0 6.2" />
+      <path d="M17.25 14.75c1.6.6 2.65 2.1 3 4.5" />
+    </svg>
+  );
+}
+
+export function SearchIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <circle cx="11" cy="11" r="6.25" />
+      <path d="m19.25 19.25-3.8-3.8" />
+    </svg>
+  );
+}
+
+export function GridIcon({ size = 16, className }: IconProps) {
+  return (
+    <svg {...base(size)} className={className}>
+      <rect x="4.75" y="4.75" width="5.5" height="5.5" rx="1.25" />
+      <rect x="13.75" y="4.75" width="5.5" height="5.5" rx="1.25" />
+      <rect x="4.75" y="13.75" width="5.5" height="5.5" rx="1.25" />
+      <rect x="13.75" y="13.75" width="5.5" height="5.5" rx="1.25" />
+    </svg>
+  );
+}

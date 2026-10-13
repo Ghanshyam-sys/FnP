@@ -1,14 +1,11 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { departmentFor } from "../data/assignments";
-import { isScored, stageFor } from "../state/caseStore";
-import { scoreFor } from "../state/reviewState";
-import { useCaseView } from "../state/useCaseView";
-import { finalAssessmentFor } from "../domain/finalAssessment";
+import { isScored } from "../state/caseLabels";
+import { useCaseView } from "../api/useCaseView";
 import { routes } from "../routes";
 import ReportView from "../components/ReportView";
 import OutcomeTabs from "../components/OutcomeTabs";
-import AssessmentNotFound from "../components/AssessmentNotFound";
+import { Loading, LoadError } from "../components/LoadState";
 import AssessmentSummaryPane from "../components/AssessmentSummaryPane";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
 import { ArrowLeftIcon, FileTextIcon } from "../components/icons";
@@ -19,12 +16,14 @@ export default function ResultPage() {
   const [summaryOpen, setSummaryOpen] = useState(false);
   const view = useCaseView(id);
 
-  if (!view) return <AssessmentNotFound />;
-  const { assignment, form, outcome, flagged } = view;
+  if (view.status === "loading") return <Loading />;
+  if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
+  const { assessment: assignment, data, outcome, score: scoreResult } = view;
 
   // Scoring only exists once authentication has cleared and the engine has finished.
-  const scoreResult = scoreFor(id, form, outcome);
-  if (!isScored(stageFor(id, flagged)) || !scoreResult) {
+  if (!isScored(data.stage) || !scoreResult || !outcome) {
+    // A cached copy can predate the score; only a fresh one decides that scoring is not ready.
+    if (view.refreshing) return <Loading />;
     return <Navigate to={routes.applyStatus(id)} replace />;
   }
 
@@ -34,7 +33,7 @@ export default function ResultPage() {
         title="Scoring result"
         sub={
           <>
-            Weighted against authenticated answers only. {departmentFor(assignment).name} ·{" "}
+            Weighted against authenticated answers only. {assignment.department.name} ·{" "}
             {assignment.reference}
           </>
         }
@@ -59,8 +58,9 @@ export default function ResultPage() {
 
       {summaryOpen && (
         <AssessmentSummaryPane
-          assessment={finalAssessmentFor(assignment.applicantId)}
-          applicantName={assignment.applicantName}
+          assessment={data.assessment}
+          assignment={assignment}
+          decision={data.decision}
           onClose={() => setSummaryOpen(false)}
         />
       )}

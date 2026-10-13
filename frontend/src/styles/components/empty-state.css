@@ -33,9 +33,9 @@
 }
 
 .stepper {
-  max-width: 940px;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: 0 1.25rem 0.85rem;
+  padding: 0 var(--gutter) 0.85rem;
 }
 
 .stepper ol {
@@ -112,4 +112,20 @@
 .stepper .is-current .step-label {
   color: var(--ink);
   font-weight: 600;
+}
+
+/* ---- Page loading indicator ---- */
+.page-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  padding: 3rem 0;
+  font-size: var(--fs-md);
+  color: var(--ink-3);
+}
+
+.page-loading .status-spinner {
+  width: 1rem;
+  height: 1rem;
 }

@@ -1,40 +1,40 @@
 # Fit and Proper Assessment
 
 A portal for fit and proper assessments: an applicant answers 15 questions and attaches evidence,
-an engine authenticates each answer against its document, a reviewer rules on anything it could
-not authenticate, and the case is scored and decided.
+the Data Authentication API checks each answer against its document, a reviewer rules on anything
+it could not authenticate, and the case is scored and decided.
 
 ## Repository layout
 
 ```
-frontend/    React + Vite app: both portals (applicant and reviewer). Runs today on stub data.
-backend/     The service that will authenticate evidence and hold case state. Not started;
-             holds the API contract the frontend is built against.
-test-data/   Synthetic applicants shared by both sides: submission payloads, evidence documents,
-             expected engine responses, and the scoring and test-set workbooks.
+frontend/    React + Vite app: the applicant and reviewer portals. Talks only to the backend's /api.
+backend/     Django + PostgreSQL API: accounts, assessments, forms, documents, the case workflow,
+             and the only connection to the Data Authentication API.
+test-data/   Synthetic applicants: submission payloads, evidence documents, expected engine
+             responses, and the scoring and test-set workbooks. seed_demo loads the five demo
+             applicants from here.
 ```
 
 ## How a case flows
 
 ```
-Applicant (frontend)                 Engine (backend — stubbed today)        Reviewer (frontend)
-────────────────────                 ────────────────────────────────        ───────────────────
+Applicant (frontend)               Backend + engine                         Reviewer (frontend)
+────────────────────               ────────────────                         ───────────────────
+Start an application, or open                                              Or opens one for an
+one the reviewer opened ◀─────────────────────────────────────────────────── applicant
 Fill 15 questions + attach evidence
-Review and submit ─────────────────▶ Authenticate each answer
-                                     against its document
-                                     Analyse the CV
-                    ◀───────────────  Flags any answer it could not
-                                     authenticate ─────────────────────────▶ Accept or reject each flag
-Resubmit evidence if rejected ◀────────────────────────────────────────────── (rejected → back to applicant)
-                                     Score (runs in the frontend today)
-                                     Write the final assessment ──────────▶ Accept or reject the case
-See the decision and the reports ◀───────────────────────────────────────────
+Review and submit ───────────────▶ Engine authenticates each answer
+                                   against its document, analyses the CV
+                                   Clear → engine scores it ──────────────▶ Accept or reject the case
+                                   Flags → ───────────────────────────────▶ Rule on every flagged answer
+Resubmit the rejected evidence ◀──────────────────────────────────────────── any rejected → back to applicant
+                                   all accepted → scored by the backend ──▶ Accept or reject the case
+See the decision, remarks and score ◀──────────────────────────────────────
 ```
 
-Until the backend exists, everything in the middle column is answered by the stub data listed
-in [backend/README.md](backend/README.md), so the demo runs end to end in the browser.
+## Running it
 
-## Running the demo
+Start the database and backend first ([backend/README.md](backend/README.md)), then:
 
 ```sh
 cd frontend
@@ -42,5 +42,6 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 
-Demo logins and the app's own layout are in [frontend/README.md](frontend/README.md). The test
-data is described in [test-data/README.md](test-data/README.md).
+Signing in, the app's layout and where things go are in [frontend/README.md](frontend/README.md);
+the API, workflow, security rules and storage are in [backend/README.md](backend/README.md); the
+test data is described in [test-data/README.md](test-data/README.md).

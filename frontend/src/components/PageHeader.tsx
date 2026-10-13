@@ -1,8 +1,6 @@
 import type { ReactNode } from "react";
-import { departmentFor } from "../data/assignments";
 import { STAGE_LABELS } from "../state/caseLabels";
-import type { Assignment } from "../data/assignments";
-import type { CaseStage } from "../state/caseStore";
+import type { Assessment, Stage } from "../api/types";
 
 /**
  * The title block every page opens with. Anything passed as children sits to the right of the
@@ -35,7 +33,7 @@ export function AssignmentMeta({
   assignment,
   showDepartment = false,
 }: {
-  assignment: Assignment;
+  assignment: Assessment;
   showDepartment?: boolean;
 }) {
   return (
@@ -43,7 +41,7 @@ export function AssignmentMeta({
       {showDepartment && (
         <div>
           <dt>Requested by</dt>
-          <dd>{departmentFor(assignment).name}</dd>
+          <dd>{assignment.department.name}</dd>
         </div>
       )}
       <div>
@@ -63,8 +61,8 @@ export function ReviewerCaseHeader({
   assignment,
   stage,
 }: {
-  assignment: Assignment;
-  stage: CaseStage;
+  assignment: Assessment;
+  stage: Stage;
 }) {
   const label = STAGE_LABELS[stage];
   return (
@@ -72,7 +70,7 @@ export function ReviewerCaseHeader({
       title={assignment.applicantName}
       sub={
         <>
-          {assignment.position} · {departmentFor(assignment).name} · {assignment.reference}
+          {assignment.position} · {assignment.department.name} · {assignment.reference}
         </>
       }
     >

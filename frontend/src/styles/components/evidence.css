@@ -84,6 +84,27 @@
   color: var(--ink-3);
 }
 
+/* The attach button stands level with the document-type dropdown beside it. */
+.evidence-pending > .btn {
+  min-height: var(--control-height);
+}
+
+/* On a phone the dropdown would be squeezed between the icon and the button to a few
+   characters: the button moves to its own row, and the dropdown takes the full width. */
+@media (max-width: 540px) {
+  .evidence-pending {
+    flex-wrap: wrap;
+  }
+
+  .evidence-pending .evidence-picker {
+    flex-basis: calc(100% - 32px - 0.7rem);
+  }
+
+  .evidence-pending > .btn {
+    flex: 1 1 100%;
+  }
+}
+
 .evidence-pending .btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;

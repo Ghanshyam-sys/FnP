@@ -6,12 +6,25 @@
   align-items: center;
   gap: 1.1rem;
   flex: 0 0 auto;
+  /* Never wider than the card: unwrapped, the legend alone is wider than a phone. */
+  max-width: 100%;
+  min-width: 0;
 }
 
 .riskmeter {
   width: 100%;
   min-width: 13rem;
   max-width: 17rem;
+}
+
+@media (max-width: 540px) {
+  .verdict-score {
+    flex: 1 1 100%;
+  }
+
+  .riskmeter {
+    min-width: 0;
+  }
 }
 
 .riskmeter-head {

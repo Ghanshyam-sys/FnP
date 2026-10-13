@@ -57,6 +57,23 @@
   width: 100%;
 }
 
+/* A button that cannot be used yet reads as such: dimmed, no hover or press response. */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.btn-primary:disabled:hover {
+  background: var(--accent);
+}
+
+.btn-ghost:disabled:hover {
+  border-color: var(--hairline);
+  color: var(--ink);
+}
+
 .field {
   display: flex;
   flex-direction: column;
@@ -88,6 +105,70 @@
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+/* ---- Dropdowns ----
+   The browser's own select differs from the text inputs beside it: 2px shorter, its text set in
+   further, and a heavy arrow pressed against the right edge. Drawn here instead: the same height
+   and text inset as an input, and the app's own chevron, inset like the input's padding. */
+:root {
+  /* An input's height: its line box plus padding and border. Dropdowns are held to it. */
+  --control-height: calc(0.875rem * 1.55 + 1.2rem + 2px);
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2352514e' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c3c2b7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  }
+}
+
+:root[data-theme="dark"] {
+  --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23c3c2b7' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+}
+
+select.input {
+  -webkit-appearance: none;
+  appearance: none;
+  height: var(--control-height);
+  padding-right: 2.25rem;
+  background-image: var(--select-chevron);
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 1rem;
+  line-height: 1.55;
+  /* A long option ends in an ellipsis rather than running under the chevron. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+/* Nothing chosen yet: a prompt that cannot itself be chosen ("Choose a department") reads as a
+   placeholder, as an empty input does. An empty value that is a real choice ("All departments")
+   does not. The options in the open list keep the normal text colour. */
+select.input:has(option[value=""][disabled]:checked) {
+  color: var(--ink-3);
+}
+
+select.input option {
+  color: var(--ink);
+}
+
+select.input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Windows high-contrast mode drops background images, which would leave no arrow at all: the
+   browser's own control is used there instead. */
+@media (forced-colors: active) {
+  select.input {
+    -webkit-appearance: auto;
+    appearance: auto;
+    background-image: none;
+    padding-right: 0.75rem;
+  }
 }
 
 .field-error {

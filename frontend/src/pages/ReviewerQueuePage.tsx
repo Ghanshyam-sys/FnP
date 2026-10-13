@@ -1,13 +1,11 @@
-import { useMemo } from "react";
+import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { useAssessment } from "../state/useAssessment";
-import { departmentFor } from "../data/assignments";
-import { reviewableAssignments } from "../state/assignmentStore";
+import { useAssessments, useDepartments } from "../api/queries";
 import { formatDate } from "../utils/format";
-import { caseStatusOf, unresolvedFlags } from "../state/reviewState";
-import { anyCaseInFlight, readCase } from "../state/caseStore";
-import { useStageTicker } from "../state/useStageTicker";
-import { STAGE_LABELS, needsReviewer, queueRank } from "../state/caseLabels";
+import { STAGE_LABELS, needsReviewer } from "../state/caseLabels";
+import { Loading, LoadError } from "../components/LoadState";
+import EmptyState from "../components/EmptyState";
+import DepartmentIcon from "../components/DepartmentIcon";
 import { routes } from "../routes";
 import type { QueueNotice } from "../routes";
 import {
@@ -15,52 +13,41 @@ import {
   ArrowRightIcon,
   BankIcon,
   CheckCircleIcon,
+  GridIcon,
   PlusIcon,
   SlidersIcon,
 } from "../components/icons";
-import type { Assignment } from "../data/assignments";
-import type { CaseStage } from "../state/caseStore";
+import type { Assessment, Stage } from "../api/types";
 
 interface QueueRow {
-  assignment: Assignment;
-  stage: CaseStage;
-  openFlags: number;
-  flaggedQids: string[];
+  assignment: Assessment;
+  stage: Stage;
 }
 
 export default function ReviewerQueuePage() {
   const navigate = useNavigate();
-  const { getForm } = useAssessment();
   const notice = (useLocation().state as QueueNotice | null)?.notice;
-  // Read on every render: the reviewer may have just created or removed one.
-  const assignments = reviewableAssignments();
-  // Derived straight from the stored timestamps, so the clock stops on the render where the
-  // last case settles without routing the flag through state.
-  const now = useStageTicker(anyCaseInFlight(assignments.map((a) => a.id)));
+  // "" lists every department.
+  const [department, setDepartment] = useState("");
+  const departments = useDepartments();
+  // Refreshes itself while any listed case is still with the engine.
+  const list = useAssessments(department);
 
-  const rows = useMemo<QueueRow[]>(() => {
-    const built = assignments.map((assignment) => {
-      const { outcome, flagged, stage } = caseStatusOf(
-        assignment.id,
-        assignment.applicantId,
-        getForm(assignment),
-        now
-      );
-      return {
-        assignment,
-        stage,
-        openFlags: unresolvedFlags(assignment.id, outcome).length,
-        flaggedQids: flagged,
-      };
-    });
-    return built.sort(
-      (a, b) =>
-        queueRank(a.stage) - queueRank(b.stage) ||
-        a.assignment.applicantName.localeCompare(b.assignment.applicantName)
-    );
-  }, [assignments, getForm, now]);
+  if (list.isPending) return <Loading />;
+  if (list.isError && !list.data) return <LoadError error={list.error} onRetry={() => list.refetch()} />;
 
-  const actionable = rows.filter((r) => needsReviewer(r.stage)).length;
+  // In the server's order: cases needing the reviewer first, then work in flight, then settled
+  // ones, newest activity first within each. "Show more" therefore adds rows at the end, never
+  // among the ones already on screen.
+  const rows: QueueRow[] = list.data.pages
+    .flatMap((p) => p.results)
+    .map((assignment) => ({ assignment, stage: assignment.stage }));
+
+  // The whole queue's counts, not just the pages loaded so far.
+  const latest = list.data.pages[list.data.pages.length - 1];
+  const total = latest?.total ?? rows.length;
+  const actionable = latest?.actionable ?? rows.filter((r) => needsReviewer(r.stage)).length;
+  const departmentName = departments.data?.find((d) => d.key === department)?.name;
 
   const openCase = (row: QueueRow) => {
     const target = row.stage === "DECISION_PENDING" ? "result" : "authentication";
@@ -77,14 +64,18 @@ export default function ReviewerQueuePage() {
         <div className="page-head-text">
           <h1>Assessment queue</h1>
           <p className="page-sub">
-            {rows.length} fit and proper assessment{rows.length === 1 ? "" : "s"} for Banking
-            Licence.{" "}
+            {total} fit and proper assessment{total === 1 ? "" : "s"}{" "}
+            {departmentName ? `for ${departmentName}` : "across all departments"}.{" "}
             {actionable > 0
               ? `${actionable} need${actionable === 1 ? "s" : ""} your attention.`
               : "Nothing is waiting on you."}
           </p>
         </div>
         <div className="page-head-aside">
+          <button className="btn btn-ghost" onClick={() => navigate(routes.reviewerAdmin())}>
+            <GridIcon size={15} />
+            Admin panel
+          </button>
           <button className="btn btn-ghost" onClick={() => navigate(routes.reviewerQuestions())}>
             <SlidersIcon size={15} />
             Configure questions
@@ -103,80 +94,117 @@ export default function ReviewerQueuePage() {
         </div>
       )}
 
-      <div className="case-grid">
-        {rows.map((row) => {
-          const { assignment, stage } = row;
-          const label = STAGE_LABELS[stage];
-          return (
-            <button className="case-card" key={assignment.id} onClick={() => openCase(row)}>
-              <div className="case-card-head">
-                <span className="case-avatar">
-                  <BankIcon size={16} />
-                </span>
-                <span className={`chip chip-${label.tone}`}>
-                  {needsReviewer(stage) && <AlertTriangleIcon size={12} />}
-                  {stage === "ACCEPTED" && <CheckCircleIcon size={12} />}
-                  {label.reviewer}
-                </span>
-              </div>
-
-              <h2 className="case-name">{assignment.applicantName}</h2>
-              <p className="case-role">
-                {assignment.position} · {assignment.entity}
-              </p>
-
-              <dl className="case-meta">
-                <div>
-                  <dt>Reference</dt>
-                  <dd>{assignment.reference}</dd>
-                </div>
-                <div>
-                  <dt>Initiated</dt>
-                  <dd>{formatDate(assignment.initiatedOn)}</dd>
-                </div>
-                <div>
-                  <dt>Department</dt>
-                  <dd>{departmentFor(assignment).name}</dd>
-                </div>
-              </dl>
-
-              <footer className="case-foot">
-                <CaseFootNote row={row} />
-                <span className="case-open">
-                  {stage === "DECISION_PENDING" ? "Decide" : "Open"}
-                  <ArrowRightIcon size={14} />
-                </span>
-              </footer>
-            </button>
-          );
-        })}
+      <div className="queue-filter">
+        <label className="field-label" htmlFor="queue-department">
+          Department
+        </label>
+        <select
+          id="queue-department"
+          className="input"
+          value={department}
+          onChange={(e) => setDepartment(e.target.value)}
+        >
+          <option value="">All departments</option>
+          {departments.data?.map((d) => (
+            <option key={d.key} value={d.key}>
+              {d.name}
+            </option>
+          ))}
+        </select>
       </div>
+
+      {rows.length === 0 ? (
+        <EmptyState
+          icon={<BankIcon size={22} />}
+          title={departmentName ? `No assessments for ${departmentName}` : "No assessments yet"}
+        >
+          Assessments appear here once they are opened, by you or by an applicant starting their
+          own application. Choose New assessment to open one against an application.
+        </EmptyState>
+      ) : (
+        <div className="case-grid">
+          {rows.map((row) => {
+            const { assignment, stage } = row;
+            const label = STAGE_LABELS[stage];
+            return (
+              <button className="case-card" key={assignment.id} onClick={() => openCase(row)}>
+                <div className="case-card-head">
+                  <span className="case-avatar">
+                    <DepartmentIcon departmentKey={assignment.department.key} size={16} />
+                  </span>
+                  <span className={`chip chip-${label.tone}`}>
+                    {needsReviewer(stage) && <AlertTriangleIcon size={12} />}
+                    {stage === "ACCEPTED" && <CheckCircleIcon size={12} />}
+                    {label.reviewer}
+                  </span>
+                </div>
+
+                <h2 className="case-name">{assignment.applicantName}</h2>
+                <p className="case-role">
+                  {assignment.position} · {assignment.entity}
+                </p>
+
+                <dl className="case-meta">
+                  <div>
+                    <dt>Reference</dt>
+                    <dd>{assignment.reference}</dd>
+                  </div>
+                  <div>
+                    <dt>Initiated</dt>
+                    <dd>{formatDate(assignment.initiatedOn)}</dd>
+                  </div>
+                  <div>
+                    <dt>Department</dt>
+                    <dd>{assignment.department.name}</dd>
+                  </div>
+                </dl>
+
+                <footer className="case-foot">
+                  <CaseFootNote row={row} />
+                  <span className="case-open">
+                    {stage === "DECISION_PENDING" ? "Decide" : "Open"}
+                    <ArrowRightIcon size={14} />
+                  </span>
+                </footer>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {list.hasNextPage && (
+        <div className="queue-more">
+          <button className="btn btn-ghost" disabled={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
+            {list.isFetchingNextPage ? "Loading…" : "Show more"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
 function CaseFootNote({ row }: { row: QueueRow }) {
-  const record = readCase(row.assignment.id);
+  const { flagged, openFlags, rejected, decisionRemarks } = row.assignment.queue;
 
   if (row.stage === "REVIEW_PENDING") {
     return (
       <span className="case-note is-critical">
-        {row.openFlags} question{row.openFlags === 1 ? "" : "s"} to rule on
-        {row.flaggedQids.length > 0 && ` (${row.flaggedQids.join(", ")})`}
+        {openFlags} question{openFlags === 1 ? "" : "s"} to rule on
+        {flagged.length > 0 && ` (${flagged.join(", ")})`}
       </span>
     );
   }
   if (row.stage === "AWAITING_APPLICANT") {
-    const rejected = Object.entries(record.rulings)
-      .filter(([, r]) => r.verdict === "rejected")
-      .map(([qid]) => qid);
     return <span className="case-note">Rejected {rejected.join(", ")} — waiting on new evidence</span>;
   }
   if (row.stage === "DECISION_PENDING") {
     return <span className="case-note">Scored — accept or reject</span>;
   }
-  if (record.decision) {
-    return <span className="case-note">{record.decision.remarks.slice(0, 90)}</span>;
+  if (row.stage === "AUTH_FAILED") {
+    return <span className="case-note is-critical">Authentication failed — open to send it again</span>;
+  }
+  if (decisionRemarks) {
+    return <span className="case-note">{decisionRemarks.slice(0, 90)}</span>;
   }
   if (row.stage === "NOT_SUBMITTED") {
     return <span className="case-note">Waiting on the applicant</span>;

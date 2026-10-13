@@ -5,6 +5,7 @@
 export const ROUTE_PATTERNS = {
   login: "/",
   assessments: "/assessments",
+  newApplication: "/assessments/new",
   apply: "/apply/:id",
   applyReview: "/apply/:id/review",
   applyStatus: "/apply/:id/status",
@@ -15,6 +16,9 @@ export const ROUTE_PATTERNS = {
   reviewerNewAssessment: "/reviewer/assessments/new",
   reviewerAuthentication: "/reviewer/:id/authentication",
   reviewerResult: "/reviewer/:id/result",
+  reviewerAdmin: "/reviewer/admin",
+  reviewerAdminUsers: "/reviewer/admin/users",
+  reviewerAdminUser: "/reviewer/admin/users/:userId",
 } as const;
 
 /** The applicant's steps after the form itself, in the order the stepper shows them. */
@@ -23,6 +27,7 @@ export type ApplyStep = "review" | "status" | "authentication" | "result";
 export const routes = {
   login: () => ROUTE_PATTERNS.login,
   assessments: () => ROUTE_PATTERNS.assessments,
+  newApplication: () => ROUTE_PATTERNS.newApplication,
   apply: (id: string) => `/apply/${id}`,
   applyStep: (id: string, step: ApplyStep) => `/apply/${id}/${step}`,
   applyReview: (id: string) => routes.applyStep(id, "review"),
@@ -34,6 +39,9 @@ export const routes = {
   reviewerNewAssessment: () => ROUTE_PATTERNS.reviewerNewAssessment,
   reviewerAuthentication: (id: string) => `/reviewer/${id}/authentication`,
   reviewerResult: (id: string) => `/reviewer/${id}/result`,
+  reviewerAdmin: () => ROUTE_PATTERNS.reviewerAdmin,
+  reviewerAdminUsers: () => ROUTE_PATTERNS.reviewerAdminUsers,
+  reviewerAdminUser: (userId: number) => `/reviewer/admin/users/${userId}`,
 };
 
 /** Navigation state the reviewer queue reads, so it can confirm what the reviewer just did. */

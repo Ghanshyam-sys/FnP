@@ -1,7 +1,6 @@
 import { useState } from "react";
 import ScoreGauge from "./ScoreGauge";
 import RiskMeter from "./RiskMeter";
-import { allQuestions } from "../domain/authentication";
 import {
   AlertOctagonIcon,
   AlertTriangleIcon,
@@ -10,6 +9,7 @@ import {
   InfoIcon,
 } from "./icons";
 import { displaySection } from "../domain/sectionLabels";
+import { reportQuestions } from "../api/adapt";
 import AnswerTag from "./AnswerTag";
 import type {
   AuthenticationOutcome,
@@ -147,9 +147,7 @@ export default function ReportView({
   authentication: AuthenticationOutcome;
   scoreResult: ScoreResult;
 }) {
-  const cautions = allQuestions(authentication).filter((q) =>
-    q.checks.some((c) => c.status === "caution")
-  );
+  const cautions = reportQuestions(authentication).filter((q) => q.checks.some((c) => c.status === "caution"));
   const sections = sectionTotals(scoreResult);
   const BandIcon = BAND_ICON[scoreResult.band];
 

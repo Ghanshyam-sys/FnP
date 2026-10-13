@@ -1,110 +1,164 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { issuesIn } from "../domain/authentication";
-import { unresolvedFlags } from "../state/reviewState";
+import { useCatalogue, useForm, useRemoveAssessment, useRetry, useRule, useUndoRuling } from "../api/queries";
+import { refusalMessage } from "../api/client";
+import { useCaseView } from "../api/useCaseView";
 import {
-  anyCaseInFlight,
-  clearRuling,
-  isScored,
-  readCase,
-  ruleOnQuestion,
-  stageFor,
-} from "../state/caseStore";
-import { useCaseView } from "../state/useCaseView";
-import { useStageTicker } from "../state/useStageTicker";
+  questionsWithIssues,
+  reviewStateFor,
+  toApplicantDetails,
+  toApplicationForm,
+  unresolvedFlags,
+} from "../api/adapt";
+import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
 import type { QueueNotice } from "../routes";
-import { isCreatedAssignment, removeAssignment } from "../state/assignmentStore";
 import NotSubmittedPanel from "../components/NotSubmittedPanel";
-import AssessmentNotFound from "../components/AssessmentNotFound";
+import FormAnswers from "../components/FormAnswers";
 import AuthenticationReport from "../components/AuthenticationReport";
 import OverrideDialog from "../components/OverrideDialog";
 import ReviewerTabs from "../components/ReviewerTabs";
+import EmptyState from "../components/EmptyState";
 import { ReviewerCaseHeader } from "../components/PageHeader";
 import { ApplicantDetailsSummary } from "../components/ApplicantDetails";
+import { Loading, LoadError } from "../components/LoadState";
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircleIcon,
+  InfoIcon,
   MessageIcon,
+  ShieldCheckIcon,
 } from "../components/icons";
-import type { RulingVerdict } from "../state/caseStore";
 import type { QuestionAuthResult } from "../domain/types";
+import type { Verdict } from "../api/types";
 
 interface Pending {
   result: QuestionAuthResult;
-  verdict: RulingVerdict;
+  verdict: Verdict;
 }
 
 export default function ReviewerAuthenticationPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const [pending, setPending] = useState<Pending | null>(null);
-  // Bumped after each ruling so the page re-reads the case from storage.
-  const [revision, setRevision] = useState(0);
-
-  // Every hook runs before the guard below, so a not-found can never change the hook order.
   const view = useCaseView(id);
-  const now = useStageTicker(anyCaseInFlight([id]));
+  const form = useForm(id);
+  // Only for showing an unsubmitted draft; already cached for every other page that needs it.
+  const catalogue = useCatalogue();
+  const rule = useRule(id);
+  const undo = useUndoRuling(id);
+  const retry = useRetry(id);
+  const removal = useRemoveAssessment(id);
 
-  if (!view) return <AssessmentNotFound />;
-  const { assignment, form, outcome, flagged } = view;
+  if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
+  if (form.isError && !form.data) return <LoadError error={form.error} onRetry={form.refetch} />;
+  if (view.status === "loading" || !form.data) return <Loading />;
+  const { assessment: assignment, data, outcome } = view;
+  const stage = data.stage;
 
-  const stage = stageFor(id, flagged, now);
+  const back = (
+    <footer className="actionbar">
+      <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+        <ArrowLeftIcon size={15} />
+        Back to the queue
+      </button>
+    </footer>
+  );
 
   // Nothing has been submitted, so there is nothing to authenticate or rule on yet.
   if (stage === "NOT_SUBMITTED") {
-    const remove = () => {
-      if (!removeAssignment(id)) return;
-      const state: QueueNotice = {
-        notice: `Assessment ${id} for ${assignment.applicantName} was removed.`,
-      };
-      navigate(routes.reviewer(), { state });
-    };
+    const remove = () =>
+      removal.mutate(undefined, {
+        onSuccess: () => {
+          const state: QueueNotice = { notice: `Assessment ${id} for ${assignment.applicantName} was removed.` };
+          navigate(routes.reviewer(), { state });
+        },
+      });
     return (
       <div className="page">
         <ReviewerCaseHeader assignment={assignment} stage={stage} />
         <ReviewerTabs assessmentId={id} active="authentication" scoringReady={false} />
-        <NotSubmittedPanel
-          assignment={assignment}
-          canRemove={isCreatedAssignment(id)}
-          onRemove={remove}
-        />
-        <footer className="actionbar">
-          <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
-            <ArrowLeftIcon size={15} />
-            Back to the queue
-          </button>
-        </footer>
+        <NotSubmittedPanel assignment={assignment} canRemove={assignment.removable} onRemove={remove} />
+        {assignment.hasDraft && catalogue.data && (
+          <>
+            <div className="notice notice-info">
+              <InfoIcon size={17} />
+              <div>
+                <strong>Draft — not submitted.</strong> This is what {assignment.applicantName} has
+                entered so far. It can still change, and nothing is authenticated until they submit.
+              </div>
+            </div>
+            <ApplicantDetailsSummary
+              applicant={toApplicantDetails(form.data)}
+              email={assignment.applicantEmail}
+              sub="As entered so far on the draft."
+            />
+            <FormAnswers form={toApplicationForm(form.data, catalogue.data, assignment)} />
+          </>
+        )}
+        {back}
       </div>
     );
   }
 
-  const record = readCase(id);
-  const open = unresolvedFlags(id, outcome);
-  const issues = issuesIn(outcome);
+  // Submitted, but the engine has not produced a report: still running, or the run failed.
+  if (!outcome) {
+    const failed = stage === "AUTH_FAILED";
+    return (
+      <div className="page">
+        <ReviewerCaseHeader assignment={assignment} stage={stage} />
+        <ReviewerTabs assessmentId={id} active="authentication" scoringReady={false} />
+        {failed && data.run?.unconfirmed && (
+          <div className="notice notice-warning" role="note">
+            <AlertTriangleIcon size={17} />
+            <div>
+              <strong>The engine may still be working on the last attempt.</strong> It did not confirm
+              receiving it in time. Sending again starts a second run, so check with the engine team first.
+            </div>
+          </div>
+        )}
+        <EmptyState
+          icon={failed ? <AlertTriangleIcon size={22} /> : <ShieldCheckIcon size={22} />}
+          title={failed ? "Authentication could not run" : "Authentication in progress"}
+          action={
+            failed && (
+              <button className="btn btn-primary" disabled={retry.isPending} onClick={() => retry.mutate()}>
+                {retry.isPending ? "Sending…" : "Send again"}
+              </button>
+            )
+          }
+        >
+          {failed
+            ? "The authentication service could not process this submission. The applicant's answers and documents are kept; send it again to retry."
+            : "The engine is reading the documents. The report appears here when it finishes."}
+        </EmptyState>
+        {back}
+      </div>
+    );
+  }
+
+  const open = unresolvedFlags(data);
+  const issues = questionsWithIssues(outcome);
   const canRule = stage === "REVIEW_PENDING";
 
   const confirm = (comment: string) => {
     if (!pending) return;
-    ruleOnQuestion(id, pending.result.qid, pending.verdict, comment);
-    setPending(null);
-    setRevision((v) => v + 1);
-  };
-
-  const undo = (qid: string) => {
-    clearRuling(id, qid);
-    setRevision((v) => v + 1);
+    rule.mutate(
+      { qid: pending.result.qid, verdict: pending.verdict, comment },
+      // Kept open on a refusal, which the dialog explains, so the comment is not lost.
+      { onSuccess: () => setPending(null) }
+    );
   };
 
   const questionFooter = (result: QuestionAuthResult) => {
     if (result.status !== "issue") return null;
-    const ruling = record.rulings[result.qid];
+    const ruling = data.rulings[result.qid];
 
     if (ruling) {
       return (
-        <div className="ruling-block" key={`${result.qid}-${revision}`}>
+        <div className="ruling-block">
           <div className={`reviewer-note is-${ruling.verdict}`}>
             <MessageIcon size={14} />
             <div>
@@ -117,7 +171,11 @@ export default function ReviewerAuthenticationPage() {
             </div>
           </div>
           {stage === "REVIEW_PENDING" && (
-            <button className="btn btn-ghost btn-sm" onClick={() => undo(result.qid)}>
+            <button
+              className="btn btn-ghost btn-sm"
+              disabled={undo.isPending}
+              onClick={() => undo.mutate(result.qid)}
+            >
               Undo this ruling
             </button>
           )}
@@ -136,14 +194,20 @@ export default function ReviewerAuthenticationPage() {
         <div className="ruling-buttons">
           <button
             className="btn btn-primary btn-sm"
-            onClick={() => setPending({ result, verdict: "accepted" })}
+            onClick={() => {
+              rule.reset();
+              setPending({ result, verdict: "accepted" });
+            }}
           >
             <CheckCircleIcon size={14} />
             Accept with comment
           </button>
           <button
             className="btn btn-ghost btn-sm"
-            onClick={() => setPending({ result, verdict: "rejected" })}
+            onClick={() => {
+              rule.reset();
+              setPending({ result, verdict: "rejected" });
+            }}
           >
             <AlertTriangleIcon size={14} />
             Reject and return
@@ -162,15 +226,15 @@ export default function ReviewerAuthenticationPage() {
           judgment at this stage.
         </div>
       </div>
-    ) : open.length > 0 ? (
+    ) : open.length > 0 && canRule ? (
       <div className="notice notice-critical">
         <AlertTriangleIcon size={17} />
         <div>
           <strong>
             {open.length} question{open.length > 1 ? "s" : ""} awaiting your ruling
           </strong>{" "}
-          ({open.map((f) => f.result.qid).join(", ")}). The assessment moves to scoring once every
-          flagged answer is accepted.
+          ({open.join(", ")}). Once every flagged answer has a ruling, the assessment moves on: to
+          scoring if you accept them all, back to the applicant if you reject any.
         </div>
       </div>
     ) : (
@@ -192,17 +256,26 @@ export default function ReviewerAuthenticationPage() {
       <ReviewerTabs assessmentId={id} active="authentication" scoringReady={isScored(stage)} />
 
       <ApplicantDetailsSummary
-        applicant={form.applicant}
-        email={assignment.email}
+        applicant={toApplicantDetails(form.data)}
+        email={assignment.applicantEmail}
         sub="As declared by the applicant on the form."
       />
 
       <AuthenticationReport
-        assessmentId={id}
         outcome={outcome}
+        reviewState={(qid) => reviewStateFor(data, qid)}
         notice={notice}
         questionFooter={questionFooter}
       />
+
+      {undo.isError && (
+        <div className="notice notice-critical" role="alert">
+          <AlertTriangleIcon size={17} />
+          <div>
+            <strong>The ruling was not undone.</strong> {refusalMessage(undo.error, "qid")}
+          </div>
+        </div>
+      )}
 
       <footer className="actionbar">
         <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
@@ -225,6 +298,8 @@ export default function ReviewerAuthenticationPage() {
           failingChecks={pending.result.checks
             .filter((c) => c.status === "fail")
             .map((c) => `${c.label} — ${c.note}`)}
+          busy={rule.isPending}
+          error={rule.isError ? refusalMessage(rule.error, "comment") : undefined}
           onConfirm={confirm}
           onCancel={() => setPending(null)}
         />

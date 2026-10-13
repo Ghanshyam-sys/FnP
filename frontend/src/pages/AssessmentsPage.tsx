@@ -4,46 +4,22 @@ import { routes } from "../routes";
 import type { ApplyStep } from "../routes";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
-import { useAssessment } from "../state/useAssessment";
-import { hasDraft } from "../state/draftStore";
-import { caseStatusOf } from "../state/reviewState";
+import { useAssessments, useRemoveAssessment, useResetForm, useSession } from "../api/queries";
 import { STAGE_LABELS } from "../state/caseLabels";
-import type { CaseStage } from "../state/caseStore";
-import { departmentFor } from "../data/assignments";
-import { assignmentsForEmail } from "../state/assignmentStore";
+import { Loading, LoadError } from "../components/LoadState";
 import { formatDate } from "../utils/format";
-import type { Assignment } from "../data/assignments";
-import {
-  AlertTriangleIcon,
-  ArrowRightIcon,
-  BankIcon,
-  ChartIcon,
-  FileTextIcon,
-  GraduationCapIcon,
-  MailIcon,
-  PencilIcon,
-  PlusIcon,
-  UmbrellaIcon,
-  WalletIcon,
-} from "../components/icons";
+import type { Assessment, Stage } from "../api/types";
+import DepartmentIcon from "../components/DepartmentIcon";
+import { AlertTriangleIcon, ArrowRightIcon, MailIcon, PencilIcon, PlusIcon } from "../components/icons";
 
-const DEPARTMENT_ICON: Record<string, typeof BankIcon> = {
-  banking: BankIcon,
-  education: GraduationCapIcon,
-  insurance: UmbrellaIcon,
-  microfinance: WalletIcon,
-  payments: FileTextIcon,
-  markets: ChartIcon,
-};
-
-type ModalStep = "choose" | "confirm";
+type ModalStep = "choose" | "confirm" | "remove";
 
 /**
  * Where the second choice goes, given where the case actually stands. Only an unsubmitted form
  * is still editable: once it is with the reviewer, dropping the filer back into data collection
  * would let them change answers out from under a review that is already under way.
  */
-function resumeFor(stage: CaseStage | null): {
+function resumeFor(stage: Stage): {
   step: ApplyStep | null;
   title: string;
   sub: string;
@@ -55,7 +31,7 @@ function resumeFor(stage: CaseStage | null): {
       sub: "The reviewer asked for new documents",
     };
   }
-  if (stage && stage !== "NOT_SUBMITTED") {
+  if (stage !== "NOT_SUBMITTED") {
     return {
       step: "status",
       title: "View this submission",
@@ -67,48 +43,58 @@ function resumeFor(stage: CaseStage | null): {
 
 export default function AssessmentsPage() {
   const navigate = useNavigate();
-  const { email, getForm, startNewApplication } = useAssessment();
-  const [selected, setSelected] = useState<Assignment | null>(null);
+  const { data: user } = useSession();
+  const list = useAssessments();
+  const reset = useResetForm();
+  const [selected, setSelected] = useState<Assessment | null>(null);
+  const removal = useRemoveAssessment(selected?.id ?? "");
   const [step, setStep] = useState<ModalStep>("choose");
 
-  if (!email) return <Navigate to={routes.login()} replace />;
+  if (!user) return <Navigate to={routes.login()} replace />;
+  // The reviewer's list of assessments is the queue.
+  if (user.role === "reviewer") return <Navigate to={routes.reviewer()} replace />;
+  if (list.isPending) return <Loading />;
+  if (list.isError && !list.data) return <LoadError error={list.error} onRetry={() => list.refetch()} />;
 
-  const assignments = assignmentsForEmail(email);
+  const email = user.email;
+  const assignments = list.data.pages.flatMap((p) => p.results);
 
-  /** The stage each card shows, read from the shared case state. */
-  const stageOf = (assignment: Assignment) => {
-    if (assignment.isDummy) return null;
-    return caseStatusOf(assignment.id, assignment.applicantId, getForm(assignment)).stage;
-  };
-
-  const open = (assignment: Assignment) => {
-    // Decorative cards carry no assessment, so there is nothing to open.
-    if (assignment.isDummy) return;
-    setSelected(assignment);
+  const open = (assessment: Assessment) => {
+    setSelected(assessment);
     setStep("choose");
+    removal.reset();
   };
 
   const close = () => setSelected(null);
 
   const beginNew = () => {
     if (!selected) return;
-    if (hasDraft(selected)) {
+    if (selected.hasDraft) {
       setStep("confirm");
       return;
     }
-    startNewApplication(selected);
     navigate(routes.apply(selected.id));
   };
 
   const confirmNew = () => {
     if (!selected) return;
-    startNewApplication(selected);
-    navigate(routes.apply(selected.id));
+    reset.mutate(selected.id, { onSuccess: () => navigate(routes.apply(selected.id)) });
   };
 
-  // The second choice in the dialog depends on where the selected case stands.
-  const resume = selected ? resumeFor(stageOf(selected)) : null;
-  const resumeAvailable = selected ? hasDraft(selected) : false;
+  const confirmRemove = () => removal.mutate(undefined, { onSuccess: close });
+
+  const startApplication = (
+    <button className="btn btn-primary" onClick={() => navigate(routes.newApplication())}>
+      <PlusIcon size={15} />
+      Start a new application
+    </button>
+  );
+
+  // The second choice in the dialog depends on where the selected case stands. Only a form not
+  // yet submitted can be started over: a submitted one is a record the reviewer is working on.
+  const resume = selected ? resumeFor(selected.stage) : null;
+  const resumeAvailable = selected ? selected.hasDraft || selected.stage !== "NOT_SUBMITTED" : false;
+  const canStartOver = selected?.stage === "NOT_SUBMITTED";
 
   return (
     <div className="page">
@@ -119,43 +105,37 @@ export default function AssessmentsPage() {
             {assignments.length > 0
               ? `${assignments.length} fit and proper assessment${
                   assignments.length > 1 ? "s have" : " has"
-                } been initiated against your applications. Complete each one for the department that requested it.`
-              : "Fit and proper assessments initiated against your applications appear here."}
+                } been started for your applications. Complete each one for its department.`
+              : "Fit and proper assessments for your applications appear here."}
           </p>
         </div>
+        {assignments.length > 0 && <div className="page-head-aside">{startApplication}</div>}
       </header>
 
       {assignments.length === 0 ? (
-        <EmptyState icon={<MailIcon size={22} />} title={<>No assessments for {email}</>}>
-          A fit and proper assessment is created by the department handling your licence or
-          accreditation application. Once one is initiated, it will be listed here.
+        <EmptyState icon={<MailIcon size={22} />} title={<>No assessments for {email}</>} action={startApplication}>
+          Start your own application for the department handling your licence or accreditation
+          application, or wait for the department to open one for you. Either way, it is listed here.
         </EmptyState>
       ) : (
         <div className="tiles">
           {assignments.map((assignment) => {
-            const department = departmentFor(assignment);
-            const Icon = DEPARTMENT_ICON[assignment.departmentKey] ?? BankIcon;
-            const started = hasDraft(assignment);
-            const stage = stageOf(assignment);
-            // A live card reports where its assessment actually stands; the decorative ones
-            // only ever show that nothing has been started.
+            const department = assignment.department;
+            const started = assignment.hasDraft;
+            const stage = assignment.stage;
+            // A submitted assessment reports where it stands; before that, whether it is started.
             const badge =
-              stage && stage !== "NOT_SUBMITTED"
+              stage !== "NOT_SUBMITTED"
                 ? { label: STAGE_LABELS[stage].applicant, tone: STAGE_LABELS[stage].tone }
                 : {
                     label: started ? "Draft saved" : "Not started",
                     tone: started ? "info" : "neutral",
                   };
             return (
-              <button
-                className={`tile${assignment.isDummy ? " is-inert" : ""}`}
-                key={assignment.id}
-                onClick={() => open(assignment)}
-                aria-disabled={assignment.isDummy}
-              >
+              <button className="tile" key={assignment.id} onClick={() => open(assignment)}>
                 <span className="tile-head">
                   <span className="tile-icon">
-                    <Icon size={19} />
+                    <DepartmentIcon departmentKey={department.key} size={19} />
                   </span>
                   <span className={`chip chip-${badge.tone}`}>{badge.label}</span>
                 </span>
@@ -186,7 +166,7 @@ export default function AssessmentsPage() {
         <Modal labelledBy="assessment-modal-title" portal={false} onClose={close}>
           {step === "choose" ? (
             <>
-              <h2 id="assessment-modal-title">{departmentFor(selected).name}</h2>
+              <h2 id="assessment-modal-title">{selected.department.name}</h2>
               <p className="modal-sub">
                 Entity and position are carried over from application {selected.reference}.
               </p>
@@ -202,16 +182,18 @@ export default function AssessmentsPage() {
                 </div>
               </dl>
 
-              <button className="choice" onClick={beginNew}>
-                <span className="choice-icon">
-                  <PlusIcon size={17} />
-                </span>
-                <span className="choice-text">
-                  <span className="choice-title">New application</span>
-                  <span className="choice-sub">Start a blank form</span>
-                </span>
-                <ArrowRightIcon size={15} className="choice-arrow" />
-              </button>
+              {canStartOver && (
+                <button className="choice" onClick={beginNew}>
+                  <span className="choice-icon">
+                    <PlusIcon size={17} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-title">Start over</span>
+                    <span className="choice-sub">Clear this form and begin again</span>
+                  </span>
+                  <ArrowRightIcon size={15} className="choice-arrow" />
+                </button>
+              )}
 
               <button
                 className={`choice${resumeAvailable ? "" : " is-disabled"}`}
@@ -236,9 +218,46 @@ export default function AssessmentsPage() {
                 <ArrowRightIcon size={15} className="choice-arrow" />
               </button>
 
+              {selected.removable && (
+                <button className="choice" onClick={() => setStep("remove")}>
+                  <span className="choice-icon">
+                    <AlertTriangleIcon size={17} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-title">Remove application</span>
+                    <span className="choice-sub">Delete it and everything saved for it</span>
+                  </span>
+                  <ArrowRightIcon size={15} className="choice-arrow" />
+                </button>
+              )}
+
               <div className="modal-actions">
                 <button className="btn btn-ghost" onClick={close}>
                   Cancel
+                </button>
+              </div>
+            </>
+          ) : step === "remove" ? (
+            <>
+              <span className="modal-icon">
+                <AlertTriangleIcon size={20} />
+              </span>
+              <h2 id="assessment-modal-title">Remove this application?</h2>
+              <p className="modal-sub">
+                The {selected.department.name} application {selected.reference} and everything saved
+                for it are deleted. This cannot be undone.
+              </p>
+              {removal.isError && (
+                <p className="field-error" role="alert">
+                  It was not removed. It may have been submitted in the meantime; close this and check.
+                </p>
+              )}
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setStep("choose")}>
+                  Cancel
+                </button>
+                <button className="btn btn-critical" onClick={confirmRemove} disabled={removal.isPending}>
+                  {removal.isPending ? "Removing…" : "Remove application"}
                 </button>
               </div>
             </>
@@ -249,14 +268,14 @@ export default function AssessmentsPage() {
               </span>
               <h2 id="assessment-modal-title">Replace your saved draft?</h2>
               <p className="modal-sub">
-                Starting a new application clears everything saved for{" "}
-                {departmentFor(selected).name}. This cannot be undone.
+                Starting over clears everything saved for{" "}
+                {selected.department.name}. This cannot be undone.
               </p>
               <div className="modal-actions">
                 <button className="btn btn-ghost" onClick={() => setStep("choose")}>
                   Cancel
                 </button>
-                <button className="btn btn-primary" onClick={confirmNew}>
+                <button className="btn btn-primary" onClick={confirmNew} disabled={reset.isPending}>
                   Replace and start
                   <ArrowRightIcon size={15} />
                 </button>

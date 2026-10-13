@@ -1,7 +1,9 @@
-/** What the reviewer enters to open an assessment against an applicant. */
+/** What is entered to open an assessment: by the reviewer for an applicant, or by an applicant. */
 export interface NewAssessmentInput {
   applicantName: string;
   email: string;
+  /** The department's key. */
+  department: string;
   entity: string;
   position: string;
   reference: string;
@@ -11,35 +13,53 @@ export interface NewAssessmentInput {
 
 export type NewAssessmentField = keyof NewAssessmentInput;
 
+/** Who is filling in the form: the reviewer opening one for an applicant, or the applicant. */
+export type NewAssessmentMode = "reviewer" | "applicant";
+
 export interface NewAssessmentFieldDef {
   key: NewAssessmentField;
   label: string;
-  input: "text" | "email" | "date";
+  input: "text" | "email" | "date" | "select";
   placeholder?: string;
   hint?: string;
 }
 
-/** The form's fields, in display order. Every one is required. */
-export const NEW_ASSESSMENT_FIELDS: NewAssessmentFieldDef[] = [
-  { key: "applicantName", label: "Applicant full name", input: "text", placeholder: "e.g. Anna M. Nghipandulwa" },
-  {
-    key: "email",
-    label: "Applicant email",
-    input: "email",
-    placeholder: "name@example.na",
-    hint: "The applicant signs in with this address to see the assessment.",
-  },
-  { key: "entity", label: "Entity", input: "text", placeholder: "e.g. Namib Trust Bank Limited" },
-  { key: "position", label: "Position applied for", input: "text", placeholder: "e.g. Non-Executive Director" },
-  {
-    key: "reference",
-    label: "Parent application reference",
-    input: "text",
-    placeholder: "e.g. BL-2026-0510",
-    hint: "The licence application this assessment belongs to. Must not already be in use.",
-  },
-  { key: "initiatedOn", label: "Initiated on", input: "date" },
-];
+/**
+ * The form's fields, in display order; every one is required. An applicant applies as themselves
+ * (their sign-in email) and is dated today, so those two fields are the reviewer's only.
+ */
+export function newAssessmentFields(mode: NewAssessmentMode): NewAssessmentFieldDef[] {
+  const applicant = mode === "applicant";
+  const fields: NewAssessmentFieldDef[] = [
+    {
+      key: "applicantName",
+      label: applicant ? "Your full name" : "Applicant full name",
+      input: "text",
+      placeholder: "e.g. Anna M. Nghipandulwa",
+    },
+    {
+      key: "email",
+      label: "Applicant email",
+      input: "email",
+      placeholder: "name@example.na",
+      hint: "The applicant signs in with this address to see the assessment.",
+    },
+    { key: "department", label: "Department", input: "select" },
+    { key: "entity", label: "Entity", input: "text", placeholder: "e.g. Namib Trust Bank Limited" },
+    { key: "position", label: "Position applied for", input: "text", placeholder: "e.g. Non-Executive Director" },
+    {
+      key: "reference",
+      label: "Parent application reference",
+      input: "text",
+      placeholder: "e.g. BL-2026-0510",
+      hint: applicant
+        ? "The reference of the licence or accreditation application this assessment is for."
+        : "The licence application this assessment belongs to. Must not already be in use.",
+    },
+    { key: "initiatedOn", label: "Initiated on", input: "date" },
+  ];
+  return applicant ? fields.filter((f) => f.key !== "email" && f.key !== "initiatedOn") : fields;
+}
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -49,6 +69,7 @@ export function normaliseNewAssessment(input: NewAssessmentInput): NewAssessment
   return {
     applicantName: input.applicantName.trim(),
     email: input.email.trim().toLowerCase(),
+    department: input.department,
     entity: input.entity.trim(),
     position: input.position.trim(),
     reference: input.reference.trim(),
@@ -57,31 +78,26 @@ export function normaliseNewAssessment(input: NewAssessmentInput): NewAssessment
 }
 
 /**
- * Field-by-field problems, empty when the assessment can be created. `takenReferences` is every
- * parent reference already in use; the same person may hold several assessments, but each
- * application can only be assessed once.
+ * Field-by-field problems found before sending, empty when the form is complete. Whether the
+ * reference is already assessed is the server's to say: it answers with a field error.
  */
 export function validateNewAssessment(
   raw: NewAssessmentInput,
-  takenReferences: Iterable<string>,
-  today: string
+  today: string,
+  fields: NewAssessmentFieldDef[] = newAssessmentFields("reviewer")
 ): Partial<Record<NewAssessmentField, string>> {
   const input = normaliseNewAssessment(raw);
   const errors: Partial<Record<NewAssessmentField, string>> = {};
+  const asked = new Set(fields.map((f) => f.key));
 
-  for (const def of NEW_ASSESSMENT_FIELDS) {
-    if (!input[def.key]) errors[def.key] = `${def.label} is required.`;
-  }
-  if (input.email && !EMAIL.test(input.email)) errors.email = "Enter a valid email address.";
-
-  if (input.reference) {
-    const taken = new Set([...takenReferences].map((r) => r.trim().toUpperCase()));
-    if (taken.has(input.reference.toUpperCase())) {
-      errors.reference = "An assessment already exists for this application reference.";
+  for (const def of fields) {
+    if (!input[def.key]) {
+      errors[def.key] = def.input === "select" ? `Choose a ${def.label.toLowerCase()}.` : `${def.label} is required.`;
     }
   }
+  if (asked.has("email") && input.email && !EMAIL.test(input.email)) errors.email = "Enter a valid email address.";
 
-  if (input.initiatedOn) {
+  if (asked.has("initiatedOn") && input.initiatedOn) {
     const parsed = new Date(`${input.initiatedOn}T00:00:00Z`);
     // Invalid dates are ruled out before toISOString, which throws on them.
     const real =
@@ -92,22 +108,4 @@ export function validateNewAssessment(
     else if (input.initiatedOn > today) errors.initiatedOn = "Initiated on cannot be in the future.";
   }
   return errors;
-}
-
-/**
- * The next assessment id, "FNP-<year>-<serial>". Serials never repeat across years, and
- * `lastSerial` lets the store keep counting past assessments that have since been removed, so a
- * removed id is never handed out again.
- */
-export function nextAssessmentId(existingIds: Iterable<string>, lastSerial: number, year: string): {
-  id: string;
-  serial: number;
-} {
-  let max = lastSerial;
-  for (const id of existingIds) {
-    const serial = Number(/^FNP-\d{4}-(\d+)$/.exec(id)?.[1]);
-    if (Number.isFinite(serial) && serial > max) max = serial;
-  }
-  const serial = max + 1;
-  return { id: `FNP-${year}-${String(serial).padStart(4, "0")}`, serial };
 }

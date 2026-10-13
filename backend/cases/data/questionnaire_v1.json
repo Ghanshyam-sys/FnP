@@ -1,0 +1,412 @@
+{
+  "label": "v1",
+  "sections": [
+    {
+      "name": "Basic Details",
+      "weight": 4
+    },
+    {
+      "name": "Qualifications & Experience",
+      "weight": 18
+    },
+    {
+      "name": "Professional Conduct /Reputation/Integrity",
+      "weight": 26
+    },
+    {
+      "name": "Financial Soundness",
+      "weight": 16
+    },
+    {
+      "name": "Conflict of interest. (Entity/Enterprise based)",
+      "weight": 14
+    },
+    {
+      "name": "Time Commitment",
+      "weight": 8
+    },
+    {
+      "name": "Conflict of interest. (Licensee based)",
+      "weight": 8
+    },
+    {
+      "name": "Collective Suitability",
+      "weight": 6
+    }
+  ],
+  "questions": [
+    {
+      "qid": "A1",
+      "section": "Basic Details",
+      "text": "Is the applicant between 45–60 years of age?",
+      "polarity": "Positive",
+      "weight": 2.5,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Age_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "A4",
+      "section": "Basic Details",
+      "text": "Is the applicant a naturalized citizen?",
+      "polarity": "Negative",
+      "weight": 1.5,
+      "is_knockout": false,
+      "evidence_required": "if_yes",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Naturalization_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "Q1",
+      "section": "Qualifications & Experience",
+      "text": "Does the applicant hold a relevant academic qualification?",
+      "polarity": "Positive",
+      "weight": 6,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Qualification_Relevance_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "Q3",
+      "section": "Qualifications & Experience",
+      "text": "Does the applicant have ≥10 years relevant experience?",
+      "polarity": "Positive",
+      "weight": 12,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Experience_Duration_Check",
+        "Experience_Relevance_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "PC1",
+      "section": "Professional Conduct /Reputation/Integrity",
+      "text": "Have you at any time been charged with or convicted of any offence or otherwise found liable by a Civil, Criminal or Military Court (excluding minor road traffic offences), in any jurisdiction?",
+      "polarity": "Negative",
+      "weight": 18,
+      "is_knockout": true,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Record_Check",
+        "Scope_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "PC19",
+      "section": "Professional Conduct /Reputation/Integrity",
+      "text": "Was there a time when you were not in compliance with any tax or other statutory requirements imposed on you? (Section 3(1)(iii) of the Act)",
+      "polarity": "Negative",
+      "weight": 8,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Compliance_History_Check",
+        "Period_Coverage_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "FC5",
+      "section": "Financial Soundness",
+      "text": "Has any loan or credit facility (or part thereof) extended to you by any financial institution, been restructured, renegotiated, provided against or been the subject of a write-off or debt forgiveness for reasons of non-payment by you?",
+      "polarity": "Negative",
+      "weight": 10,
+      "is_knockout": false,
+      "evidence_required": "if_yes",
+      "allows_na": false,
+      "accepts_supporting": true,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Facility_Status_Check",
+        "Consistency_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf",
+        "xlsx",
+        "csv"
+      ],
+      "max_files": 2
+    },
+    {
+      "qid": "FC7",
+      "section": "Financial Soundness",
+      "text": "Do you (in your personal capacity), or through any legal person or arrangement controlled by you and/or any immediate relative have outstanding any loans or other forms of indebtedness (including guarantees) in excess of N$2.5mn?",
+      "polarity": "Negative",
+      "weight": 6,
+      "is_knockout": false,
+      "evidence_required": "if_yes",
+      "allows_na": false,
+      "accepts_supporting": true,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Indebtedness_Amount_Check",
+        "Consistency_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf",
+        "xlsx",
+        "csv"
+      ],
+      "max_files": 2
+    },
+    {
+      "qid": "CoI2",
+      "section": "Conflict of interest. (Entity/Enterprise based)",
+      "text": "Have you ever been or are you currently a Director of any limited liability companies, societies, or other business enterprises engaged in financial services, as defined in the BSA?",
+      "polarity": "Negative",
+      "weight": 5,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Directorship_Check",
+        "Entity_Activity_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "CoI6",
+      "section": "Conflict of interest. (Entity/Enterprise based)",
+      "text": "Are you a beneficial owner of a controlling interest (20% or more of the voting shares, or the ability to appoint or remove a majority of the board) in any financial institution, partnerships, societies, or trust corporations or other body, organization or entity whether for business, benevolent or other purposes?",
+      "polarity": "Negative",
+      "weight": 9,
+      "is_knockout": false,
+      "evidence_required": "if_yes",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Beneficial_Ownership_Check",
+        "Controlling_Interest_Threshold_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "T1",
+      "section": "Time Commitment",
+      "text": "Will you be actively engaged in the business of the Licensee to which this application relates and devote the major portion of your time thereto?",
+      "polarity": "Positive",
+      "weight": 5,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Time_Commitment_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "T2",
+      "section": "Time Commitment",
+      "text": "If you are completing this form in the capacity of director or proposed director, please indicate whether you have or will have any executive responsibility for the management of the institution's business",
+      "polarity": "Positive",
+      "weight": 3,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": true,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Executive_Responsibility_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No",
+        "N/A"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "CoL1",
+      "section": "Conflict of interest. (Licensee based)",
+      "text": "Are any shares of the Licensee registered in your name?",
+      "polarity": "Negative",
+      "weight": 5,
+      "is_knockout": false,
+      "evidence_required": "if_yes",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Name_Check",
+        "Shareholding_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "CoL3",
+      "section": "Conflict of interest. (Licensee based)",
+      "text": "Are any shares of the Licensee registered in the name of an immediate relative?",
+      "polarity": "Negative",
+      "weight": 3,
+      "is_knockout": false,
+      "evidence_required": "if_yes",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Relative_Name_Check",
+        "Relationship_Check",
+        "Shareholding_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    },
+    {
+      "qid": "CS4",
+      "section": "Collective Suitability",
+      "text": "Have you acquainted yourself with and do you understand the extent of the rights and powers, as well as your responsibilities and duties, as a director, officer or key employee or a proposed director, officer or key employee of the institution for which this questionnaire is being completed, as contained in the applicable law, regulations, and guidelines?",
+      "polarity": "Positive",
+      "weight": 6,
+      "is_knockout": false,
+      "evidence_required": "always",
+      "allows_na": false,
+      "accepts_supporting": false,
+      "checks": [
+        "Document_Check",
+        "Signature_Check",
+        "Declaration_Content_Check"
+      ],
+      "allowed_answers": [
+        "Yes",
+        "No"
+      ],
+      "file_types": [
+        "pdf"
+      ],
+      "max_files": 1
+    }
+  ]
+}

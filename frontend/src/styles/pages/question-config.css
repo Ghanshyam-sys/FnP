@@ -40,6 +40,12 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Weights are the scoring engine's and are shown, not edited. */
+.input-num[readonly] {
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+}
+
 .chipset {
   display: flex;
   flex-wrap: wrap;

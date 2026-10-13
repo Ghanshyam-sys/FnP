@@ -1,0 +1,72 @@
+[
+  {
+    "id": "FNP-2026-0412",
+    "applicantId": "APP001",
+    "applicantName": "Johanna N. Amutenya",
+    "email": "j.amutenya@example.na",
+    "departmentKey": "banking",
+    "entity": "Oshakati Microfinance Bank Limited",
+    "position": "Non-Executive Director",
+    "reference": "BL-2026-0412",
+    "initiatedOn": "2026-08-14",
+    "nationality": "Namibian",
+    "nationalIdNumber": "74061800117",
+    "phone": "+264 81 000 0101"
+  },
+  {
+    "id": "FNP-2026-0455",
+    "applicantId": "APP002",
+    "applicantName": "Petrus K. Shivute",
+    "email": "p.shivute@example.na",
+    "departmentKey": "banking",
+    "entity": "Erongo Building Society",
+    "position": "Executive Director",
+    "reference": "BL-2026-0455",
+    "initiatedOn": "2026-08-19",
+    "nationality": "Namibian",
+    "nationalIdNumber": "64031200241",
+    "phone": "+264 81 000 0102"
+  },
+  {
+    "id": "FNP-2026-0233",
+    "applicantId": "APP003",
+    "applicantName": "Elias T. Haufiku",
+    "email": "e.haufiku@example.na",
+    "departmentKey": "banking",
+    "entity": "Namib Trust Bank Limited",
+    "position": "Non-Executive Director",
+    "reference": "BL-2026-0233",
+    "initiatedOn": "2026-08-11",
+    "nationality": "Namibian",
+    "nationalIdNumber": "69110500358",
+    "phone": "+264 81 000 0103"
+  },
+  {
+    "id": "FNP-2026-0398",
+    "applicantId": "APP004",
+    "applicantName": "Maria L. van Wyk",
+    "email": "m.vanwyk@example.na",
+    "departmentKey": "banking",
+    "entity": "Oshakati Microfinance Bank Limited",
+    "position": "Executive Director",
+    "reference": "BL-2026-0398",
+    "initiatedOn": "2026-08-25",
+    "nationality": "Namibian",
+    "nationalIdNumber": "72012700462",
+    "phone": "+264 81 000 0104"
+  },
+  {
+    "id": "FNP-2026-0289",
+    "applicantId": "APP005",
+    "applicantName": "Margaret Kaapanda",
+    "email": "m.kaapanda@example.na",
+    "departmentKey": "banking",
+    "entity": "Kavango Financial Services",
+    "position": "Non-Executive Director",
+    "reference": "BL-2026-0289",
+    "initiatedOn": "2026-08-21",
+    "nationality": "Namibian",
+    "nationalIdNumber": "62093000529",
+    "phone": "+264 81 000 0105"
+  }
+]

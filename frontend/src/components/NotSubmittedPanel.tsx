@@ -1,7 +1,7 @@
 import { useState } from "react";
 import EmptyState from "./EmptyState";
 import { AlertTriangleIcon, MailIcon } from "./icons";
-import type { Assignment } from "../data/assignments";
+import type { Assessment } from "../api/types";
 
 /**
  * What the reviewer sees for an assessment the applicant has not submitted: there is nothing to
@@ -13,7 +13,7 @@ export default function NotSubmittedPanel({
   canRemove,
   onRemove,
 }: {
-  assignment: Assignment;
+  assignment: Assessment;
   canRemove: boolean;
   onRemove: () => void;
 }) {
@@ -43,8 +43,9 @@ export default function NotSubmittedPanel({
 
   return (
     <EmptyState icon={<MailIcon size={22} />} title="Not submitted yet" action={action}>
-      {assignment.applicantName} has not submitted this assessment. It is authenticated as soon as
-      they do, and appears here for your review. They sign in as {assignment.email}.
+      {assignment.applicantName} has not submitted this assessment
+      {assignment.startedByApplicant ? ", which they started themselves" : ""}. It is authenticated as
+      soon as they do, and appears here for your review. They sign in as {assignment.applicantEmail}.
     </EmptyState>
   );
 }

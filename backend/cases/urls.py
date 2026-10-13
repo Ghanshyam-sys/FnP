@@ -1,0 +1,36 @@
+from django.urls import path
+
+from .views.admin_panel import AdminOverviewView, AdminUserDetailView, AdminUserListView
+from .views.assessments import AssessmentDetailView, AssessmentListView
+from .views.case import CaseView, DecisionView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView
+from .views.catalogue import CatalogueView, DepartmentListView, QuestionnaireView
+from .views.evidence import EvidenceDetailView, EvidenceFileView, EvidenceUploadView
+from .views.form import FormResetView, FormView
+from .views.session import SessionView
+
+A = "assessments/<str:public_id>"
+
+urlpatterns = [
+    path("session", SessionView.as_view(), name="session"),
+    # The reviewer's admin panel (not Django's admin site, which is at /admin/).
+    path("admin/overview", AdminOverviewView.as_view(), name="admin-overview"),
+    path("admin/users", AdminUserListView.as_view(), name="admin-users"),
+    path("admin/users/<int:user_id>", AdminUserDetailView.as_view(), name="admin-user"),
+    path("catalogue", CatalogueView.as_view(), name="catalogue"),
+    path("departments", DepartmentListView.as_view(), name="departments"),
+    path("questionnaire", QuestionnaireView.as_view(), name="questionnaire"),
+    path("assessments", AssessmentListView.as_view(), name="assessments"),
+    path(A, AssessmentDetailView.as_view(), name="assessment"),
+    path(f"{A}/form", FormView.as_view(), name="form"),
+    path(f"{A}/form/reset", FormResetView.as_view(), name="form-reset"),
+    path(f"{A}/evidence", EvidenceUploadView.as_view(), name="evidence-upload"),
+    path(f"{A}/evidence/<uuid:evidence_id>", EvidenceDetailView.as_view(), name="evidence"),
+    path(f"{A}/evidence/<uuid:evidence_id>/file", EvidenceFileView.as_view(), name="evidence-file"),
+    path(f"{A}/submit", SubmitView.as_view(), name="submit"),
+    path(f"{A}/resubmit", ResubmitView.as_view(), name="resubmit"),
+    path(f"{A}/retry", RetryView.as_view(), name="retry"),
+    path(f"{A}/case", CaseView.as_view(), name="case"),
+    path(f"{A}/rulings/<str:qid>", RulingView.as_view(), name="ruling"),
+    path(f"{A}/decision", DecisionView.as_view(), name="decision"),
+    path(f"{A}/highlights/<str:name>", HighlightView.as_view(), name="highlight"),
+]

@@ -6,16 +6,20 @@ export type Answer = "Yes" | "No" | "N/A";
  */
 export type EvidenceRole = "primary" | "supporting";
 
+/** One uploaded document, as the form shows it. */
 export interface EvidenceRef {
+  /** The backend's id for the document, used to remove it. */
+  id: string;
   doc_type: string;
-  /** Optional: derivable from doc_type, and the newer test set files omit it. */
-  path?: string;
-  /** Absent on drafts seeded before roles existed; treat as "primary". */
-  role?: EvidenceRole;
-  /** Dropdown option the filer picked. Absent on drafts seeded from the source test set. */
-  option_code?: string;
+  role: EvidenceRole;
+  /** Dropdown option the filer picked. */
+  option_code: string;
   /** What the filer typed when they picked "Other — please specify". */
-  description?: string;
+  description: string;
+  /** The name of the file the filer uploaded. */
+  fileName: string;
+  /** Where the document can be opened (access-checked by the backend). */
+  url: string;
 }
 
 export interface ResponseItem {
@@ -61,7 +65,6 @@ export interface CvVerificationResult {
   consistencyFindings: CvFinding[];
   suitabilityFindings: CvFinding[];
   flagCount: number;
-  scoringImpact: string;
 }
 
 /**
@@ -111,6 +114,8 @@ export interface QuestionAuthResult {
   /** Weakest check carries the question. Null when no checks ran. */
   confidence: number | null;
   summary: string;
+  /** The engine's own reading of the evidence, with a link to the passage it relied on. */
+  determination?: { verdict: string | null; highlightUrl: string | null } | null;
 }
 
 export interface SectionAuthResult {

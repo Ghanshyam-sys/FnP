@@ -1,8 +1,6 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
-import { useAssessment } from "../state/useAssessment";
-import { departmentFor } from "../data/assignments";
-import { getAssignment } from "../state/assignmentStore";
+import { useAssessment, useSession, useSignOut } from "../api/queries";
 import { CheckIcon, LogOutIcon, ShieldCheckIcon } from "./icons";
 import { parseApplyPath, routes } from "../routes";
 import type { ApplyStep } from "../routes";
@@ -20,19 +18,21 @@ const STEP_INDEX: Record<ApplyStep, number> = {
 export default function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const navigate = useNavigate();
-  const { email, signOut } = useAssessment();
+  const { data: user } = useSession();
+  const signOut = useSignOut();
+  const email = user?.email ?? null;
 
   const isReviewer = pathname.startsWith(routes.reviewer());
   const isPortal = pathname.startsWith(routes.assessments()) || isReviewer;
   const applyRoute = parseApplyPath(pathname);
   const stepIndex = applyRoute ? (applyRoute.step ? STEP_INDEX[applyRoute.step] : 0) : null;
-  const assignment = applyRoute ? getAssignment(applyRoute.assignmentId) : undefined;
+  // Already cached by the page itself, so the header costs no extra request.
+  const { data: assessment } = useAssessment(applyRoute?.assignmentId);
 
   if (!isPortal && stepIndex === null) return <main className="app-main">{children}</main>;
 
   const handleSignOut = () => {
-    signOut();
-    navigate(routes.login());
+    signOut.mutate(undefined, { onSettled: () => navigate(routes.login()) });
   };
 
   return (
@@ -47,17 +47,18 @@ export default function AppShell({ children }: { children: ReactNode }) {
               <span className="brand-title">Fit and Proper Assessment</span>
               <span className="brand-sub">
                 {isReviewer
-                  ? "Reviewer portal · Banking Licence"
-                  : assignment
-                    ? departmentFor(assignment).name
-                    : "Applicant portal"}
+                  ? "Reviewer portal · All departments"
+                  : (assessment?.department.name ?? "Applicant portal")}
               </span>
             </span>
           </Link>
 
           {email && (
             <div className="session">
-              <span className="session-avatar">{initials(email)}</span>
+              {/* On a phone only the initials show; the full address is in the tooltip. */}
+              <span className="session-avatar" title={email}>
+                {initials(email)}
+              </span>
               <span className="session-email">{email}</span>
               <button className="btn btn-ghost btn-sm" onClick={handleSignOut}>
                 <LogOutIcon size={13} />

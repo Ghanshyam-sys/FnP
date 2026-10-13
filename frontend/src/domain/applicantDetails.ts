@@ -4,6 +4,9 @@ import type { ApplicantDetails } from "./types";
 /** The applicant details the form shows. Proposed role is shown in the page header instead. */
 export type ApplicantField = Exclude<keyof ApplicantDetails, "proposed_role">;
 
+/** The name is fixed by the assessment record, so it is the one detail the filer cannot set. */
+export type EditableApplicantField = Exclude<ApplicantField, "full_name">;
+
 export interface ApplicantFieldDef {
   key: ApplicantField;
   label: string;

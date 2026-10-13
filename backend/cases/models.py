@@ -1,0 +1,526 @@
+"""The application's data. Correctness is enforced by the database itself: foreign keys, unique and
+check constraints, so bad data cannot get in even if application code is wrong. Large engine
+documents and uploaded files are kept out of the frequently-read tables."""
+
+import uuid
+
+from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
+from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import BrinIndex
+from django.db import models
+from django.db.models import F, Q
+from django.db.models.functions import Lower, Upper
+
+from .fields import EncryptedTextField
+
+
+def _in_choices(field: str, choices: type[models.TextChoices], name: str) -> models.CheckConstraint:
+    """Holds an enum-like column to its declared values at the database level."""
+    return models.CheckConstraint(condition=Q(**{f"{field}__in": choices.values}), name=name)
+
+
+# ---------------------------------------------------------------------------------------------
+# Enumerations (module level so model Meta constraints and other modules can reference them)
+# ---------------------------------------------------------------------------------------------
+
+
+class Role(models.TextChoices):
+    APPLICANT = "applicant"
+    REVIEWER = "reviewer"
+
+
+class Answer(models.TextChoices):
+    YES = "Yes"
+    NO = "No"
+    NA = "N/A"
+
+
+class Polarity(models.TextChoices):
+    POSITIVE = "Positive"
+    NEGATIVE = "Negative"
+
+
+class EvidenceRule(models.TextChoices):
+    ALWAYS = "always"
+    IF_YES = "if_yes"
+
+
+class EvidenceRole(models.TextChoices):
+    PRIMARY = "primary"
+    SUPPORTING = "supporting"
+
+
+class Stage(models.TextChoices):
+    """Where an assessment stands. Only cases.workflow changes it."""
+
+    NOT_SUBMITTED = "NOT_SUBMITTED"
+    AUTH_RUNNING = "AUTH_RUNNING"
+    AUTH_FAILED = "AUTH_FAILED"
+    REVIEW_PENDING = "REVIEW_PENDING"
+    AWAITING_APPLICANT = "AWAITING_APPLICANT"
+    SCORING = "SCORING"
+    DECISION_PENDING = "DECISION_PENDING"
+    ACCEPTED = "ACCEPTED"
+    REJECTED = "REJECTED"
+
+
+class RunStatus(models.TextChoices):
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class Outcome(models.TextChoices):
+    CLEAR = "CLEAR"
+    RETURN_TO_FILER = "RETURN_TO_FILER"
+
+
+class ResultStatus(models.TextChoices):
+    AUTHENTICATED = "authenticated"
+    ISSUE = "issue"
+    NOT_CHECKED = "not_checked"
+
+
+class Verdict(models.TextChoices):
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class ScoreSource(models.TextChoices):
+    ENGINE = "engine"
+    BACKEND_OVERRIDE = "backend_override"
+
+
+class Band(models.TextChoices):
+    LOW = "Low"
+    MODERATE = "Moderate"
+    ELEVATED = "Elevated"
+    HIGH = "High"
+
+
+# ---------------------------------------------------------------------------------------------
+# People
+# ---------------------------------------------------------------------------------------------
+
+
+class UserManager(BaseUserManager):
+    def get_by_natural_key(self, email):
+        return self.get(email=email.strip().lower())
+
+    def get_or_create_for_email(self, email: str, role: str) -> "User":
+        user, created = self.get_or_create(email=email.strip().lower(), defaults={"role": role})
+        if created:
+            user.set_unusable_password()
+            user.save(update_fields=["password"])
+        return user
+
+    def create_superuser(self, email: str, password: str | None = None, **extra) -> "User":
+        """A staff account for the admin site (manage.py createsuperuser): a reviewer with a
+        password. The app's own sign-in refuses it as an applicant, so it cannot be used to see
+        another person's applications."""
+        user = self.model(email=email.strip().lower(), role=Role.REVIEWER, is_staff=True, **extra)
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+
+class User(AbstractBaseUser):
+    # Stored lower-cased (enforced by a check constraint), so the plain unique index is
+    # case-insensitive in effect and lookups can use it directly.
+    email = models.CharField(max_length=254)
+    role = models.CharField(max_length=16, choices=Role.choices)
+    is_active = models.BooleanField(default=True)
+    # May sign in to the admin site at /admin/ (with a password). No effect on the app itself.
+    is_staff = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    USERNAME_FIELD = "email"
+    REQUIRED_FIELDS: list[str] = []
+    objects = UserManager()
+
+    # The admin site asks these. Every active staff account may see every model; what may be
+    # changed is decided per model in cases/admin.py, which keeps case records read-only.
+    def has_perm(self, perm: str, obj=None) -> bool:
+        return self.is_active and self.is_staff
+
+    def has_module_perms(self, app_label: str) -> bool:
+        return self.is_active and self.is_staff
+
+    class Meta:
+        db_table = "user"
+        constraints = [
+            models.UniqueConstraint(fields=["email"], name="user_email_unique"),
+            models.CheckConstraint(condition=Q(email=Lower("email")), name="user_email_lowercase"),
+            _in_choices("role", Role, "user_role_valid"),
+        ]
+
+    @property
+    def is_reviewer(self) -> bool:
+        return self.role == Role.REVIEWER
+
+
+# ---------------------------------------------------------------------------------------------
+# Reference data: departments and the versioned question catalogue
+# ---------------------------------------------------------------------------------------------
+
+
+class Department(models.Model):
+    key = models.SlugField(max_length=32, db_index=False)
+    name = models.CharField(max_length=120)
+    blurb = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        db_table = "department"
+        constraints = [models.UniqueConstraint(fields=["key"], name="department_key_unique")]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class QuestionnaireVersion(models.Model):
+    """One immutable edition of the question set. Any change to the questions creates a new
+    version; each submission records the version it was made against."""
+
+    label = models.CharField(max_length=40)
+    published_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "questionnaire_version"
+        constraints = [
+            models.UniqueConstraint(fields=["label"], name="questionnaire_label_unique"),
+            models.UniqueConstraint(
+                fields=["is_active"], condition=Q(is_active=True), name="questionnaire_one_active"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.label
+
+
+class QuestionSection(models.Model):
+    version = models.ForeignKey(
+        QuestionnaireVersion, on_delete=models.PROTECT, related_name="sections", db_index=False
+    )  # indexed by the composite index or unique rule that starts with it
+    name = models.CharField(max_length=120)
+    weight = models.DecimalField(max_digits=5, decimal_places=2)
+    position = models.PositiveSmallIntegerField()
+
+    class Meta:
+        db_table = "question_section"
+        ordering = ["position"]
+        constraints = [models.UniqueConstraint(fields=["version", "name"], name="section_unique_name")]
+
+    def __str__(self) -> str:
+        return self.name
+
+
+class Question(models.Model):
+    version = models.ForeignKey(
+        QuestionnaireVersion, on_delete=models.PROTECT, related_name="questions", db_index=False
+    )  # indexed by the composite index or unique rule that starts with it
+    section = models.ForeignKey(QuestionSection, on_delete=models.PROTECT, related_name="questions")
+    qid = models.CharField(max_length=10)
+    text = models.TextField()
+    polarity = models.CharField(max_length=8, choices=Polarity.choices)
+    weight = models.DecimalField(max_digits=5, decimal_places=2)
+    is_knockout = models.BooleanField(default=False)
+    evidence_required = models.CharField(max_length=8, choices=EvidenceRule.choices)
+    allows_na = models.BooleanField(default=False)
+    accepts_supporting = models.BooleanField(default=False)
+    checks = ArrayField(models.CharField(max_length=60), default=list)
+    allowed_answers = ArrayField(models.CharField(max_length=3, choices=Answer.choices), default=list)
+    file_types = ArrayField(models.CharField(max_length=8), default=list)
+    max_files = models.PositiveSmallIntegerField(default=1)
+    position = models.PositiveSmallIntegerField()
+
+    class Meta:
+        db_table = "question"
+        ordering = ["position"]
+        constraints = [
+            models.UniqueConstraint(fields=["version", "qid"], name="question_unique_qid"),
+            _in_choices("polarity", Polarity, "question_polarity_valid"),
+            _in_choices("evidence_required", EvidenceRule, "question_evidence_rule_valid"),
+            models.CheckConstraint(condition=Q(max_files__in=[1, 2]), name="question_max_files_valid"),
+            models.CheckConstraint(condition=Q(weight__gte=0), name="question_weight_non_negative"),
+        ]
+
+    def __str__(self) -> str:
+        return self.qid
+
+
+# ---------------------------------------------------------------------------------------------
+# Assessments and what the applicant fills in
+# ---------------------------------------------------------------------------------------------
+
+
+class Assessment(models.Model):
+    public_id = models.CharField(max_length=20)
+    applicant = models.ForeignKey(User, on_delete=models.PROTECT, related_name="assessments", db_index=False)  # indexed by the composite index or unique rule that starts with it
+    department = models.ForeignKey(Department, on_delete=models.PROTECT, related_name="assessments", db_index=False)  # indexed by the composite index or unique rule that starts with it
+    # The applicant as named on the parent application; the form shows it read-only.
+    applicant_name = models.CharField(max_length=200)
+    entity = models.CharField(max_length=200)
+    position = models.CharField(max_length=200)
+    parent_reference = models.CharField(max_length=40)
+    initiated_on = models.DateField()
+    stage = models.CharField(max_length=20, choices=Stage.choices, default=Stage.NOT_SUBMITTED)
+    version = models.ForeignKey(QuestionnaireVersion, on_delete=models.PROTECT, related_name="+")
+    # Null for the built-in demo assessments loaded by the seed command.
+    created_by = models.ForeignKey(
+        User, null=True, blank=True, on_delete=models.PROTECT, related_name="created_assessments"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "assessment"
+        constraints = [
+            models.UniqueConstraint(fields=["public_id"], name="assessment_public_id_unique"),
+            models.UniqueConstraint(Upper("parent_reference"), name="assessment_reference_ci_unique"),
+            _in_choices("stage", Stage, "assessment_stage_valid"),
+        ]
+        indexes = [
+            models.Index(fields=["applicant", "-updated_at"], name="assessment_by_applicant"),
+            # The reviewer queue: filter by stage, newest first, keyset-paginated on (updated_at, id).
+            models.Index(fields=["stage", "-updated_at", "-id"], name="assessment_queue"),
+            # The whole queue (no stage filter), as the reviewer portal lists it.
+            models.Index(fields=["-updated_at", "-id"], name="assessment_recent"),
+            # The queue filtered to one department.
+            models.Index(fields=["department", "-updated_at", "-id"], name="assessment_by_department"),
+        ]
+
+    def __str__(self) -> str:
+        return self.public_id
+
+
+class ApplicantProfile(models.Model):
+    assessment = models.OneToOneField(
+        Assessment, primary_key=True, on_delete=models.CASCADE, related_name="profile"
+    )
+    date_of_birth = models.DateField(null=True, blank=True)
+    town = models.CharField(max_length=120, blank=True)
+    nationality = models.CharField(max_length=80, blank=True)
+    national_id_number = EncryptedTextField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "applicant_profile"
+
+
+class AnswerValue(models.Model):
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="answers", db_index=False)  # indexed by the composite index or unique rule that starts with it
+    # The question's code (A1, PC19 ...), stable across questionnaire versions; validated against the
+    # assessment's version in code. A foreign key to one version's row would orphan a draft when the
+    # question settings change.
+    qid = models.CharField(max_length=10)
+    value = models.CharField(max_length=3, choices=Answer.choices)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "answer"
+        constraints = [
+            models.UniqueConstraint(fields=["assessment", "qid"], name="answer_one_per_question"),
+            _in_choices("value", Answer, "answer_value_valid"),
+        ]
+
+
+def _evidence_path(instance: "EvidenceFile", filename: str) -> str:
+    # Never the uploaded name: a random key, so paths cannot be guessed or collide.
+    return f"evidence/{instance.assessment_id}/{uuid.uuid7().hex}"
+
+
+class EvidenceFile(models.Model):
+    public_id = models.UUIDField(default=uuid.uuid7, unique=True, editable=False)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="evidence")
+    # The question's code, or "CV" for the CV, which sits outside the 15 questions.
+    qid = models.CharField(max_length=10)
+    option_code = models.CharField(max_length=60)
+    doc_type = models.CharField(max_length=60)
+    role = models.CharField(max_length=10, choices=EvidenceRole.choices, default=EvidenceRole.PRIMARY)
+    description = models.CharField(max_length=200, blank=True)
+    file = models.FileField(upload_to=_evidence_path, max_length=200)
+    original_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=120)
+    size_bytes = models.PositiveBigIntegerField()
+    sha256 = models.CharField(max_length=64)
+    uploaded_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="+")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    # Set when a resubmission replaces the file; the old one is kept for the record.
+    superseded_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "evidence_file"
+        constraints = [_in_choices("role", EvidenceRole, "evidence_role_valid")]
+        indexes = [
+            models.Index(
+                fields=["assessment", "qid"],
+                condition=Q(superseded_at__isnull=True),
+                name="evidence_current",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return self.original_name
+
+
+# ---------------------------------------------------------------------------------------------
+# Engine runs, the reviewer's work, and the outcome
+# ---------------------------------------------------------------------------------------------
+
+
+class Submission(models.Model):
+    """One run of the Data Authentication API. A resubmission is a new row; nothing is updated in
+    place except the run's own progress."""
+
+    assessment = models.ForeignKey(Assessment, on_delete=models.PROTECT, related_name="submissions", db_index=False)  # indexed by the composite index or unique rule that starts with it
+    attempt_no = models.PositiveSmallIntegerField()
+    engine_request_id = models.CharField(max_length=64, null=True, blank=True)
+    status = models.CharField(max_length=10, choices=RunStatus.choices, default=RunStatus.QUEUED)
+    outcome = models.CharField(max_length=20, choices=Outcome.choices, null=True, blank=True)
+    engine_version = models.CharField(max_length=20, blank=True)
+    version = models.ForeignKey(QuestionnaireVersion, on_delete=models.PROTECT, related_name="+")
+    # Exactly what was sent, so any outcome can be reconstructed later.
+    payload = models.JSONField()
+    evidence_files = models.ManyToManyField(EvidenceFile, related_name="submissions", db_table="submission_evidence")
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    authenticated_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+    error = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "submission"
+        constraints = [
+            models.UniqueConstraint(fields=["assessment", "attempt_no"], name="submission_attempt_unique"),
+            models.UniqueConstraint(fields=["engine_request_id"], name="submission_request_id_unique"),
+            _in_choices("status", RunStatus, "submission_status_valid"),
+            models.CheckConstraint(
+                condition=Q(outcome__isnull=True) | Q(outcome__in=Outcome.values),
+                name="submission_outcome_valid",
+            ),
+        ]
+        indexes = [
+            # Unfinished runs, longest-unchecked first: what the engine follow-up reads. Partial, so
+            # it stays as small as the number of runs in progress however many have ever been made.
+            models.Index(
+                F("last_polled_at").asc(nulls_first=True),
+                condition=Q(status__in=["queued", "running"]),
+                name="submission_in_flight",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.assessment.public_id} · run {self.attempt_no}"
+
+
+class SubmissionDocument(models.Model):
+    """The engine's documents, stored whole and never queried, apart from the submission row so
+    listing submissions never loads them."""
+
+    submission = models.OneToOneField(
+        Submission, primary_key=True, on_delete=models.CASCADE, related_name="documents"
+    )
+    authentication = models.JSONField(null=True, blank=True)
+    score = models.JSONField(null=True, blank=True)
+    assessment = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        db_table = "submission_document"
+
+    def __str__(self) -> str:
+        return str(self.submission)
+
+
+class QuestionResult(models.Model):
+    """Per-question outcome, extracted from the engine's document so flags are plain SQL."""
+
+    submission = models.ForeignKey(
+        Submission, on_delete=models.CASCADE, related_name="question_results", db_index=False
+    )  # indexed by the composite index or unique rule that starts with it
+    qid = models.CharField(max_length=10)
+    status = models.CharField(max_length=16, choices=ResultStatus.choices)
+    verdict = models.CharField(max_length=30, blank=True)
+    confidence = models.DecimalField(max_digits=4, decimal_places=3, null=True, blank=True)
+
+    class Meta:
+        db_table = "question_result"
+        constraints = [
+            models.UniqueConstraint(fields=["submission", "qid"], name="question_result_unique"),
+            _in_choices("status", ResultStatus, "question_result_status_valid"),
+        ]
+        indexes = [
+            models.Index(fields=["submission"], condition=Q(status="issue"), name="question_result_issues"),
+        ]
+
+
+class Ruling(models.Model):
+    submission = models.ForeignKey(Submission, on_delete=models.PROTECT, related_name="rulings", db_index=False)  # indexed by the composite index or unique rule that starts with it
+    qid = models.CharField(max_length=10)
+    verdict = models.CharField(max_length=10, choices=Verdict.choices)
+    comment = models.TextField()
+    reviewer = models.ForeignKey(User, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "ruling"
+        constraints = [
+            models.UniqueConstraint(fields=["submission", "qid"], name="ruling_one_per_flag"),
+            _in_choices("verdict", Verdict, "ruling_verdict_valid"),
+        ]
+
+
+class Score(models.Model):
+    submission = models.OneToOneField(Submission, on_delete=models.PROTECT, related_name="score")
+    source = models.CharField(max_length=20, choices=ScoreSource.choices)
+    risk_score = models.DecimalField(max_digits=6, decimal_places=3)
+    normalised = models.DecimalField(max_digits=7, decimal_places=6)
+    band = models.CharField(max_length=10, choices=Band.choices)
+    knock_out = models.BooleanField()
+    recommendation = models.CharField(max_length=200)
+    lines = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "score"
+        constraints = [
+            _in_choices("source", ScoreSource, "score_source_valid"),
+            _in_choices("band", Band, "score_band_valid"),
+        ]
+
+
+class Decision(models.Model):
+    assessment = models.OneToOneField(Assessment, on_delete=models.PROTECT, related_name="decision")
+    verdict = models.CharField(max_length=10, choices=Verdict.choices)
+    remarks = models.TextField()
+    reviewer = models.ForeignKey(User, on_delete=models.PROTECT, related_name="+")
+    decided_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "decision"
+        constraints = [_in_choices("verdict", Verdict, "decision_verdict_valid")]
+
+
+class AuditEvent(models.Model):
+    """Append-only record of who did what. Refers to assessments by public id rather than a
+    foreign key, so the trail survives the removal of an unsubmitted assessment."""
+
+    occurred_at = models.DateTimeField(auto_now_add=True)
+    actor = models.ForeignKey(User, null=True, blank=True, on_delete=models.PROTECT, related_name="+")
+    action = models.CharField(max_length=40)
+    assessment_ref = models.CharField(max_length=20, blank=True)
+    target_type = models.CharField(max_length=40, blank=True)
+    target_id = models.CharField(max_length=64, blank=True)
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        db_table = "audit_event"
+        indexes = [
+            models.Index(fields=["assessment_ref", "occurred_at"], name="audit_by_assessment"),
+            # Time-ordered inserts: a BRIN index stays tiny however large the table grows.
+            BrinIndex(fields=["occurred_at"], name="audit_occurred_brin"),
+        ]

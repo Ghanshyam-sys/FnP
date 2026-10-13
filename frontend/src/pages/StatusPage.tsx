@@ -1,10 +1,9 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { departmentFor } from "../data/assignments";
-import { isScored, stageFor, stageProgress } from "../state/caseStore";
-import { useCaseView } from "../state/useCaseView";
-import { useStageTicker } from "../state/useStageTicker";
+import { useRetry } from "../api/queries";
+import { useCaseView } from "../api/useCaseView";
+import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
-import AssessmentNotFound from "../components/AssessmentNotFound";
+import { Loading, LoadError } from "../components/LoadState";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import {
@@ -12,14 +11,33 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircleIcon,
+  MessageIcon,
   ShieldCheckIcon,
 } from "../components/icons";
-import type { CaseStage } from "../state/caseStore";
+import type { Case, Stage } from "../api/types";
+
+/** Typical engine durations, for the progress bar's estimate. It never shows a run as finished. */
+const EXPECTED_SECONDS: Partial<Record<Stage, number>> = { AUTH_RUNNING: 90, SCORING: 25 };
+
+function progressOf(data: Case): number {
+  const run = data.run;
+  const expected = EXPECTED_SECONDS[data.stage];
+  if (!run || !expected) return 0;
+  const started = data.stage === "SCORING" && run.authenticatedAt ? run.authenticatedAt : run.submittedAt;
+  const elapsed = (Date.now() - new Date(started).getTime()) / 1000;
+  return Math.min(95, Math.max(5, (elapsed / expected) * 100));
+}
 
 const COPY: Record<
-  Exclude<CaseStage, "NOT_SUBMITTED">,
+  Exclude<Stage, "NOT_SUBMITTED">,
   { title: string; detail: string; tone: string }
 > = {
+  AUTH_FAILED: {
+    title: "Authentication could not run",
+    detail:
+      "The authentication service could not process this submission. Your answers and documents are kept — send it again to retry.",
+    tone: "critical",
+  },
   AUTH_RUNNING: {
     title: "Authentication pending",
     detail:
@@ -61,32 +79,31 @@ const COPY: Record<
   },
 };
 
-function reviewStageClass(status: CaseStage): string {
-  if (status === "AUTH_RUNNING") return "is-todo";
+function reviewStageClass(status: Stage): string {
+  if (status === "AUTH_RUNNING" || status === "AUTH_FAILED") return "is-todo";
   if (status === "REVIEW_PENDING") return "is-active";
   if (status === "AWAITING_APPLICANT") return "is-blocked";
   return "is-done";
 }
 
-function scoringStageClass(status: CaseStage): string {
+function scoringStageClass(status: Stage): string {
   if (status === "SCORING") return "is-active";
   if (status === "AWAITING_APPLICANT") return "is-blocked";
   return isScored(status) ? "is-done" : "is-todo";
 }
-/** Authentication and scoring are the two stages that finish on their own, so the page ticks. */
-const isRunning = (stage: CaseStage) => stage === "AUTH_RUNNING" || stage === "SCORING";
+/** Authentication and scoring finish on their own; the case refreshes itself while they run. */
+const isRunning = (stage: Stage) => stage === "AUTH_RUNNING" || stage === "SCORING";
 
 export default function StatusPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const view = useCaseView(id);
-  const stageAt = (now: number): CaseStage =>
-    view ? stageFor(id, view.flagged, now) : "NOT_SUBMITTED";
-  const now = useStageTicker((t) => isRunning(stageAt(t)), 400);
+  const retry = useRetry(id);
 
-  if (!view) return <AssessmentNotFound />;
-  const { assignment, flagged } = view;
-  const status = stageAt(now);
+  if (view.status === "loading") return <Loading />;
+  if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
+  const { assessment: assignment, data } = view;
+  const status = data.stage;
   const settled = !isRunning(status);
 
   if (status === "NOT_SUBMITTED") {
@@ -108,7 +125,7 @@ export default function StatusPage() {
   }
 
   const copy = COPY[status];
-  const progress = stageProgress(id, flagged, now) * 100;
+  const progress = progressOf(data);
 
   return (
     <div className="page page-narrow">
@@ -116,7 +133,7 @@ export default function StatusPage() {
         title="Submission status"
         sub={
           <>
-            {departmentFor(assignment).name} · {assignment.reference}
+            {assignment.department.name} · {assignment.reference}
           </>
         }
         centered
@@ -125,7 +142,7 @@ export default function StatusPage() {
         <span className="status-icon">
           {status === "AUTH_RUNNING" || status === "SCORING" ? (
             <span className="status-spinner" />
-          ) : status === "AWAITING_APPLICANT" || status === "REJECTED" ? (
+          ) : status === "AWAITING_APPLICANT" || status === "REJECTED" || status === "AUTH_FAILED" ? (
             <AlertTriangleIcon size={22} />
           ) : (
             <CheckCircleIcon size={22} />
@@ -135,6 +152,16 @@ export default function StatusPage() {
         <h2 className="status-title">{copy.title}</h2>
         <p className="status-detail">{copy.detail}</p>
 
+        {data.decision && (
+          <div className="reviewer-note status-remarks">
+            <MessageIcon size={14} />
+            <div>
+              <span className="reviewer-note-label">Reviewer's remarks</span>
+              <p>{data.decision.remarks}</p>
+            </div>
+          </div>
+        )}
+
         {!settled && (
           <div className="progress-track">
             <div className="progress-fill" style={{ width: `${progress}%` }} />
@@ -142,7 +169,7 @@ export default function StatusPage() {
         )}
 
         <ol className="status-stages">
-          <li className={status === "AUTH_RUNNING" ? "is-active" : "is-done"}>
+          <li className={status === "AUTH_RUNNING" ? "is-active" : status === "AUTH_FAILED" ? "is-blocked" : "is-done"}>
             <span className="stage-dot" />
             Authentication
           </li>
@@ -156,8 +183,24 @@ export default function StatusPage() {
           </li>
         </ol>
 
+        {status === "AUTH_FAILED" && data.run?.unconfirmed && (
+          <div className="notice notice-warning" role="note">
+            <AlertTriangleIcon size={17} />
+            <div>
+              <strong>The engine may still be working on the last attempt.</strong> It did not confirm
+              receiving it in time. Sending again starts a second run, so check with the engine team first.
+            </div>
+          </div>
+        )}
+
         <div className="status-actions">
-          {status !== "AUTH_RUNNING" && (
+          {status === "AUTH_FAILED" && (
+            <button className="btn btn-primary" disabled={retry.isPending} onClick={() => retry.mutate()}>
+              {retry.isPending ? "Sending…" : "Send again"}
+              <ArrowRightIcon size={15} />
+            </button>
+          )}
+          {status !== "AUTH_RUNNING" && status !== "AUTH_FAILED" && (
             <button
               className={`btn ${isScored(status) ? "btn-ghost" : "btn-primary"}`}
               onClick={() => navigate(routes.applyAuthentication(id))}

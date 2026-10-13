@@ -1,19 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { QUESTIONS } from "../domain/questions";
+import { useQuestionnaire, useSaveQuestionnaire } from "../api/queries";
+import { ApiError } from "../api/client";
+import type { QuestionSettings } from "../api/queries";
+import type { QuestionnaireVersion } from "../api/types";
 import { displaySection } from "../domain/sectionLabels";
-import { reviewableAssignments } from "../state/assignmentStore";
-import { isSubmitted } from "../state/caseStore";
 import { routes } from "../routes";
-import {
-  AVAILABLE_FILE_TYPES,
-  REQUIRED_TOTAL_WEIGHT,
-  defaultConfig,
-  readConfig,
-  resetConfig,
-  saveConfig,
-  totalWeight,
-} from "../state/questionConfigStore";
+import { Loading, LoadError } from "../components/LoadState";
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
@@ -21,60 +14,74 @@ import {
   InfoIcon,
   SlidersIcon,
 } from "../components/icons";
-import type { ConfigMap } from "../state/questionConfigStore";
 import type { Answer } from "../domain/types";
 
 const ANSWERS: Answer[] = ["Yes", "No", "N/A"];
 
-export default function QuestionConfigPage() {
-  const navigate = useNavigate();
-  const [config, setConfig] = useState<ConfigMap>(() => readConfig());
-  const [saved, setSaved] = useState(false);
-
-  // Which applicants a change would actually reach.
-  const notSubmitted = useMemo(
-    () => reviewableAssignments().filter((a) => !isSubmitted(a.id)).map((a) => a.applicantName),
-    []
+function settingsOf(version: QuestionnaireVersion): QuestionSettings {
+  return Object.fromEntries(
+    version.questions.map((q) => [
+      q.qid,
+      { allowedAnswers: q.allowedAnswers, fileTypes: q.fileTypes, maxFiles: q.maxFiles },
+    ])
   );
+}
 
-  const total = totalWeight(config);
-  const balanced = Math.abs(total - REQUIRED_TOTAL_WEIGHT) < 0.001;
-  const sections = Array.from(new Set(QUESTIONS.map((q) => q.section)));
+export default function QuestionConfigPage() {
+  const questionnaire = useQuestionnaire();
+  // Held here so the outcome of a save outlives the editor's remount onto the new version.
+  const save = useSaveQuestionnaire();
+  if (questionnaire.isPending) return <Loading />;
+  if (questionnaire.isError && !questionnaire.data) return <LoadError error={questionnaire.error} onRetry={questionnaire.refetch} />;
+  // Keyed on the version so a newly published one starts the editor from its own settings.
+  return <QuestionConfigEditor key={questionnaire.data.current.version} {...questionnaire.data} save={save} />;
+}
 
-  const update = (qid: string, change: Partial<ConfigMap[string]>) => {
+function QuestionConfigEditor({
+  current,
+  published,
+  configurableFileTypes,
+  save,
+}: {
+  current: QuestionnaireVersion;
+  published: QuestionnaireVersion;
+  configurableFileTypes: string[];
+  save: ReturnType<typeof useSaveQuestionnaire>;
+}) {
+  const navigate = useNavigate();
+  const [config, setConfig] = useState<QuestionSettings>(() => settingsOf(current));
+
+  const questions = current.questions;
+  const total = questions.reduce((sum, q) => sum + q.weight, 0);
+
+  const update = (qid: string, change: Partial<QuestionSettings[string]>) => {
     setConfig((prev) => ({ ...prev, [qid]: { ...prev[qid], ...change } }));
-    setSaved(false);
+    save.reset();
   };
 
   const toggleAnswer = (qid: string, answer: Answer) => {
-    const current = config[qid].answers;
-    const next = current.includes(answer)
-      ? current.filter((a) => a !== answer)
-      : [...ANSWERS.filter((a) => current.includes(a) || a === answer)];
+    const selected = config[qid].allowedAnswers;
+    const next = selected.includes(answer)
+      ? selected.filter((a) => a !== answer)
+      : ANSWERS.filter((a) => selected.includes(a) || a === answer);
     // A question with no answer options could not be filled in at all.
     if (next.length === 0) return;
-    update(qid, { answers: next });
+    update(qid, { allowedAnswers: next });
   };
 
   const toggleFileType = (qid: string, type: string) => {
-    const current = config[qid].fileTypes;
-    const next = current.includes(type)
-      ? current.filter((t) => t !== type)
-      : [...AVAILABLE_FILE_TYPES.filter((t) => current.includes(t) || t === type)];
+    const selected = config[qid].fileTypes;
+    const next = selected.includes(type)
+      ? selected.filter((t) => t !== type)
+      : configurableFileTypes.filter((t) => selected.includes(t) || t === type);
     if (next.length === 0) return;
     update(qid, { fileTypes: next });
   };
 
-  const apply = () => {
-    if (!balanced) return;
-    saveConfig(config);
-    setSaved(true);
-  };
-
   const restore = () => {
-    resetConfig();
-    setConfig(defaultConfig());
-    setSaved(false);
+    const defaults = settingsOf(published);
+    setConfig(defaults);
+    save.mutate({ version: current.version, questions: defaults });
   };
 
   return (
@@ -83,37 +90,34 @@ export default function QuestionConfigPage() {
         <div className="page-head-text">
           <h1>Question configuration</h1>
           <p className="page-sub">
-            Weight, answer options and attachment rules for each of the {QUESTIONS.length}
+            Weight, answer options and attachment rules for each of the {questions.length}{" "}
             questions. Changes reach applicants who have not submitted yet — an assessment already
             submitted keeps the configuration it was scored against.
           </p>
         </div>
         <div className="page-head-aside">
-          <span className={`chip chip-${balanced ? "low" : "critical"}`}>
-            Total weight {total} / {REQUIRED_TOTAL_WEIGHT}
-          </span>
+          <span className="chip chip-low">Total weight {total}</span>
         </div>
       </header>
 
-      {!balanced && (
-        <div className="notice notice-critical">
-          <AlertTriangleIcon size={17} />
+      {save.isSuccess && (
+        <div className="notice notice-good">
+          <CheckCircleIcon size={17} />
           <div>
-            <strong>Question weights must total {REQUIRED_TOTAL_WEIGHT}.</strong> They currently
-            total {total}, which is {Math.abs(total - REQUIRED_TOTAL_WEIGHT)}{" "}
-            {total > REQUIRED_TOTAL_WEIGHT ? "over" : "under"}. Rebalance before applying.
+            <strong>Configuration applied.</strong> It takes effect for every assessment that has
+            not been submitted yet.
           </div>
         </div>
       )}
 
-      {saved && balanced && (
-        <div className="notice notice-good">
-          <CheckCircleIcon size={17} />
+      {save.isError && (
+        <div className="notice notice-critical" role="alert">
+          <AlertTriangleIcon size={17} />
           <div>
-            <strong>Configuration applied.</strong>{" "}
-            {notSubmitted.length > 0
-              ? `It takes effect for ${notSubmitted.join(", ")}, who have not submitted yet.`
-              : "No applicant is currently unsubmitted, so nothing changes until a new assessment starts."}
+            <strong>The configuration was not applied.</strong>{" "}
+            {save.error instanceof ApiError && save.error.status === 409
+              ? "Another reviewer changed the settings in the meantime. Their settings are shown now; make your changes again."
+              : "Check your connection and try again."}
           </div>
         </div>
       )}
@@ -121,21 +125,21 @@ export default function QuestionConfigPage() {
       <div className="notice notice-info">
         <InfoIcon size={17} />
         <div>
-          Weight drives the risk score. Answer options and attachment rules drive the data
-          collection form: a question set to a single file shows one picker, two allows a
-          supporting document alongside the primary.
+          Weight drives the risk score and is set by the scoring model. Answer options and
+          attachment rules drive the data collection form: a question set to a single file shows
+          one picker, two allows a supporting document alongside the primary.
         </div>
       </div>
 
-      {sections.map((section) => {
-        const items = QUESTIONS.filter((q) => q.section === section);
-        const sectionTotal = items.reduce((sum, q) => sum + config[q.qid].questionWeight, 0);
+      {current.sections.map((section) => {
+        const items = questions.filter((q) => q.section === section.name);
+        const sectionTotal = items.reduce((sum, q) => sum + q.weight, 0);
         return (
-          <section className="card section" key={section}>
+          <section className="card section" key={section.name}>
             <div className="section-head section-head-static">
-              <span className="section-title">{displaySection(section)}</span>
+              <span className="section-title">{displaySection(section.name)}</span>
               <span className="section-count">
-                {sectionTotal} of {items[0].sectionWeight} section weight
+                {sectionTotal} of {section.weight} section weight
               </span>
             </div>
             <div className="section-body">
@@ -145,7 +149,7 @@ export default function QuestionConfigPage() {
                   <article className="qconfig" key={q.qid}>
                     <div className="qconfig-prompt">
                       <span className="qid">{q.qid}</span>
-                      <p className="qtext">{q.question}</p>
+                      <p className="qtext">{q.text}</p>
                     </div>
 
                     <div className="qconfig-grid">
@@ -157,13 +161,8 @@ export default function QuestionConfigPage() {
                           id={`w-${q.qid}`}
                           className="input input-num"
                           type="number"
-                          min={0}
-                          max={100}
-                          step={0.5}
-                          value={c.questionWeight}
-                          onChange={(e) =>
-                            update(q.qid, { questionWeight: Number(e.target.value) || 0 })
-                          }
+                          value={q.weight}
+                          readOnly
                         />
                       </div>
 
@@ -174,8 +173,8 @@ export default function QuestionConfigPage() {
                             <button
                               key={a}
                               type="button"
-                              className={`toggle-chip${c.answers.includes(a) ? " is-on" : ""}`}
-                              aria-pressed={c.answers.includes(a)}
+                              className={`toggle-chip${c.allowedAnswers.includes(a) ? " is-on" : ""}`}
+                              aria-pressed={c.allowedAnswers.includes(a)}
                               onClick={() => toggleAnswer(q.qid, a)}
                             >
                               {a}
@@ -187,7 +186,7 @@ export default function QuestionConfigPage() {
                       <div className="qconfig-field">
                         <span className="field-label">Accepted file types</span>
                         <div className="chipset">
-                          {AVAILABLE_FILE_TYPES.map((t) => (
+                          {configurableFileTypes.map((t) => (
                             <button
                               key={t}
                               type="button"
@@ -229,17 +228,12 @@ export default function QuestionConfigPage() {
           <ArrowLeftIcon size={15} />
           Back to the queue
         </button>
-        <button className="btn btn-ghost" onClick={restore}>
+        <button className="btn btn-ghost" disabled={save.isPending} onClick={restore}>
           Restore published model
         </button>
-        <button
-          className="btn btn-primary"
-          disabled={!balanced}
-          onClick={apply}
-          title={balanced ? undefined : `Weights must total ${REQUIRED_TOTAL_WEIGHT}`}
-        >
+        <button className="btn btn-primary" disabled={save.isPending} onClick={() => save.mutate({ version: current.version, questions: config })}>
           <SlidersIcon size={15} />
-          Apply configuration
+          {save.isPending ? "Applying…" : "Apply configuration"}
         </button>
       </footer>
     </div>

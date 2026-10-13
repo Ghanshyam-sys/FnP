@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { isScored, readCase, recordDecision, stageFor } from "../state/caseStore";
-import { scoreFor } from "../state/reviewState";
-import { useCaseView } from "../state/useCaseView";
-import { finalAssessmentFor } from "../domain/finalAssessment";
+import { useDecide } from "../api/queries";
+import { refusalMessage } from "../api/client";
+import { useCaseView } from "../api/useCaseView";
+import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
-import AssessmentNotFound from "../components/AssessmentNotFound";
+import { Loading, LoadError } from "../components/LoadState";
 import ReportView from "../components/ReportView";
 import AssessmentSummaryPane from "../components/AssessmentSummaryPane";
 import DecisionDialog from "../components/DecisionDialog";
@@ -18,33 +18,42 @@ import {
   FileTextIcon,
   MessageIcon,
 } from "../components/icons";
-import type { RulingVerdict } from "../state/caseStore";
+import type { Verdict } from "../api/types";
 
 export default function ReviewerResultPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
-  const [pending, setPending] = useState<RulingVerdict | null>(null);
+  const [pending, setPending] = useState<Verdict | null>(null);
   const [summaryOpen, setSummaryOpen] = useState(false);
   // Bumped after the decision; keying the page on it re-renders the report from scratch.
   const [revision, setRevision] = useState(0);
   const view = useCaseView(id);
+  const decide = useDecide(id);
 
-  if (!view) return <AssessmentNotFound />;
-  const { assignment, form, outcome, flagged } = view;
-
-  const scoreResult = scoreFor(id, form, outcome);
-  const stage = stageFor(id, flagged);
-  if (!isScored(stage) || !scoreResult) {
+  if (view.status === "loading") return <Loading />;
+  if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
+  const { assessment: assignment, data, outcome, score: scoreResult } = view;
+  const stage = data.stage;
+  if (!isScored(stage) || !scoreResult || !outcome) {
+    // A cached copy can predate the score; only a fresh one decides that scoring is not ready.
+    if (view.refreshing) return <Loading />;
     return <Navigate to={routes.reviewerAuthentication(id)} replace />;
   }
 
-  const record = readCase(id);
+  const decision = data.decision;
 
   const confirm = (remarks: string) => {
     if (!pending) return;
-    recordDecision(id, pending, remarks);
-    setPending(null);
-    setRevision((v) => v + 1);
+    decide.mutate(
+      { verdict: pending, remarks },
+      {
+        // Kept open on a refusal, which the dialog explains, so the remarks are not lost.
+        onSuccess: () => {
+          setPending(null);
+          setRevision((v) => v + 1);
+        },
+      }
+    );
   };
 
   return (
@@ -53,22 +62,22 @@ export default function ReviewerResultPage() {
 
       <ReviewerTabs assessmentId={id} active="scoring" scoringReady />
 
-      {record.decision ? (
+      {decision ? (
         <div
-          className={`notice notice-${record.decision.verdict === "accepted" ? "good" : "critical"}`}
+          className={`notice notice-${decision.verdict === "accepted" ? "good" : "critical"}`}
         >
-          {record.decision.verdict === "accepted" ? (
+          {decision.verdict === "accepted" ? (
             <CheckCircleIcon size={17} />
           ) : (
             <AlertTriangleIcon size={17} />
           )}
           <div>
             <strong>
-              {record.decision.verdict === "accepted"
+              {decision.verdict === "accepted"
                 ? "You accepted this assessment."
                 : "You rejected this assessment."}
             </strong>{" "}
-            {record.decision.remarks}
+            {decision.remarks}
           </div>
         </div>
       ) : (
@@ -83,6 +92,7 @@ export default function ReviewerResultPage() {
 
       <ReportView authentication={outcome} scoreResult={scoreResult} />
 
+
       <footer className="actionbar">
         <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
           <ArrowLeftIcon size={15} />
@@ -92,13 +102,19 @@ export default function ReviewerResultPage() {
           <FileTextIcon size={15} />
           Assessment summary
         </button>
-        {!record.decision && (
+        {!decision && (
           <>
-            <button className="btn btn-ghost" onClick={() => setPending("rejected")}>
+            <button className="btn btn-ghost" onClick={() => {
+                decide.reset();
+                setPending("rejected");
+              }}>
               <AlertTriangleIcon size={15} />
               Reject
             </button>
-            <button className="btn btn-primary" onClick={() => setPending("accepted")}>
+            <button className="btn btn-primary" onClick={() => {
+                decide.reset();
+                setPending("accepted");
+              }}>
               <CheckCircleIcon size={15} />
               Accept
             </button>
@@ -108,8 +124,9 @@ export default function ReviewerResultPage() {
 
       {summaryOpen && (
         <AssessmentSummaryPane
-          assessment={finalAssessmentFor(assignment.applicantId)}
-          applicantName={assignment.applicantName}
+          assessment={data.assessment}
+          assignment={assignment}
+          decision={decision}
           onClose={() => setSummaryOpen(false)}
         />
       )}
@@ -120,6 +137,8 @@ export default function ReviewerResultPage() {
           applicantName={assignment.applicantName}
           band={scoreResult.band}
           riskScore={scoreResult.riskScore100}
+          busy={decide.isPending}
+          error={decide.isError ? refusalMessage(decide.error, "remarks") : undefined}
           onConfirm={confirm}
           onCancel={() => setPending(null)}
         />

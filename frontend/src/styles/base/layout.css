@@ -1,14 +1,46 @@
 /* ============================================================
    Layout
    ============================================================ */
+/* One content width and side gutter for the header, the stepper and the page, so their edges
+   line up at every screen size. The column widens on large monitors instead of leaving most of
+   the screen empty; phones get a tighter gutter. */
+:root {
+  --page-max: 940px;
+  --gutter: 1.25rem;
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --page-max: 1040px;
+  }
+}
+
+@media (min-width: 1600px) {
+  :root {
+    --page-max: 1160px;
+  }
+}
+
+@media (max-width: 720px) {
+  :root {
+    --gutter: 1rem;
+  }
+}
+
+@media (max-width: 340px) {
+  :root {
+    --gutter: 0.75rem;
+  }
+}
+
 .app-main {
   min-height: 100svh;
 }
 
 .page {
-  max-width: 940px;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: 2rem 1.25rem 7rem;
+  padding: 2rem var(--gutter) 7rem;
 }
 
 .page-narrow {
@@ -86,9 +118,9 @@
 }
 
 .topbar-inner {
-  max-width: 940px;
+  max-width: var(--page-max);
   margin: 0 auto;
-  padding: 0.75rem 1.25rem;
+  padding: 0.75rem var(--gutter);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -99,6 +131,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.65rem;
+  /* Gives way to the session controls; the subtitle then ends in an ellipsis. */
+  min-width: 0;
   color: inherit;
   text-decoration: none;
 }
@@ -123,6 +157,7 @@
   display: flex;
   flex-direction: column;
   line-height: 1.2;
+  min-width: 0;
 }
 
 .brand-title {
@@ -138,6 +173,9 @@
   letter-spacing: 0.09em;
   color: var(--ink-3);
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .session {
@@ -145,6 +183,7 @@
   align-items: center;
   gap: 0.55rem;
   min-width: 0;
+  flex-shrink: 0;
 }
 
 .session-email {
@@ -157,6 +196,7 @@
 }
 
 .session-avatar {
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   width: 26px;
@@ -167,4 +207,11 @@
   font-size: var(--fs-xs);
   font-weight: 700;
   letter-spacing: 0.02em;
+}
+
+/* On a phone the header has room for the brand, the initials and Sign out, not a whole address. */
+@media (max-width: 560px) {
+  .session-email {
+    display: none;
+  }
 }

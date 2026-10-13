@@ -2,14 +2,17 @@
 
 .page-head-aside {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
   flex: none;
+  max-width: 100%;
 }
 
 .case-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+  /* min() keeps one column from overflowing a phone narrower than the minimum card. */
+  grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr));
   gap: 0.9rem;
 }
 
@@ -128,4 +131,47 @@
   border-color: var(--hairline);
   box-shadow: var(--shadow-sm);
   transform: none;
+}
+
+/* "Show more" under the reviewer queue when it runs past one page. */
+.queue-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 1rem;
+}
+
+/* Narrows the queue to one department. */
+.queue-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.queue-filter .field-label {
+  margin: 0;
+}
+
+.queue-filter .input {
+  width: auto;
+  min-width: 14rem;
+  max-width: 100%;
+}
+
+/* On a phone the header buttons get a row of their own and share it, rather than running off
+   the right edge. */
+@media (max-width: 540px) {
+  .page-head-aside {
+    flex: 1 1 100%;
+  }
+
+  .page-head-aside > .btn {
+    flex: 1 1 auto;
+  }
+
+  .queue-filter .input {
+    flex: 1 1 12rem;
+    min-width: 0;
+  }
 }

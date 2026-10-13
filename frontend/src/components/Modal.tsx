@@ -67,6 +67,7 @@ export function RequiredTextArea({
   onChange,
   placeholder,
   hint,
+  maxLength,
 }: {
   id: string;
   label: ReactNode;
@@ -74,6 +75,8 @@ export function RequiredTextArea({
   onChange: (value: string) => void;
   placeholder: string;
   hint: string;
+  /** The longest text the server accepts. */
+  maxLength: number;
 }) {
   return (
     <div className="field">
@@ -90,6 +93,7 @@ export function RequiredTextArea({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
+        maxLength={maxLength}
         autoFocus
       />
       {value.trim().length === 0 && <p className="field-hint">{hint}</p>}

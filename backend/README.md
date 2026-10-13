@@ -1,88 +1,165 @@
 # Backend
 
-Not started. The frontend currently runs on stub data that stands in for every call this
-service will make, so the demo works end to end without it. This folder holds what the backend
-has to honour until the service itself exists.
+Django 6 + PostgreSQL API between the frontend and the Data Authentication API. It holds every
+assessment, form, document and case; the frontend reads and changes them only through `/api`.
 
-## What the backend has to provide
+## Development setup
 
-Each row is something the frontend fakes today. The stub column is where to look for the exact
-data the UI expects; the test data column is the ground truth to build and test against.
+Requires Python 3.14 and PostgreSQL 18 (the installed binaries; no admin rights needed).
 
-| Responsibility | Stubbed in the frontend by | Expected output in `../test-data/` |
+```powershell
+# 1. Start the project's database. It is a separate instance in your user folder on port 5433,
+#    not a Windows service, so start it after each reboot.
+& "C:\Program Files\PostgreSQL\18\bin\pg_ctl.exe" -D "$env:LOCALAPPDATA\fnp-postgres\data" `
+    -o "-p 5433 -c listen_addresses=127.0.0.1" -l "$env:LOCALAPPDATA\fnp-postgres\postgres.log" start
+
+# 2. Python environment and dependencies (first time only)
+py -3.14 -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+
+# 3. Settings: copy .env.example to .env and fill it in (first time only). .env is git-ignored.
+
+# 4. Database schema, then run
+.\.venv\Scripts\python manage.py migrate
+.\.venv\Scripts\python manage.py seed_demo   # the five demo applicants from ../test-data
+.\.venv\Scripts\python manage.py runserver 127.0.0.1:8001
+
+# In a second window: the worker that follows engine runs, so no page waits on the engine.
+.\.venv\Scripts\python manage.py follow_runs
+
+# For a testing session, add --noreload: the server then does not restart on code changes.
+
+# seed_demo --reset  reloads the demo applicants from scratch, in one step (development only)
+# seed_demo --submit sends the unsubmitted ones to the engine (five billed runs)
+
+# Tests (creates and drops a throwaway test database)
+.\.venv\Scripts\python -m pytest
+```
+
+The database admin login (`fnp_admin`) is in `%LOCALAPPDATA%\fnp-postgres\admin-credentials.txt`;
+the app itself connects as `fnp_app`, which owns only the `fnp` database.
+
+### Admin site (`/admin/`)
+
+Django's admin site is for staff accounts, which sign in with a password (the app's own sign-in has
+none). Create one, then open http://127.0.0.1:8001/admin/:
+
+```powershell
+.\.venv\Scripts\python manage.py createsuperuser   # asks for an email and a password
+```
+
+Staff can browse every record, but case data and the audit trail are read-only (`cases/admin.py`):
+the only changes possible are a user's active status (recorded in the audit trail) and department
+names. National ID numbers are never shown. Outside development, run `manage.py collectstatic` and
+serve `staticfiles/` from the reverse proxy for the admin's stylesheets.
+
+The reviewer's own **Admin panel** in the app (`/reviewer/admin`: user and assessment counts, the
+user list) reads `/api/admin/*` (`cases/views/admin_panel.py`) and needs no staff account.
+
+### Layout
+
+```
+config/                 settings (all secrets and environment-specific values come from .env)
+cases/models.py         the schema: constraints and indexes live here and in migrations/
+cases/migrations/       0003 loads the departments and questionnaire v1 (cases/data/)
+cases/data/             reference data: questionnaire v1 and the demo applicants
+cases/workflow.py       the only code that changes a case's stage (submit, follow the engine, rule, decide)
+cases/adapt.py          engine requests and responses in and out (engine URLs never reach the browser)
+cases/scoring.py        scoring for cases the reviewer accepted after flags
+cases/catalogue.py      questionnaire versions, evidence rule, engine evidence options (cached)
+cases/validation.py     input rules: applicant details, new assessments, uploaded files
+cases/views/            API views; cases/permissions.py holds the access rule every view uses
+cases/authentication.py session sign-in (401 when there is none)
+cases/middleware.py     refuses oversized request bodies before they are read; the admin site's CSP
+cases/admin.py          the admin site at /admin/: read-only case records, staff only
+cases/storage.py        deleting stored documents (and their emptied folders)
+cases/audit.py          append-only audit trail
+cases/fields.py         encrypted field for personal identifiers
+cases/management/       seed_demo: loads the demo applicants
+cases/tests/            the test suite (conftest.py at the top holds the shared fixtures)
+engine/client.py        the only code that calls the Data Authentication API
+engine/fixtures/        real engine responses, used by the tests instead of the live engine
+media/                  uploaded documents (git-ignored), see below
+```
+
+### Endpoints
+
+| Method and path | Who | Purpose |
 |---|---|---|
-| **Authenticate a submission**: read each attached document and run the checks for its question, returning a verdict and confidence per check | `frontend/src/data/stubs/authenticationOverrides.ts` with `frontend/src/domain/authentication.ts` | `Expected_Auth_Response/APP00N_expected_response.json` |
-| **Analyse the CV** against the authenticated qualification, experience and directorships | `frontend/src/data/stubs/cvAnalysis.ts` with `frontend/src/domain/cvVerification.ts` | The `cvVerification` block of the same expected responses |
-| **Write the final assessment**: determination, concerns, conditions, strengths | `frontend/src/data/assessments/APP001.json` (APP001 only) | `Expected_Assessment_Summary/` |
-| **Hold case state**: submission, the reviewer's rulings and decision, resubmissions | `frontend/src/state/caseStore.ts` (browser `localStorage`, stages simulated from timestamps) | n/a |
-| **Create and remove assessments**: the reviewer opens an assessment against an application; the applicant sees it at sign-in | `frontend/src/state/assignmentStore.ts` (browser `localStorage`) | n/a |
+| `GET/POST/DELETE /api/session` | anyone | Who is signed in (with the reviewer's department) / sign in (development rule) / sign out |
+| `GET /api/catalogue` | signed in | Active questions, rules and evidence options |
+| `GET /api/departments` | signed in | The departments an assessment can be filed under |
+| `GET/PUT /api/questionnaire` | reviewer | Question settings; saving publishes a new version |
+| `GET /api/assessments` | signed in | Applicant: their own. Reviewer: the queue (`?stage=`, `?department=`, `?cursor=`) |
+| `POST /api/assessments` | signed in | Reviewer: open one for an applicant (by email). Applicant: start their own (as themselves, dated today; at most 3 unsubmitted at a time) |
+| `GET/DELETE /api/assessments/{id}` | owner, reviewer | One assessment / remove before submission (reviewer: any started here; applicant: one they started) |
+| `GET/PATCH /api/assessments/{id}/form` | owner, reviewer / owner | The form / save answers and applicant details |
+| `POST /api/assessments/{id}/form/reset` | owner | Start the form over (before submission) |
+| `POST /api/assessments/{id}/evidence` | owner | Upload a document (multipart) |
+| `DELETE /api/assessments/{id}/evidence/{eid}` | owner | Remove a document |
+| `GET /api/assessments/{id}/evidence/{eid}/file` | owner, reviewer | Download a document |
+| `POST /api/assessments/{id}/submit` | owner | Send the form and documents to the engine |
+| `GET /api/assessments/{id}/case` | owner, reviewer | Stage, report, flags, rulings, score, written assessment, decision (follows a running engine job first) |
+| `PUT/DELETE /api/assessments/{id}/rulings/{qid}` | reviewer | Accept or reject a flagged answer / undo it |
+| `POST /api/assessments/{id}/decision` | reviewer | Accept or reject the scored case |
+| `POST /api/assessments/{id}/resubmit` | owner | Send again after the reviewer returned it (new documents for the rejected answers only) |
+| `POST /api/assessments/{id}/retry` | owner, reviewer | Send again after an engine failure |
+| `GET /api/assessments/{id}/highlights/{name}` | owner, reviewer | An engine-highlighted evidence PDF, passed through |
 
-Scoring runs in the frontend (`frontend/src/domain/engine.ts`, from
-`test-data/fnp_scoring_model_15q_v2.xlsx`) and needs no backend unless the team decides to move it.
+### Workflow
 
-## Inputs
+`cases/workflow.py` is the only code that changes an assessment's stage (diagram at its top).
+Engine runs are followed by the `follow_runs` worker, which checks each run in progress at most
+once per `ENGINE_POLL_INTERVAL_SECONDS`, longest-unchecked first; only one process follows a run
+at a time. Pages then only read the database. If the worker is not running, the case page and the
+assessment list move overdue runs on themselves, so a case never stalls, only slower to load. A clear run is scored by the engine and gets its written assessment. When the engine
+returns a case, the reviewer rules on every flagged answer before it moves on: back to the
+applicant if any is rejected, otherwise scored here (`cases/scoring.py`, checked in the tests
+against the engine's own score) with no written assessment. Engine URLs and request ids never
+reach the browser (`cases/adapt.py` rewrites every link; a test fails if one slips through).
 
-- **Submission payload**: one per applicant in `../test-data/form_data/APP00N.json`, the answers
-  plus the evidence each answer points at. The frontend's applicant details section adds three
-  keys to its `applicant` block that the test-set files do not have yet:
+A run never stays in progress for ever. It is failed, and can be sent again, when: the send
+breaks (a send has a hard time limit); the engine reports a failure, no longer knows the run, or
+answers with something that cannot be read; or it is still unfinished after
+`ENGINE_MAX_RUN_SECONDS` (default one hour).
 
-  | Key | Type | Required | Notes |
-  |---|---|---|---|
-  | `full_name` | string | yes | From the assessment record; the filer cannot change it |
-  | `proposed_role` | string | yes | From the parent application |
-  | `date_of_birth` | string, `YYYY-MM-DD` | yes | A real date in the past, after 1900 |
-  | `town` | string | yes | Town of residence |
-  | `nationality` | string | yes | **New** |
-  | `national_id_number` | string | yes | **New**; 4–20 letters or digits |
-  | `phone` | string | no | **New**; digits, spaces, `+` and `-` |
+### Security rules the code follows
 
-  "Required" is what the form asks for. Submission is not blocked on it, so the service should
-  expect any of these to arrive empty and report it rather than reject the submission. The
-  rules live in `frontend/src/domain/applicantDetails.ts`.
-- **Evidence documents**: `../test-data/evidence/APP00N/`.
-- **Engine prompts**: `../test-data/engine_prompts.json`.
+- Every endpoint requires a signed-in session unless it says otherwise (401 without one, so the
+  frontend returns the user to sign-in), and every view that takes
+  an assessment id resolves it through `cases.permissions.assessment_for` (reviewers: any;
+  applicants: their own; anyone else gets 404).
+- CSRF is enforced on every change, including sign-in. Session cookies are httpOnly and SameSite,
+  and Secure whenever `DEBUG` is off.
+- Sign-in (`cases/views/session.py`) is the **development rule** — any email, or `admin` for the
+  reviewer, no password. Replace that one view before real data is stored.
+- No personal data in logs or audit metadata. National ID numbers are encrypted at rest;
+  `FIELD_ENCRYPTION_KEY` may list several keys (comma-separated, the first encrypts) for rotation.
+- Every change re-checks the case's stage on the locked row, so it cannot race a submit.
+- Request bodies larger than an upload may be are refused before they are read. Behind a reverse
+  proxy, set the same limit there for bodies sent without a length.
 
-## Creating an assessment
+## Engine and test data
 
-The reviewer's "New assessment" form sends what the service needs to open one:
+- `ENGINE_BASE_URL` in `.env` points at the Data Authentication API. Every `POST
+  /authentication/verify` is a billed run: submitting, resubmitting, retrying and
+  `seed_demo --submit` each make one.
+- The tests never call the engine; they replay the captured responses in `engine/fixtures/`.
+- `seed_demo` loads the five demo applicants (answers, details and documents) from
+  `../test-data/` through `cases/data/demo_assessments.json`.
+- Uploaded documents are stored under `media/evidence/<assessment id>/<random name>`, one folder
+  per assessment, never under the name they were uploaded with; each has an `evidence_file` row
+  pointing at it. A folder is removed with its assessment's last document. The folder is
+  git-ignored and is only ever served through the API's access-checked download.
 
-| Field | Type | Rule |
-|---|---|---|
-| `applicantName` | string | required |
-| `email` | string | required, valid email, stored lower-case; the applicant signs in with it |
-| `entity` | string | required |
-| `position` | string | required |
-| `reference` | string | required; the parent application. Unique across assessments, compared case-insensitively |
-| `initiatedOn` | string, `YYYY-MM-DD` | required, not in the future |
+## Running in production
 
-The frontend fills in the rest: `departmentKey` is always `banking` (the reviewer portal's only
-department), and the id is `FNP-<year>-<serial>`, with serials never reused even after removal.
-One email may hold several assessments as long as their references differ.
-
-Removal is allowed only for assessments the reviewer created, and only before the applicant
-submits; it also deletes the applicant's draft. The rules are in
-`frontend/src/domain/newAssessment.ts` and `frontend/src/state/assignmentStore.ts`.
-
-## API contract
-
-`api-contract/authentication-response.example.json` is the agreed shape of the authentication
-response, using APP004 (whose clearance certificate contradicts their answer to PC1).
-
-It lines up with the frontend's `AuthenticationOutcome` type in `frontend/src/domain/types.ts`
-almost field for field: `sections`, each question, each check and `cvVerification` have the same
-names and shapes. Two differences need a small adapter when the stub is swapped out:
-
-- The totals sit under `summary` here (`summary.isClean`, `summary.overallConfidence`,
-  `summary.checksRun`), but at the top level in the frontend type.
-- The response also carries `parentApplication`, `applicant`, `status`, `submittedAt`,
-  `authenticatedAt`, `engineVersion` and `summary.questionsWithIssues`, which the frontend does
-  not read today.
-
-The example's parent application (Windhoek Commercial Bank, Chief Financial Officer) differs
-from the demo's data for the same applicant (Oshakati Microfinance Bank, Executive Director).
-The structure is the contract; the values are illustrative.
-
-## When work starts
-
-Put the service code in this folder, document how to run it here, and add each endpoint's
-request and response examples under `api-contract/`.
+- **Processes:** the web server and `manage.py follow_runs` (one is enough; it keeps running).
+- **Sessions:** run `manage.py clearsessions` daily, so expired sign-ins do not pile up.
+- **Several web workers:** set `REDIS_URL` (and `pip install redis`) so they share one cache: rate
+  limits then count across all of them, and the engine's evidence options are fetched once.
+- **Connections:** each process opens up to `DATABASE_POOL_MAX` (default 10) database connections;
+  processes × that must stay under PostgreSQL's `max_connections` (default 100), or put PgBouncer
+  in front.
+- **Audit retention:** `audit_event` only grows. Decide how long it must be kept; past tens of
+  millions of rows, partition it by month so old months can be archived.

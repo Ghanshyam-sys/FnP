@@ -1,19 +1,28 @@
-# Fit and Proper Assessment — proof of concept
+# Fit and Proper Assessment — frontend
 
-A front-end demo of the fit and proper assessment flow: an applicant fills in the 15-question
-form and attaches evidence, an authentication engine checks the evidence, a reviewer rules on
+The browser app for the fit and proper assessment flow: an applicant fills in the 15-question
+form and attaches evidence, the authentication engine checks the evidence, a reviewer rules on
 anything it flags, and the case is scored and decided.
 
-There is no backend yet. The authentication engine, the CV analysis and the final assessment
-narrative are **stub data** that reproduce what the backend is expected to return for the five
-test applicants. All case state lives in the browser's `localStorage`.
+All data comes from the backend in `../backend` through `/api`. The frontend stores nothing of
+its own: no `localStorage`, no demo data.
 
 ## Running it
 
+Start the backend first (see `../backend/README.md`: database, then `runserver 127.0.0.1:8001`).
+
 ```sh
 npm install
-npm run dev        # http://localhost:5173
+npm run dev        # http://localhost:5173, proxies /api to the backend
 ```
+
+The proxy target defaults to `http://127.0.0.1:8001`; set `FNP_API_URL` to use another.
+
+Pages have clean URLs (`/reviewer/FNP-2026-0412/authentication`, no `#`). Whatever serves the
+production build must therefore answer every path outside `/api` with `index.html`, so a page can
+be reloaded or bookmarked; on nginx that is `try_files $uri /index.html;`, with `/api` proxied to
+Django. The dev server and `npm run preview` already do this. Old `/#/...` links still open the
+right page: the app moves the path out of the `#` on load.
 
 | Script | What it does |
 |---|---|
@@ -21,95 +30,67 @@ npm run dev        # http://localhost:5173
 | `npm run build` | Type-check, then production build into `dist/` |
 | `npm run preview` | Serve the production build |
 | `npm run lint` | oxlint |
-| `npm test` | Vitest: pins the demo's engine outputs and the case-stage timeline |
+| `npm test` | Vitest: the applicant-detail and new-assessment rules |
 
-## Demo logins
+## Signing in
 
-There are no passwords. Sign-in lasts for the browser tab.
+Sign-in is the backend's development rule, with no passwords: any email signs in as that
+applicant, and `Admin` signs in as the reviewer. The session is a cookie held by the backend.
 
-| Sign in as | Sees | Seeded state |
-|---|---|---|
-| `j.amutenya@example.na` | APP001 | Clean, scored, accepted |
-| `p.shivute@example.na` | APP002 | Clean, scored, waiting on the reviewer's decision |
-| `e.haufiku@example.na` | APP003 | Q3 and PC19 flagged, waiting on the reviewer |
-| `m.vanwyk@example.na` | APP004 | PC1 flagged and rejected, waiting on the applicant to resubmit |
-| `m.kaapanda@example.na` | APP005 | Held in "Scoring in progress" |
-| `Admin` | Reviewer portal | All five |
+After `seed_demo` the five demo applicants are `j.amutenya@`, `p.shivute@`, `e.haufiku@`,
+`m.vanwyk@` and `m.kaapanda@example.na`, each with a filled-in, unsubmitted form. Submitting
+one sends it to the authentication engine (a billed run).
 
-The seed is written once per browser. To reset the demo, clear the site's local storage.
+An application can start in two ways:
 
-### Adding an applicant
+- **The applicant starts it:** they sign in with any email, choose **Start a new application**,
+  pick the department and enter the application details, then fill in the form. They can have up
+  to three unsubmitted applications, and can remove one they started before submitting it.
+- **The reviewer opens it:** sign in as `Admin` and choose **New assessment** in the queue; the
+  applicant then signs in with the email entered there.
 
-Sign in as `Admin` and choose **New assessment** in the queue. Enter the applicant's name and
-email, the entity, the position and the parent application reference. The applicant then signs
-in with that email, starts the assessment from a blank form and submits it as usual.
-
-Assessments created this way are stored in the browser like the rest of the demo, so they exist
-only in that browser. While the applicant has not submitted, the reviewer can remove one from
-its case page. The five built-in assessments cannot be removed. Built-in demo data is in
-`src/data/assignments.ts`; every lookup goes through `src/state/assignmentStore.ts`, which
-merges in the created ones.
+Either way, until it is submitted the reviewer sees the draft read-only and can remove it. The
+reviewer's queue covers all departments and can be filtered to one.
 
 ## Layout
 
 ```
 src/
+  api/          The backend: client.ts (fetch, CSRF, ApiError), types.ts (response shapes),
+                queries.ts (one TanStack Query hook per resource and change), adapt.ts (API
+                shapes into the ones the report components render), useApplication and
+                useCaseView (what the form pages and the case pages load)
   routes.ts     Every route pattern and a builder per route; links never hand-build paths
   pages/        One component per route (applicant /apply/*, reviewer /reviewer/*)
-  components/   Shared UI: route gates (ApplicantRoute, ReviewerRoute), PageHeader,
-                EmptyState, Modal, ConfidenceBar/CheckItem, AnswerTag, the report views
-  domain/       Pure logic: the question catalogue, evidence rules and options,
-                authentication checks, scoring, bands
-  state/        localStorage-backed stores (drafts, cases, reviewer config), the session
-                context, useCaseView (what every case page loads), review-state helpers
-  data/
-    assignments.ts   The demo assessments and who they belong to
-    fixtures.ts      Loads the test-set form payloads
-    stubs/           Stand-ins for backend responses (authentication results, CV analysis)
-    assessments/     Final assessment narrative (APP001 only)
-    testset/         Copy of the test set's form payloads the demo is pinned to
+  components/   Shared UI: route gates (ApplicantRoute, ReviewerRoute), PageHeader, LoadState,
+                EmptyState, Modal, EvidenceBlock, the report views
+  domain/       Pure rules: catalogue helpers, evidence gaps, applicant details, new-assessment
+                validation, risk bands, sections' display names
+  state/        caseLabels.ts: what each case stage is called and how the queue orders it
   styles/
     base/global.css  Design tokens (colours, radii, shadows, text sizes) and element defaults
     app.css          Imports every other stylesheet in cascade order — keep that order
     base/, components/, pages/   One stylesheet per area
   utils/        Formatting helpers
-public/evidence/     The evidence PDFs the review pages link to
 ```
 
 ### Where things go
 
-- **A question's rules** (weight, polarity, knock-out, when evidence is required, N/A,
-  supporting documents, which checks run) all live on its entry in `domain/questions.ts`.
-  The document dropdown for each question is in `domain/evidenceOptions.ts`.
-- **An applicant detail** (a field in the "Applicant details" card): add the key to
-  `ApplicantDetails` in `domain/types.ts` and an entry to `APPLICANT_FIELDS` in
-  `domain/applicantDetails.ts`. The form, the review summary and the reviewer's card all render
-  from that list. Demo values for the five seeded applicants are in `data/stubs/applicantDetails.ts`.
+- **Server data**: add the response type to `api/types.ts` and a hook to `api/queries.ts`. A
+  change that answers with the updated resource writes it into the cache rather than refetching.
+  Pages show `<Loading/>` and `<LoadError/>` (`components/LoadState.tsx`) while a query has no
+  data.
+- **A question's rules** (weight, when evidence is required, answer options, file types, which
+  checks run) come from the backend's catalogue (`GET /api/catalogue`). Reviewers change answer
+  options and attachment rules on the question settings page; weights belong to the scoring
+  model and are read-only.
+- **An applicant detail**: add it to the backend (`cases/models.py`, `cases/validation.py`, `cases/views/form.py`), then to
+  `ApplicantDetails` in `domain/types.ts`, `APPLICANT_FIELDS` in `domain/applicantDetails.ts`
+  and the mapping in `api/adapt.ts`. The form, the review summary and the reviewer's card all
+  render from that list.
 - **A new route**: add the pattern and a builder to `routes.ts`, register it in `App.tsx`
   behind `ApplicantRoute` or `ReviewerRoute`.
-- **A new case page**: start from `useCaseView(id)`, which returns the assessment, its form,
-  the engine outcome and the flags. Read the stage with `stageFor` yourself, with or without
-  `useStageTicker`, depending on whether the page should update while a stage is running.
+- **A new case page**: start from `useCaseView(id)`, which returns the assessment, the case, the
+  engine report and the score, and refreshes itself while the engine is working.
 - **Styles**: add rules to the stylesheet for that area and use the tokens in
   `styles/base/global.css` rather than new literal colours or sizes.
-
-## Replacing the stubs with a backend
-
-The places that stand in for the service are kept together so they can be swapped one at a time:
-
-- `data/stubs/authenticationOverrides.ts`: the check results that differ from a clean pass.
-  Used by `domain/authentication.ts`.
-- `data/stubs/cvAnalysis.ts`: per-applicant CV findings. Used by `domain/cvVerification.ts`.
-- `data/assessments/APP001.json`: the narrative assessment. Used by `domain/finalAssessment.ts`.
-- `state/caseStore.ts`: case stages are simulated from timestamps (`AUTH_MS`, `SCORING_MS`).
-
-`src/domain/demoBehaviour.test.ts` snapshots what the demo produces for every applicant. If a
-change alters those outputs on purpose, update the snapshots with `npx vitest run -u` and review
-the diff.
-
-## Test data
-
-The canonical test set is `../test-data/`, shared with the backend. The app keeps its own copy
-of the form payloads and evidence so the demo stays stable while the test set evolves. The test
-set has since moved the CV block to a `profile_review` structure and added APP006, neither of
-which the demo uses yet.

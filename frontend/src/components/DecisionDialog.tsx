@@ -1,7 +1,7 @@
 import { useState } from "react";
 import Modal, { ModalBanner, RequiredTextArea } from "./Modal";
 import { AlertTriangleIcon, CheckCircleIcon } from "./icons";
-import type { RulingVerdict } from "../state/caseStore";
+import type { Verdict } from "../api/types";
 import type { Band } from "../domain/types";
 
 /** The reviewer's final call on a scored assessment. Remarks are required either way. */
@@ -10,14 +10,20 @@ export default function DecisionDialog({
   applicantName,
   band,
   riskScore,
+  busy,
+  error,
   onConfirm,
   onCancel,
 }: {
-  verdict: RulingVerdict;
+  verdict: Verdict;
   applicantName: string;
   band: Band;
   riskScore: number;
   onConfirm: (remarks: string) => void;
+  /** The call is being saved: the confirm button waits for it. */
+  busy: boolean;
+  /** Why the last attempt was not saved; the dialog stays open so nothing typed is lost. */
+  error?: string;
   onCancel: () => void;
 }) {
   const [remarks, setRemarks] = useState("");
@@ -60,8 +66,15 @@ export default function DecisionDialog({
             ? "Record any conditions or monitoring attached to the approval."
             : "Record the grounds for rejection."
         }
+        maxLength={4000}
         hint="Remarks are required."
       />
+
+      {error && (
+        <p className="field-error" role="alert">
+          {error}
+        </p>
+      )}
 
       <div className="modal-actions">
         <button className="btn btn-ghost" onClick={onCancel}>
@@ -69,7 +82,7 @@ export default function DecisionDialog({
         </button>
         <button
           className={`btn ${isAccept ? "btn-primary" : "btn-critical"}`}
-          disabled={!canConfirm}
+          disabled={!canConfirm || busy}
           onClick={() => onConfirm(remarks.trim())}
         >
           {isAccept ? "Accept assessment" : "Reject assessment"}

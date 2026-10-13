@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { isCvFlag } from "../domain/cvVerification";
 import {
   AlertTriangleIcon,
   CheckCircleIcon,
@@ -9,6 +8,11 @@ import {
 } from "./icons";
 import { CheckItem, ConfidenceBar } from "./Confidence";
 import type { CvFinding, CvVerificationResult } from "../domain/types";
+
+/** A finding the reviewer should look at: the CV disagrees with the evidence, or raises a concern. */
+function isCvFlag(finding: CvFinding): boolean {
+  return finding.verdict === "EVIDENCE_CONFLICT" || finding.verdict === "SUITABILITY_FLAG";
+}
 
 const ASPECT_LABELS: Record<string, string> = {
   qualification: "Qualification",

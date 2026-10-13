@@ -1,27 +1,30 @@
 import AnswerToggle from "./AnswerToggle";
 import EvidenceBlock from "./EvidenceBlock";
-import { answerOptionsFor } from "../domain/questions";
-import type { Answer, EvidenceRole, ResponseItem } from "../domain/types";
-import type { QuestionConfig } from "../state/questionConfigStore";
+import { answerOptions } from "../domain/catalogue";
+import type { AttachHandler } from "./EvidenceBlock";
+import type { CatalogueQuestion } from "../api/types";
+import type { EvidenceOption } from "../domain/catalogue";
+import type { Answer, EvidenceRef, ResponseItem } from "../domain/types";
 
 export default function QuestionCard({
   response,
-  config,
+  question,
+  options,
+  defaultCode,
+  labelFor,
   onAnswerChange,
-  onAttachEvidence,
-  onRemoveEvidence,
+  onAttach,
+  onRemove,
 }: {
   response: ResponseItem;
-  /** Reviewer configuration in force for this filer, when it applies. */
-  config?: QuestionConfig;
-  onAnswerChange: (qid: string, answer: Answer) => void;
-  onAttachEvidence: (
-    qid: string,
-    optionCode: string,
-    role: EvidenceRole,
-    description?: string
-  ) => void;
-  onRemoveEvidence: (qid: string, docType: string) => void;
+  /** The question's rules from the catalogue: answers offered, formats, supporting slot. */
+  question: CatalogueQuestion;
+  options: EvidenceOption[];
+  defaultCode: string;
+  labelFor: (file: EvidenceRef) => string;
+  onAnswerChange: (answer: Answer) => void;
+  onAttach: AttachHandler;
+  onRemove: (evidenceId: string) => Promise<unknown>;
 }) {
   const labelId = `q-${response.qid}-label`;
 
@@ -39,9 +42,9 @@ export default function QuestionCard({
         </div>
         <AnswerToggle
           value={response.answer}
-          options={answerOptionsFor(response.qid, response.answer, config?.answers)}
+          options={answerOptions(question, response.answer)}
           labelledBy={labelId}
-          onChange={(answer) => onAnswerChange(response.qid, answer)}
+          onChange={onAnswerChange}
         />
       </div>
 
@@ -49,12 +52,13 @@ export default function QuestionCard({
         <EvidenceBlock
           qid={response.qid}
           evidence={response.evidence}
-          fileTypes={config?.fileTypes}
-          allowSupporting={config ? config.maxFiles > 1 : undefined}
-          onAttach={(optionCode, role, description) =>
-            onAttachEvidence(response.qid, optionCode, role, description)
-          }
-          onRemove={(docType) => onRemoveEvidence(response.qid, docType)}
+          options={options}
+          defaultCode={defaultCode}
+          fileTypes={question.fileTypes}
+          allowSupporting={question.maxFiles > 1}
+          labelFor={labelFor}
+          onAttach={onAttach}
+          onRemove={onRemove}
         />
       )}
     </article>

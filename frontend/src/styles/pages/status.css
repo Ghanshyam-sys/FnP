@@ -78,6 +78,13 @@
   color: var(--ink-2);
 }
 
+/* The reviewer's decision remarks, read as a note rather than centred status copy. */
+.status-remarks {
+  width: 100%;
+  max-width: 44ch;
+  text-align: left;
+}
+
 .status-card .progress-track {
   width: 100%;
   max-width: 320px;

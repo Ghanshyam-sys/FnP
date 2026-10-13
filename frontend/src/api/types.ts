@@ -1,0 +1,339 @@
+/** The backend's response shapes (backend/cases/views). */
+
+import type { Answer, CheckResult, CvFinding, EvidenceRole } from "../domain/types";
+
+export type Role = "applicant" | "reviewer";
+
+export interface SessionUser {
+  email: string;
+  role: Role;
+}
+
+export type Stage =
+  | "NOT_SUBMITTED"
+  | "AUTH_RUNNING"
+  | "AUTH_FAILED"
+  | "REVIEW_PENDING"
+  | "AWAITING_APPLICANT"
+  | "SCORING"
+  | "DECISION_PENDING"
+  | "ACCEPTED"
+  | "REJECTED";
+
+export interface Department {
+  key: string;
+  name: string;
+  blurb: string;
+}
+
+export interface Assessment {
+  id: string;
+  applicantName: string;
+  applicantEmail: string;
+  department: Department;
+  entity: string;
+  position: string;
+  reference: string;
+  initiatedOn: string;
+  stage: Stage;
+  submittedAt: string | null;
+  decidedAt: string | null;
+  updatedAt: string;
+  /** Whether the person viewing it may remove it (only before submission). */
+  removable: boolean;
+  /** Started by the applicant themselves, rather than opened for them by the reviewer. */
+  startedByApplicant: boolean;
+  /** Whether the applicant has saved anything yet. */
+  hasDraft: boolean;
+  /** What the reviewer queue's cards show about the latest run. */
+  queue: {
+    flagged: string[];
+    openFlags: number;
+    rejected: string[];
+    decisionRemarks: string | null;
+  };
+}
+
+/** The reviewer's admin panel: the system at a glance (GET /api/admin/overview). */
+export interface AdminOverview {
+  generatedAt: string;
+  /** The window "recently" counts cover, in days. */
+  recentDays: number;
+  users: {
+    total: number;
+    applicants: number;
+    reviewers: number;
+    active: number;
+    inactive: number;
+    newRecently: number;
+    signedInRecently: number;
+  };
+  assessments: {
+    total: number;
+    awaitingReviewer: number;
+    submittedRecently: number;
+    accepted: number;
+    rejected: number;
+    byStage: Record<Stage, number>;
+    byDepartment: { key: string; name: string; count: number }[];
+  };
+  runs: { inProgress: number; failed: number };
+  documents: { count: number; bytes: number };
+}
+
+/** One account as the admin panel lists it: identifiers, dates and counts only. */
+export interface AdminUser {
+  id: number;
+  email: string;
+  role: Role;
+  isActive: boolean;
+  isStaff: boolean;
+  joinedAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface AdminUserRow extends AdminUser {
+  assessmentCount: number;
+  latestStage: Stage | null;
+}
+
+export interface AdminUserDetail extends AdminUser {
+  assessments: {
+    id: string;
+    applicantName: string;
+    department: { key: string; name: string };
+    position: string;
+    stage: Stage;
+    updatedAt: string;
+    submittedAt: string | null;
+    decidedAt: string | null;
+  }[];
+  activity: { at: string; action: string; assessmentRef: string }[];
+}
+
+export interface Page<T> {
+  results: T[];
+  next: string | null;
+  /** The reviewer queue's totals across every page, not just the ones loaded. */
+  total?: number;
+  /** How many of those the reviewer has to act on. */
+  actionable?: number;
+}
+
+export interface CatalogueQuestion {
+  qid: string;
+  section: string;
+  text: string;
+  polarity: "Positive" | "Negative";
+  weight: number;
+  isKnockout: boolean;
+  evidenceRequired: "always" | "if_yes";
+  allowsNa: boolean;
+  acceptsSupporting: boolean;
+  checks: string[];
+  allowedAnswers: Answer[];
+  fileTypes: string[];
+  maxFiles: 1 | 2;
+}
+
+export interface EngineOption {
+  code: string;
+  label: string;
+  note?: string;
+  doc_type: string;
+  display?: string;
+  review_required?: string;
+  insufficient_alone?: string;
+  unprofiled?: boolean;
+}
+
+export interface QuestionnaireVersion {
+  version: string;
+  sections: { name: string; weight: number }[];
+  questions: CatalogueQuestion[];
+}
+
+export interface Catalogue extends QuestionnaireVersion {
+  cvFileTypes: string[];
+  evidenceOptions: Record<string, EngineOption[]>;
+}
+
+export interface QuestionnaireSettings {
+  current: QuestionnaireVersion;
+  published: QuestionnaireVersion;
+  configurableFileTypes: string[];
+}
+
+export interface EvidenceItem {
+  id: string;
+  qid: string;
+  optionCode: string;
+  docType: string;
+  role: EvidenceRole;
+  description: string;
+  fileName: string;
+  sizeBytes: number;
+  uploadedAt: string;
+  url: string;
+}
+
+export interface ApplicantInfo {
+  fullName: string;
+  email: string;
+  proposedRole: string;
+  dateOfBirth: string;
+  town: string;
+  nationality: string;
+  nationalIdNumber: string;
+  phone: string;
+}
+
+export interface Form {
+  locked: boolean;
+  applicant: ApplicantInfo;
+  /** allowedAnswers, fileTypes and maxFiles are the rules this form is checked against, always current. */
+  answers: {
+    qid: string;
+    value: Answer;
+    evidenceRequired: boolean;
+    /** When a document is needed: always, or only for a Yes. From the assessment's own version. */
+    evidenceRule: "always" | "if_yes";
+    allowedAnswers: Answer[];
+    fileTypes: string[];
+    maxFiles: 1 | 2;
+  }[];
+  evidence: EvidenceItem[];
+}
+
+export interface ApiQuestionResult {
+  qid: string;
+  question: string;
+  answer: Answer;
+  status: "authenticated" | "issue" | "not_checked";
+  confidence: number | null;
+  summary: string;
+  checks: CheckResult[];
+  determination: {
+    engineAnswer: string | null;
+    verdict: string | null;
+    note: string | null;
+    evidenceLine: string | null;
+    highlightUrl: string | null;
+  } | null;
+}
+
+export interface ApiAuthentication {
+  outcome: "CLEAR" | "RETURN_TO_FILER" | null;
+  isClean: boolean;
+  overallConfidence: number | null;
+  checksRun: number;
+  questionsWithIssues: number;
+  sections: { section: string; issueCount: number; questions: ApiQuestionResult[] }[];
+  cvVerification: {
+    docType: string;
+    status: "analyzed" | "not_submitted";
+    gateChecks: CheckResult[];
+    consistencyFindings: CvFinding[];
+    suitabilityFindings: CvFinding[];
+    flagCount: number;
+  } | null;
+}
+
+export interface ApiScore {
+  source: "engine" | "backend_override";
+  riskScore: number;
+  normalised: number;
+  band: "Low" | "Moderate" | "Elevated" | "High";
+  knockOut: boolean;
+  recommendation: string;
+  lines: {
+    qid: string;
+    section: string;
+    question: string;
+    answer: Answer;
+    polarity: "Positive" | "Negative";
+    questionWeight: number;
+    riskFlag: 0 | 1;
+    applicableWeight: number;
+    weightedRisk: number;
+    isKnockOut: boolean;
+    knockOutTriggered: boolean;
+  }[];
+}
+
+/** The reviewer's call on a flagged answer, or on the scored assessment. */
+export type Verdict = "accepted" | "rejected";
+
+export interface Ruling {
+  verdict: Verdict;
+  comment: string;
+  at: string;
+}
+
+export interface Case {
+  stage: Stage;
+  submittedAt: string | null;
+  decidedAt: string | null;
+  run: {
+    attempt: number;
+    status: "queued" | "running" | "completed" | "failed";
+    outcome: "CLEAR" | "RETURN_TO_FILER" | null;
+    submittedAt: string;
+    authenticatedAt: string | null;
+    completedAt: string | null;
+    /** Failed without the engine confirming it received the run: it may still be working on it,
+     * and sending again starts a second run. */
+    unconfirmed: boolean;
+  } | null;
+  authentication: ApiAuthentication | null;
+  flags: string[];
+  rulings: Record<string, Ruling>;
+  rejected: string[];
+  /** Rejected answers with no new document since the run they were rejected in. */
+  unreplaced: string[];
+  score: ApiScore | null;
+  /** The engine's written assessment, links already pointing at this backend. */
+  assessment: FinalAssessment | null;
+  decision: { verdict: Verdict; remarks: string; at: string } | null;
+}
+
+/**
+ * The engine's written assessment of a CLEAR submission: the determination, the concerns that drove
+ * it and the conditions proposed against each. Its links already point at this backend.
+ */
+export interface FinalAssessment {
+  application_id: string;
+  applicant: { full_name: string; proposed_role: string };
+  licensee: string;
+  determination: {
+    verdict: string;
+    recommendation: string;
+    risk_score: number;
+    risk_band: string;
+    weighted_risk: string;
+    knock_out_triggered: boolean;
+  };
+  executive_summary: string;
+  concerns: {
+    qid: string;
+    section: string;
+    severity: string;
+    risk_type: string;
+    statement: string;
+    condition_id: string;
+    condition: string;
+    quote: string;
+    evidence_url: string | null;
+  }[];
+  strengths: { qid: string; statement: string }[];
+  for_supervisor: string[];
+  questions: { passed: string; conditional: string; not_applicable: string };
+  evidence: { documents_read: number; questions_verified: number; questions_self_declared: number };
+  assessment: {
+    version: string;
+    generated_at: string;
+    inputs_digest: string;
+    rules_version: string;
+    narrative_generated: boolean;
+  };
+}

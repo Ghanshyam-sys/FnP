@@ -5,8 +5,12 @@
   position: fixed;
   inset: 0;
   z-index: 50;
-  display: grid;
-  place-items: center;
+  /* Centred by the modal's auto margins rather than place-items: when the dialog is taller than
+     the screen (a phone on its side) the margins collapse and the overlay scrolls, where grid
+     centring would push the top of the dialog out of reach. */
+  display: flex;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 1.25rem;
   background: var(--scrim);
   backdrop-filter: blur(3px);
@@ -14,6 +18,7 @@
 }
 
 .modal {
+  margin: auto;
   width: 100%;
   max-width: 400px;
   padding: 1.5rem;
@@ -39,6 +44,7 @@
 
 .modal-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 0.35rem;

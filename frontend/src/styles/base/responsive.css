@@ -3,7 +3,7 @@
    ============================================================ */
 @media (max-width: 720px) {
   .page {
-    padding: 1.5rem 1rem 6rem;
+    padding: 1.5rem var(--gutter) 6rem;
   }
 
   .page-head-text h1 {
@@ -46,8 +46,18 @@
 }
 
 @media (max-width: 540px) {
+  /* Wrapped onto two or three rows the bar is taller than its fade, so it gets a solid backing
+     (content no longer shows through behind the note) and its buttons share each row evenly. */
   .actionbar {
     flex-wrap: wrap;
+    gap: 0.5rem;
+    padding-top: 1rem;
+    background: linear-gradient(to top, var(--page) calc(100% - 0.75rem), transparent);
+  }
+
+  .actionbar > .btn {
+    flex: 1 1 auto;
+    justify-content: center;
   }
 
   .actionbar-note {
@@ -60,7 +70,24 @@
     align-items: stretch;
   }
 
+  /* In a column the prompt's 22rem basis would become its height, leaving a gap above the answer. */
+  .qcard-prompt {
+    flex-basis: auto;
+  }
+
+  .review-question {
+    -webkit-line-clamp: 3;
+  }
+
   .segmented {
     align-self: flex-start;
+  }
+}
+
+/* A phone on its side: the sticky header and stepper would take half the height, so the header
+   scrolls away with the page. The action bar stays pinned; it holds the next step. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .topbar {
+    position: static;
   }
 }

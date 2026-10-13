@@ -280,7 +280,16 @@
   margin: 0;
   font-size: var(--fs-md);
   color: var(--ink-2);
-  font-family: var(--mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+}
+
+.pane-qids {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.pane-qsplit-none {
+  color: var(--ink-3);
 }
 
 .pane-meta {
@@ -326,9 +335,63 @@
   }
 }
 
+/* The printed header identifies the case; on screen the page behind the pane already does. */
+.pane-print-head {
+  display: none;
+}
+
+/* Paper margins, and a running footer: the case on the left (written by the pane, which knows
+   it), the page count on the right. */
+@page {
+  margin: 16mm 15mm 18mm;
+
+  @bottom-left {
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 7.5pt;
+    color: #8a8881;
+  }
+
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 7.5pt;
+    color: #8a8881;
+  }
+}
+
 /* Printing the pane yields the PDF: everything behind it is dropped so the page starts at the
    summary rather than the scoring report. */
 @media print {
+  /* Paper is white whatever the screen theme: printed with the dark palette, the score and
+     headings come out as near-white text on white paper. */
+  :root:root:not([data-theme="print"]) {
+    --page: #ffffff;
+    --surface: #ffffff;
+    --surface-raised: #ffffff;
+    --surface-sunken: #f6f6f3;
+    --ink: #0b0b0b;
+    --ink-2: #3f3e3b;
+    --ink-3: #75736d;
+    --hairline: #dcdbd4;
+    --accent: #1c5cab;
+    --accent-wash: #edf3fd;
+    --accent-ink: #14477f;
+    --good-wash: #e7f6e7;
+    --good-ink: #0a6b0a;
+    --warning-wash: #fdf3e0;
+    --warning-ink: #7a4f00;
+    --serious-wash: #fdf0ea;
+    --serious-ink: #9c4520;
+    --critical-wash: #fbeaea;
+    --critical-ink: #a32b2b;
+    color-scheme: light;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+  }
+
   body > *:not(.pane-overlay) {
     display: none !important;
   }
@@ -344,12 +407,13 @@
     width: 100%;
     height: auto;
     border: 0;
+    background: none;
     box-shadow: none;
     animation: none;
   }
 
-  .pane-head-actions,
-  .pane-close {
+  /* The screen header (title and buttons) gives way to the printed one. */
+  .pane-head {
     display: none !important;
   }
 
@@ -358,8 +422,127 @@
     padding: 0;
   }
 
-  .pane-section,
-  .pane-concern {
+  .pane-print-head {
+    display: block;
+    margin-bottom: 14pt;
+    padding-bottom: 12pt;
+    border-bottom: 1.5pt solid var(--ink);
     break-inside: avoid;
+  }
+
+  .pane-print-brand {
+    display: flex;
+    align-items: center;
+    gap: 6pt;
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .pane-print-mark {
+    display: inline-grid;
+    place-items: center;
+    width: 16pt;
+    height: 16pt;
+    border-radius: 4pt;
+    background: var(--accent);
+    color: #ffffff;
+  }
+
+  .pane-print-doc {
+    margin-left: auto;
+    font-size: 7.5pt;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pane-print-name {
+    margin: 10pt 0 2pt;
+    font-size: 18pt;
+    letter-spacing: -0.015em;
+    color: var(--ink);
+  }
+
+  .pane-print-role {
+    margin: 0;
+    font-size: 10pt;
+    color: var(--ink-2);
+  }
+
+  .pane-print-meta {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    justify-content: start;
+    gap: 4pt 22pt;
+    margin: 10pt 0 0;
+  }
+
+  .pane-print-meta dt,
+  .pane-print-remarks span {
+    display: block;
+    font-size: 7pt;
+    font-weight: 600;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pane-print-meta dd {
+    margin: 1pt 0 0;
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: var(--ink);
+  }
+
+  .pane-print-remarks {
+    margin: 9pt 0 0;
+    font-size: 9.5pt;
+    line-height: 1.5;
+    color: var(--ink-2);
+  }
+
+  /* Browsers drop background colours when printing unless told otherwise: the verdict, severity
+     and question chips are read by their colour as much as their words. */
+  .pane .chip,
+  .pane .qid,
+  .pane-condition-id,
+  .pane-count,
+  .pane-print-mark {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Panels print as outlines, so nothing depends on a tint the printer may drop. */
+  .pane-stats,
+  .pane-quote,
+  .pane-concern {
+    background: none;
+  }
+
+  /* A link into the app means nothing on paper (and needs a signed-in session to open). */
+  .pane-quote a {
+    display: none;
+  }
+
+  /* Long sections may run across pages; a heading stays with what follows it, and each concern,
+     list item and the closing details stay whole. */
+  .pane-section h3 {
+    break-after: avoid;
+  }
+
+  .pane-section-verdict,
+  .pane-concern,
+  .pane-list li,
+  .pane-qsplit > div,
+  .pane-meta {
+    break-inside: avoid;
+  }
+
+  .pane-prose,
+  .pane-condition p {
+    orphans: 3;
+    widows: 3;
   }
 }
