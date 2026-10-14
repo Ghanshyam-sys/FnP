@@ -221,6 +221,15 @@ export default function ReviewerAuthenticationPage() {
           {open.length > 1 ? "s" : ""} ({open.join(", ")}) must be ruled on by another reviewer.
         </div>
       </div>
+    ) : stage === "SCORING" && data.run?.scoreForced ? (
+      <div className="notice notice-info">
+        <InfoIcon size={17} />
+        <div>
+          <strong>The AI engine is scoring the assessment.</strong> You accepted every flagged
+          answer, so it is scoring it and writing its summary. It comes to your decision once that
+          is done.
+        </div>
+      </div>
     ) : issues.length === 0 ? (
       <div className="notice notice-good">
         <CheckCircleIcon size={17} />
@@ -236,8 +245,9 @@ export default function ReviewerAuthenticationPage() {
           <strong>
             {open.length} question{open.length > 1 ? "s" : ""} awaiting your ruling
           </strong>{" "}
-          ({open.join(", ")}). Once every flagged answer has a ruling, the assessment moves on: to
-          your decision if you accept them all, back to the applicant if you reject any.
+          ({open.join(", ")}). Once every flagged answer has a ruling, the assessment moves on: if
+          you accept them all, the AI engine scores it and writes its assessment for your decision;
+          if you reject any, it goes back to the applicant.
         </div>
       </div>
     ) : (
@@ -247,7 +257,9 @@ export default function ReviewerAuthenticationPage() {
           <strong>All flagged answers have been ruled on.</strong>{" "}
           {stage === "AWAITING_APPLICANT"
             ? "The applicant has been asked for new evidence."
-            : "The assessment has moved on for the decision."}
+            : stage === "SCORING"
+              ? "The AI engine is scoring the assessment and writing its summary. It comes to your decision once that is done."
+              : "The assessment has moved on for the decision."}
         </div>
       </div>
     );

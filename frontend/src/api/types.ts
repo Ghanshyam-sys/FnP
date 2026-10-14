@@ -282,6 +282,13 @@ export interface Case {
     /** Failed without the engine confirming it received the run: it may still be working on it,
      * and sending again starts a second run. */
     unconfirmed: boolean;
+    /** Scored at the reviewer's request after they accepted every flagged answer (force-score). */
+    scoreForced: boolean;
+    scoreForcedAt: string | null;
+    /** Why the AI engine did not score it when asked, if it did not. */
+    forceScoreError: string | null;
+    /** Whether the reviewer may ask the AI engine to score it (again). */
+    canForceScore: boolean;
   } | null;
   authentication: ApiAuthentication | null;
   flags: string[];

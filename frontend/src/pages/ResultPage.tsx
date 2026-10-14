@@ -60,6 +60,16 @@ export default function ResultPage() {
         </div>
       )}
 
+      {scoreResult && data.run?.scoreForced && (
+        <div className="notice notice-info">
+          <InfoIcon size={17} />
+          <div>
+            <strong>Scored after review.</strong> The reviewer accepted the answers that could not
+            be authenticated, and the AI engine scored the assessment with them.
+          </div>
+        </div>
+      )}
+
       {data.score?.source === "backend_override" && (
         <div className="notice notice-info">
           <InfoIcon size={17} />

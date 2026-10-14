@@ -129,3 +129,11 @@
   width: 1rem;
   height: 1rem;
 }
+
+/* More than one action: side by side, wrapping on a narrow screen. */
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.5rem;
+}

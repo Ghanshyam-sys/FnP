@@ -2,8 +2,8 @@
 
     NOT_SUBMITTED --submit--> AUTH_RUNNING --CLEAR--> SCORING (engine) --> DECISION_PENDING --> ACCEPTED / REJECTED
                                    |                                          ^
-                                   +--RETURN_TO_FILER--> REVIEW_PENDING --every flag ruled, all accepted (scored here)
-                                   |       (no answer flagged: scored here, straight to DECISION_PENDING)
+                                   +--RETURN_TO_FILER--> REVIEW_PENDING --every flag ruled, all accepted--> SCORING (forced)
+                                   |       (no answer flagged: straight to DECISION_PENDING, unscored)
                                    |                         +--every flag ruled, any rejected--> AWAITING_APPLICANT --resubmit--> AUTH_RUNNING
                                    +--engine failure--> AUTH_FAILED --retry--> AUTH_RUNNING
 
@@ -238,6 +238,14 @@ def _fail(submission: Submission, error: str) -> None:
     """Ends a run as failed, and the case with it while that run is still the case's current one.
     A late or repeated call for a run that has already ended, or been replaced by a retry,
     changes nothing."""
+    if Submission.objects.filter(pk=submission.pk, score_forced_at__isnull=False).exists():
+        # A forced run was authenticated already: only the scoring the reviewer asked for failed.
+        ended = Submission.objects.filter(pk=submission.pk, status__in=[RunStatus.QUEUED, RunStatus.RUNNING]).update(
+            status=RunStatus.COMPLETED, completed_at=timezone.now()
+        )
+        if ended:
+            _force_failed(submission, error, None)
+        return
     with transaction.atomic():
         # The run's row first, then the assessment's: the order sync takes them in.
         ended = Submission.objects.filter(pk=submission.pk, status__in=[RunStatus.QUEUED, RunStatus.RUNNING]).update(
@@ -355,7 +363,8 @@ def _claim(assessment: Assessment) -> tuple[Submission, dict] | None:
                     lambda: _fail(submission, "The submission was interrupted before the engine received it.")
                 )
             return None
-        if submission.submitted_at < timezone.now() - datetime.timedelta(seconds=settings.ENGINE_MAX_RUN_SECONDS):
+        started = submission.score_forced_at or submission.submitted_at
+        if started < timezone.now() - datetime.timedelta(seconds=settings.ENGINE_MAX_RUN_SECONDS):
             transaction.on_commit(lambda: _fail(submission, "The engine did not finish the run in time."))
             return None
         if submission.last_polled_at and submission.last_polled_at > cutoff:
@@ -387,7 +396,7 @@ def _fetch(submission: Submission, have: dict) -> dict:
         if fetched["result"] is None:
             return fetched
         outcome = fetched["result"].get("data_authentication_summary", {}).get("outcome")
-    if outcome != Outcome.CLEAR:
+    if outcome != Outcome.CLEAR and not _scoring_resumed(submission, status):
         return fetched
     score_stage = stages.get("score")
     if not have["score"]:
@@ -449,7 +458,7 @@ def _advance(submission: Submission, fetched: dict) -> None:
             return
         _move_run(submission, Stage.SCORING, "case.scoring")
 
-    if submission.outcome != Outcome.CLEAR:
+    if submission.outcome != Outcome.CLEAR and not _scoring_resumed(submission, status):
         return
     score_stage, assessment_stage = stages.get("score"), stages.get("assessment")
     if not hasattr(submission, "score"):
@@ -474,6 +483,8 @@ def _advance(submission: Submission, fetched: dict) -> None:
         return
     _finish_run(submission)
     scored = Score.objects.filter(submission=submission).exists()
+    if submission.score_forced_at and not scored:
+        Submission.objects.filter(pk=submission.pk).update(force_error="The AI engine did not produce a score.")
     _move_run(submission, Stage.DECISION_PENDING, "case.scored" if scored else "case.ready_for_decision")
 
 
@@ -508,8 +519,9 @@ def _rounded(score: dict) -> dict:
 def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer: User) -> None:
     """Records the reviewer's ruling on one flagged answer. Once every flag has a ruling, the case
     moves on: back to the applicant if any was rejected (with every rejection at once), otherwise
-    on to the decision. That decision has no score: the engine scores only a submission that
-    authenticated CLEAR, and this one did not. Until then, any ruling can be undone."""
+    to the engine to be scored after all (force-score), then on to the decision with its score and
+    assessment. Until then, any ruling can be undone."""
+    forced = False
     with transaction.atomic():
         row = _locked(assessment, Stage.REVIEW_PENDING)
         submission = latest_submission(row)
@@ -526,8 +538,98 @@ def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer:
             return
         if Verdict.REJECTED in verdicts.values():
             _move(row, Stage.AWAITING_APPLICANT, "case.returned_to_applicant", reviewer)
+        elif settings.ENGINE_FORCE_SCORE and submission.engine_request_id:
+            _move(row, Stage.SCORING, "case.force_score", reviewer)
+            forced = True
         else:
             _move(row, Stage.DECISION_PENDING, "case.ready_for_decision", reviewer)
+    if forced:
+        # After the ruling is saved: the engine call holds no lock.
+        _request_forced_score(assessment, reviewer)
+
+
+# ---- Scoring a run the reviewer accepted ------------------------------------------------------
+
+def can_force_score(assessment: Assessment, submission: Submission | None) -> bool:
+    """Whether the reviewer may ask the engine to score this case's run after all: a run that was
+    authenticated but not CLEAR, with no score, that is not being followed, while the case waits
+    on the decision (or is left in SCORING by a request that never reached the engine)."""
+    if not settings.ENGINE_FORCE_SCORE or submission is None or not submission.engine_request_id:
+        return False
+    if submission.outcome in (None, Outcome.CLEAR):
+        return False
+    if submission.status in (RunStatus.QUEUED, RunStatus.RUNNING):
+        return False
+    if assessment.stage not in (Stage.DECISION_PENDING, Stage.SCORING):
+        return False
+    return not Score.objects.filter(submission=submission).exists()
+
+
+def force_score(assessment: Assessment, reviewer: User) -> None:
+    """The reviewer asks again for a case on the decision without a score (the engine refused or
+    could not be reached the first time, or the flags were accepted before scoring was forced)."""
+    with transaction.atomic():
+        row = _locked(assessment, Stage.DECISION_PENDING, Stage.SCORING)
+        if not can_force_score(row, latest_submission(row)):
+            raise TransitionError("This assessment cannot be sent to the AI engine for scoring.")
+        if row.stage != Stage.SCORING:
+            _move(row, Stage.SCORING, "case.force_score", reviewer)
+    _request_forced_score(assessment, reviewer)
+
+
+def _request_forced_score(assessment: Assessment, actor: User | None) -> None:
+    """Asks the engine to score the case's latest run although it did not authenticate CLEAR. On
+    success the run is followed again, as one that is still running, until its score and
+    assessment are saved. On a refusal the case goes back to the decision, unscored, with the reason."""
+    submission = latest_submission(assessment)
+    request_id = submission.engine_request_id
+    try:
+        engine.force_score(request_id, assessment.public_id)
+    except engine.ForceRefused as exc:
+        # Forced before (a repeated request, or a reviewer at the same moment): the engine then
+        # reports the run CLEAR, and following it simply resumes.
+        if not _engine_reports_clear(request_id):
+            _force_failed(submission, str(exc), actor)
+            return
+    except engine.EngineUnavailable:
+        _force_failed(submission, "The AI engine could not be reached. Try again shortly.", actor)
+        return
+    except Exception:
+        logger.exception("Forcing the score of %s attempt %s failed", assessment.public_id, submission.attempt_no)
+        _force_failed(submission, "The request to the AI engine failed. Try again shortly.", actor)
+        return
+    Submission.objects.filter(pk=submission.pk).update(
+        score_forced_at=timezone.now(), force_error="", status=RunStatus.RUNNING, completed_at=None,
+        last_polled_at=None,
+    )
+
+
+def _engine_reports_clear(request_id: str) -> bool:
+    try:
+        return engine.status(request_id).get("outcome") == Outcome.CLEAR
+    except (engine.EngineUnavailable, engine.RunNotFound):
+        return False
+
+
+def _force_failed(submission: Submission, reason: str, actor: User | None) -> None:
+    """The engine did not score the run after all: the case goes to the decision without a score,
+    as it did before scoring could be forced, and the reason is kept for the reviewer."""
+    with transaction.atomic():
+        Submission.objects.filter(pk=submission.pk).update(force_error=reason[:500])
+        row = Assessment.objects.select_for_update().get(pk=submission.assessment_id)
+        if row.stage != Stage.SCORING or latest_submission(row).pk != submission.pk:
+            return
+        row.stage = Stage.DECISION_PENDING
+        row.save(update_fields=["stage", "updated_at"])
+        audit.record(actor, "case.force_score_failed", assessment_ref=row.public_id, metadata={"reason": reason[:200]})
+
+
+def _scoring_resumed(submission: Submission, status: dict) -> bool:
+    """A forced run once the engine has switched it to CLEAR (or already has its score ready): only
+    then do its score and assessment stages describe the forced scoring rather than the original run."""
+    if submission.score_forced_at is None:
+        return False
+    return status.get("outcome") == Outcome.CLEAR or status.get("stages", {}).get("score") == "READY"
 
 
 def undo_ruling(assessment: Assessment, qid: str, reviewer: User) -> None:

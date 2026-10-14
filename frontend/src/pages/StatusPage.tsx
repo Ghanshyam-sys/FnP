@@ -23,7 +23,8 @@ function progressOf(data: Case): number {
   const run = data.run;
   const expected = EXPECTED_SECONDS[data.stage];
   if (!run || !expected) return 0;
-  const started = data.stage === "SCORING" && run.authenticatedAt ? run.authenticatedAt : run.submittedAt;
+  const started =
+    data.stage === "SCORING" ? (run.scoreForcedAt ?? run.authenticatedAt ?? run.submittedAt) : run.submittedAt;
   const elapsed = (Date.now() - new Date(started).getTime()) / 1000;
   return Math.min(95, Math.max(5, (elapsed / expected) * 100));
 }
@@ -124,7 +125,15 @@ export default function StatusPage() {
     );
   }
 
-  const copy = COPY[status];
+  // Scoring after the reviewer accepted the answers that could not be authenticated.
+  const copy =
+    status === "SCORING" && data.run?.scoreForced
+      ? {
+          ...COPY.SCORING,
+          detail:
+            "The reviewer accepted the answers that could not be authenticated. The fit and proper score is being calculated now.",
+        }
+      : COPY[status];
   const progress = progressOf(data);
 
   return (

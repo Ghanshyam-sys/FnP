@@ -99,7 +99,7 @@ media/                  uploaded documents (git-ignored), see below
 | `GET /api/assessments` | signed in | Applicant: their own. Reviewer: the queue (`?stage=`, `?department=`, `?cursor=`) |
 | `POST /api/assessments` | signed in | Reviewer: open one for an applicant (by email). Applicant: start their own (as themselves, dated today; at most 3 unsubmitted at a time) |
 | `GET/DELETE /api/assessments/{id}` | owner, reviewer | One assessment / remove before submission (reviewer: any started here; applicant: one they started) |
-| `GET/PATCH /api/assessments/{id}/form` | owner, reviewer / owner | The form / save answers and applicant details |
+| `GET/PATCH /api/assessments/{id}/form` | owner, reviewer / owner | The form / save answers |
 | `POST /api/assessments/{id}/form/reset` | owner | Start the form over (before submission) |
 | `POST /api/assessments/{id}/evidence` | owner | Upload a document (multipart) |
 | `DELETE /api/assessments/{id}/evidence/{eid}` | owner | Remove a document |
@@ -107,7 +107,8 @@ media/                  uploaded documents (git-ignored), see below
 | `POST /api/assessments/{id}/submit` | owner | Send the form and documents to the engine |
 | `GET /api/assessments/{id}/case` | owner, reviewer | Stage, report, flags, rulings, score, written assessment, decision (follows a running engine job first) |
 | `PUT/DELETE /api/assessments/{id}/rulings/{qid}` | reviewer | Accept or reject a flagged answer / undo it |
-| `POST /api/assessments/{id}/decision` | reviewer | Accept or reject the scored case |
+| `POST /api/assessments/{id}/decision` | reviewer | Accept or reject the case, with feedback |
+| `POST /api/assessments/{id}/force-score` | reviewer | Ask the engine again to score a case whose flagged answers were all accepted (when it was not scored) |
 | `POST /api/assessments/{id}/resubmit` | owner | Send again after the reviewer returned it (new documents for the rejected answers only) |
 | `POST /api/assessments/{id}/retry` | owner, reviewer | Send again after an engine failure |
 | `GET /api/assessments/{id}/highlights/{name}` | owner, reviewer | An engine-highlighted evidence PDF, passed through |
@@ -120,8 +121,12 @@ once per `ENGINE_POLL_INTERVAL_SECONDS`, longest-unchecked first; only one proce
 at a time. Pages then only read the database. If the worker is not running, the case page and the
 assessment list move overdue runs on themselves, so a case never stalls, only slower to load. A clear run is scored by the engine and gets its written assessment. When the engine
 returns a case, the reviewer rules on every flagged answer before it moves on: back to the
-applicant if any is rejected, otherwise scored here (`cases/scoring.py`, checked in the tests
-against the engine's own score) with no written assessment. Engine URLs and request ids never
+applicant if any is rejected; if all are accepted, the engine is asked to score the same run anyway
+(`POST /authentication/force-score` with its `request_id`, our case id as `application_id`, and
+`is_score_forced: true`), and the case comes to the decision with the engine's score and written
+assessment. If the engine refuses or cannot be reached, the case goes to the decision unscored with
+the reason, and the reviewer can ask again from the decision page. `ENGINE_FORCE_SCORE=false` turns
+this off (accepted cases then go to the decision unscored). Only the engine scores. Engine URLs and request ids never
 reach the browser (`cases/adapt.py` rewrites every link; a test fails if one slips through).
 
 A run never stays in progress for ever. It is failed, and can be sent again, when: the send

@@ -29,11 +29,20 @@ class FakeEngine:
         self.sent = []
         self.calls = 0
         self.fail_submit = False
+        # (request id, application id) of every force-score request; a refusal to raise instead.
+        self.forced = []
+        self.force_refusal = None
         monkeypatch.setattr(client, "submit", self.submit)
         monkeypatch.setattr(client, "status", self.status)
+        monkeypatch.setattr(client, "force_score", self.force_score)
         monkeypatch.setattr(client, "result", lambda rid: engine_fixture(f"result-{self.run}.json"))
-        monkeypatch.setattr(client, "score", lambda rid: engine_fixture("score-APP001-clear.json") if self.run.endswith("clear") else None)
-        monkeypatch.setattr(client, "assessment", lambda rid: engine_fixture("assessment-APP001-clear.json") if self.run.endswith("clear") else None)
+        monkeypatch.setattr(client, "score", lambda rid: engine_fixture("score-APP001-clear.json") if self.scores else None)
+        monkeypatch.setattr(client, "assessment", lambda rid: engine_fixture("assessment-APP001-clear.json") if self.scores else None)
+
+    @property
+    def scores(self):
+        """A clear run is scored, and so is a forced one."""
+        return self.run.endswith("clear") or bool(self.forced)
 
     def submit(self, payload, files):
         if self.fail_submit:
@@ -47,8 +56,18 @@ class FakeEngine:
             raise self.status_doc
         return self.status_doc
 
+    def force_score(self, request_id, application_id):
+        if self.force_refusal is not None:
+            raise self.force_refusal
+        self.forced.append((request_id, application_id))
+        return {"request_id": request_id, "application_id": application_id}
+
     def finish(self):
         self.status_doc = engine_fixture(f"status-{self.run}.json")
+
+    def finish_forced(self):
+        """The engine, having set the forced run to CLEAR, has its score and assessment ready."""
+        self.status_doc = engine_fixture("status-APP001-clear.json")
 
 
 @pytest.fixture
@@ -390,12 +409,123 @@ def test_the_reviewer_rules_only_on_flagged_answers(reviewer, applicant, case, f
     assert reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "accepted"}).status_code == 400
 
 
-def test_accepting_every_flag_sends_the_case_to_the_decision_without_a_score(reviewer, case, flagged):
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "accepted", "comment": "Expunged."}).json()
+ACCEPT = {"verdict": "accepted", "comment": "Expunged."}
+
+
+def test_accepting_every_flag_has_the_engine_score_the_same_run(reviewer, case, flagged):
+    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    assert flagged.forced == [("req1", case)]  # the run reviewed, under the case's own id
+    assert body["stage"] == "SCORING" and body["rulings"]["PC1"]["verdict"] == "accepted"
+    assert body["run"]["scoreForced"] is True and body["run"]["status"] == "running"
+    assert body["run"]["canForceScore"] is False
+    # Until the engine reports the run CLEAR, its score stage still describes the original run.
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "SCORING" and body["score"] is None
+
+    flagged.finish_forced()
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
     assert body["stage"] == "DECISION_PENDING"
-    assert body["score"] is None and not Score.objects.exists()  # the engine scores only a CLEAR run
-    assert body["rulings"]["PC1"]["verdict"] == "accepted"
-    assert body["assessment"] is None  # the engine writes one only for a clear run
+    assert body["score"]["source"] == "engine" and body["score"]["band"] == "Moderate"
+    assert body["assessment"] is not None  # the engine wrote its assessment too
+    assert body["run"]["outcome"] == "RETURN_TO_FILER"  # what authentication found is kept
+    assert body["run"]["forceScoreError"] is None and Submission.objects.get().status == "completed"
+    actions = list(AuditEvent.objects.filter(assessment_ref=case).order_by("id").values_list("action", flat=True))
+    assert actions[-2:] == ["case.force_score", "case.scored"]
+    decided = reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "accepted", "remarks": "Fine."})
+    assert decided.json()["stage"] == "ACCEPTED"
+
+
+def test_a_refused_force_score_leaves_the_case_on_the_decision_and_can_be_asked_again(applicant, reviewer, case, flagged):
+    flagged.force_refusal = client.ForceRefused("The submission is still running.")
+    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"] is None
+    assert body["run"]["forceScoreError"] == "The submission is still running."
+    assert body["run"]["canForceScore"] is True
+    assert AuditEvent.objects.filter(action="case.force_score_failed").exists()
+
+    assert applicant.post(f"/api/assessments/{case}/force-score").status_code == 403
+    flagged.force_refusal = None
+    body = reviewer.post(f"/api/assessments/{case}/force-score").json()
+    assert body["stage"] == "SCORING" and body["run"]["forceScoreError"] is None
+    flagged.finish_forced()
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["score"]["source"] == "engine"
+    # Scored: nothing more to ask for.
+    assert reviewer.post(f"/api/assessments/{case}/force-score").status_code == 409
+
+
+def test_an_unreachable_engine_leaves_the_case_on_the_decision(reviewer, case, flagged):
+    flagged.force_refusal = EngineUnavailable("down")
+    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    assert body["stage"] == "DECISION_PENDING"
+    assert "could not be reached" in body["run"]["forceScoreError"] and body["run"]["canForceScore"] is True
+
+
+def test_a_run_forced_before_is_simply_followed_again(reviewer, case, flagged):
+    # The engine refuses a second force, but already reports the run CLEAR: it was forced.
+    flagged.force_refusal = client.ForceRefused("Already forced.")
+    flagged.finish_forced()
+    flagged.forced.append(("req1", case))  # forced earlier, so the engine serves its score
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"]["source"] == "engine"
+
+
+def test_a_forced_run_that_fails_goes_back_to_the_decision_not_to_auth_failed(
+    reviewer, case, flagged, django_capture_on_commit_callbacks
+):
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    flagged.status_doc = {**engine_fixture("status-APP001-clear.json"), "status": "FAILED", "error": "Scoring crashed."}
+    with django_capture_on_commit_callbacks(execute=True):
+        reviewer.get(f"/api/assessments/{case}/case")
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"] is None
+    assert body["run"]["forceScoreError"] == "Scoring crashed." and body["run"]["status"] == "completed"
+    assert body["run"]["canForceScore"] is True
+
+
+def test_a_forced_runs_time_limit_counts_from_when_it_was_forced(reviewer, case, flagged):
+    # Sent long ago, but forced just now: still followed, not failed as overdue.
+    Submission.objects.update(submitted_at=timezone.now() - datetime.timedelta(days=1))
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    flagged.finish_forced()
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["score"]["source"] == "engine"
+
+
+def test_with_force_score_off_accepting_every_flag_goes_to_the_decision_unscored(reviewer, case, flagged, settings):
+    settings.ENGINE_FORCE_SCORE = False
+    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"] is None and flagged.forced == []
+    assert body["run"]["canForceScore"] is False
+
+
+def test_force_score_is_only_possible_on_an_unscored_case_waiting_for_the_decision(reviewer, case, flagged):
+    # Still under review: the reviewer rules first.
+    assert reviewer.post(f"/api/assessments/{case}/force-score").status_code == 409
+    assert flagged.forced == []
+
+
+def test_the_engine_is_sent_exactly_the_three_keys(monkeypatch):
+    import httpx
+
+    seen = {}
+
+    def handler(request):
+        seen["path"], seen["body"] = request.url.path, json.loads(request.content)
+        return httpx.Response(200, json={"request_id": "839f34ccb9"})
+
+    monkeypatch.setattr(client, "_client", lambda: httpx.Client(transport=httpx.MockTransport(handler), base_url="http://engine"))
+    client.force_score("839f34ccb9", "FNP-2026-0001")
+    assert seen == {
+        "path": "/authentication/force-score",
+        "body": {"request_id": "839f34ccb9", "application_id": "FNP-2026-0001", "is_score_forced": True},
+    }
+
+    def refuse(request):
+        return httpx.Response(409, json={"detail": "Already forced."})
+
+    monkeypatch.setattr(client, "_client", lambda: httpx.Client(transport=httpx.MockTransport(refuse), base_url="http://engine"))
+    with pytest.raises(client.ForceRefused, match="Already forced."):
+        client.force_score("839f34ccb9", "FNP-2026-0001")
 
 
 def test_a_rejection_returns_the_case_and_only_that_document_can_change(reviewer, applicant, case, flagged):

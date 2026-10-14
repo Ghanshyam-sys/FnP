@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import { useDecide } from "../api/queries";
+import { useDecide, useForceScore } from "../api/queries";
 import { refusalMessage } from "../api/client";
 import { useCaseView } from "../api/useCaseView";
 import { isScored } from "../state/caseLabels";
@@ -31,6 +31,7 @@ export default function ReviewerResultPage() {
   const [revision, setRevision] = useState(0);
   const view = useCaseView(id);
   const decide = useDecide(id);
+  const forceScore = useForceScore(id);
 
   if (view.status === "loading") return <Loading />;
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
@@ -109,6 +110,17 @@ export default function ReviewerResultPage() {
         </div>
       )}
 
+      {scoreResult && data.run?.scoreForced && (
+        <div className="notice notice-info">
+          <InfoIcon size={17} />
+          <div>
+            <strong>Scored at your request.</strong> The AI engine flagged{" "}
+            {data.flags.length > 0 ? data.flags.join(", ") : "answers"}, which you accepted, so it
+            scored the assessment as if they were authenticated.
+          </div>
+        </div>
+      )}
+
       {data.score?.source === "backend_override" && (
         <div className="notice notice-info">
           <InfoIcon size={17} />
@@ -127,14 +139,42 @@ export default function ReviewerResultPage() {
           icon={<InfoIcon size={22} />}
           title="Not scored by the AI engine"
           action={
-            <button className="btn btn-ghost" onClick={() => navigate(routes.reviewerAuthentication(id))}>
-              View the authentication report
-            </button>
+            <div className="empty-actions">
+              {data.run?.canForceScore && !decision && !ownApplication && (
+                <button
+                  className="btn btn-primary"
+                  disabled={forceScore.isPending}
+                  onClick={() => forceScore.mutate(undefined)}
+                >
+                  {forceScore.isPending
+                    ? "Sending…"
+                    : data.run.forceScoreError
+                      ? "Try AI scoring again"
+                      : "Request AI score"}
+                </button>
+              )}
+              <button className="btn btn-ghost" onClick={() => navigate(routes.reviewerAuthentication(id))}>
+                View the authentication report
+              </button>
+            </div>
           }
         >
-          The AI engine scores only a submission in which every answer was authenticated. This one
-          had flagged answers (which you accepted) or was not scored by the engine, so it has no
-          risk score or band. Base your decision on the authentication report.
+          The AI engine scores only a submission in which every answer was authenticated, unless
+          you accept the answers it flagged and ask it to score anyway. This one has no risk score
+          or band yet.
+          {data.run?.forceScoreError && (
+            <>
+              {" "}
+              <strong>The AI engine could not score it:</strong> {data.run.forceScoreError}
+            </>
+          )}
+          {forceScore.isError && (
+            <>
+              {" "}
+              <strong>Not sent.</strong> {refusalMessage(forceScore.error, "detail")}
+            </>
+          )}{" "}
+          You can also decide on the authentication report.
         </EmptyState>
       )}
 

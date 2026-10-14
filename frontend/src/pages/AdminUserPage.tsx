@@ -32,6 +32,8 @@ const ACTIONS: Record<string, string> = {
   "case.scoring": "Moved to scoring",
   "case.scored": "Scored",
   "case.ready_for_decision": "Sent for the reviewer's decision",
+  "case.force_score": "Asked the AI engine to score after accepting flagged answers",
+  "case.force_score_failed": "The AI engine did not score it after the reviewer's request",
   "questionnaire.publish": "Published question settings",
   "user.activate": "Reactivated an account",
   "user.deactivate": "Deactivated an account",

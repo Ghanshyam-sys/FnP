@@ -119,6 +119,42 @@ def status(request_id: str) -> dict:
         raise EngineUnavailable(f"GET {path} failed") from exc
 
 
+class ForceRefused(Exception):
+    """The engine would not force the run on to scoring: no run has both ids (404), or it cannot
+    be forced as it stands (409: still running, already CLEAR, already forced, or too old). The
+    message is the engine's reason, for the reviewer."""
+
+
+def force_score(request_id: str, application_id: str) -> dict:
+    """Moves a run that did not authenticate CLEAR on to scoring and the assessment, after the
+    reviewer accepted every finding. The engine sets its outcome to CLEAR and resumes the same run:
+    the score and assessment then appear at their usual endpoints for this request id."""
+    path = "/authentication/force-score"
+    try:
+        response = _client().post(
+            path, json={"request_id": request_id, "application_id": application_id, "is_score_forced": True}
+        )
+        if response.status_code in (404, 409):
+            raise ForceRefused(_detail(response) or f"The engine refused (HTTP {response.status_code}).")
+        response.raise_for_status()
+        return response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise EngineUnavailable(f"POST {path} failed") from exc
+
+
+def _detail(response: httpx.Response) -> str:
+    """The engine's own explanation of a refusal, as plain text."""
+    try:
+        detail = response.json().get("detail")
+    except (ValueError, AttributeError):
+        return ""
+    if isinstance(detail, str):
+        return detail[:500]
+    if isinstance(detail, dict):
+        return str(detail.get("message") or detail.get("reason") or "")[:500]
+    return ""
+
+
 def result(request_id: str) -> dict | None:
     return _get_json(f"/authentication/result/{request_id}", missing_ok=True)
 

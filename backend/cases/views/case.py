@@ -76,6 +76,13 @@ def case_payload(assessment: Assessment) -> dict:
         "completedAt": submission.completed_at,
         # A failed run the engine may still be working on: sending it again starts a second run.
         "unconfirmed": submission.status == RunStatus.FAILED and submission.error == workflow.UNCONFIRMED_SEND,
+        # Scored at the reviewer's request although it did not authenticate CLEAR (force-score).
+        "scoreForced": submission.score_forced_at is not None,
+        "scoreForcedAt": submission.score_forced_at,
+        # Why the engine did not score it when asked, if it did not.
+        "forceScoreError": submission.force_error or None,
+        # Whether the reviewer may ask the engine to score it (again).
+        "canForceScore": workflow.can_force_score(assessment, submission),
     }
     if assessment.stage == Stage.AWAITING_APPLICANT:
         current = list(assessment.evidence.filter(superseded_at__isnull=True))
@@ -173,6 +180,21 @@ class RulingView(APIView):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.undo_ruling, assessment, qid, request.user)
+        assessment.refresh_from_db()
+        return Response(case_payload(assessment))
+
+
+class ForceScoreView(APIView):
+    """Reviewer: asks the AI engine to score a case whose flagged answers were all accepted, when
+    it was not scored (the engine refused or could not be reached, or the flags were accepted before
+    scoring could be forced)."""
+
+    permission_classes = [IsReviewer]
+
+    def post(self, request, public_id):
+        assessment = _assessment(request, public_id)
+        require_not_own(request.user, assessment)
+        _transition(workflow.force_score, assessment, request.user)
         assessment.refresh_from_db()
         return Response(case_payload(assessment))
 

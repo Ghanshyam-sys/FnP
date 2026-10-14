@@ -392,6 +392,12 @@ class Submission(models.Model):
     completed_at = models.DateTimeField(null=True, blank=True)
     last_polled_at = models.DateTimeField(null=True, blank=True)
     error = models.TextField(blank=True)
+    # When the reviewer accepted every finding of a run that did not authenticate CLEAR and the
+    # engine agreed to score it anyway (POST /authentication/force-score): the same run then goes on
+    # to the score and the assessment. Null for a run never forced.
+    score_forced_at = models.DateTimeField(null=True, blank=True)
+    # Why the engine would not score it after all, when it would not, for the reviewer.
+    force_error = models.TextField(blank=True)
 
     class Meta:
         db_table = "submission"
