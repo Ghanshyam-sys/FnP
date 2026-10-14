@@ -167,7 +167,7 @@ def test_a_reviewer_cannot_rule_on_or_decide_their_own_application():
 
 
 
-def test_an_applicant_with_applications_to_finish_is_not_made_a_reviewer(browser, staff):
+def test_an_applicant_with_undecided_applications_is_not_made_a_reviewer(browser, staff):
     anna = make.user("anna@example.na")
     make.assessment(applicant=anna, stage=Stage.NOT_SUBMITTED)
     page = browser.post(reverse("admin:cases_user_change", args=[anna.pk]), {"role": "reviewer", "is_active": "on"})
@@ -179,8 +179,13 @@ def test_an_applicant_with_applications_to_finish_is_not_made_a_reviewer(browser
     anna.refresh_from_db()
     assert anna.role == Role.APPLICANT and not AuditEvent.objects.filter(action="user.role_change").exists()
 
-    # Once nothing waits on them (submitted, say), they can be.
+    # Submitted is not enough: it could still be sent back to them for new evidence.
     Assessment.objects.filter(applicant=anna).update(stage=Stage.REVIEW_PENDING)
+    assert browser.post(reverse("admin:cases_user_change", args=[anna.pk]), {"role": "reviewer", "is_active": "on"}).status_code == 200
+    anna.refresh_from_db()
+    assert anna.role == Role.APPLICANT
+    # Once it is decided, they can be.
+    Assessment.objects.filter(applicant=anna).update(stage=Stage.ACCEPTED)
     assert browser.post(reverse("admin:cases_user_change", args=[anna.pk]), {"role": "reviewer", "is_active": "on"}).status_code == 302
     anna.refresh_from_db()
     assert anna.role == Role.REVIEWER
@@ -194,3 +199,16 @@ def test_the_assessment_says_whether_it_is_the_viewers_own():
     client.force_login(anna)
     assert client.get(f"/api/assessments/{own.public_id}").json()["ownApplication"] is True
     assert client.get(f"/api/assessments/{other.public_id}").json()["ownApplication"] is False
+
+
+def test_a_bulk_role_change_signs_out_every_changed_user(browser, staff):
+    anna, ben, carl = make.user("anna@example.na"), make.user("ben@example.na"), make.user("carl@example.na")
+    clients = {}
+    for user in (anna, ben, carl):
+        clients[user.email] = APIClient()
+        clients[user.email].force_login(user)
+    browser.post(reverse("admin:cases_user_changelist"), {"action": "make_reviewer", "_selected_action": [anna.pk, ben.pk]})
+    assert clients["anna@example.na"].get("/api/session").json() == {"user": None}
+    assert clients["ben@example.na"].get("/api/session").json() == {"user": None}
+    # Someone not changed stays signed in.
+    assert clients["carl@example.na"].get("/api/session").json()["user"]["email"] == "carl@example.na"

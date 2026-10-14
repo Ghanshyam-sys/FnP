@@ -240,11 +240,7 @@ def _fail(submission: Submission, error: str) -> None:
     changes nothing."""
     if Submission.objects.filter(pk=submission.pk, score_forced_at__isnull=False).exists():
         # A forced run was authenticated already: only the scoring the reviewer asked for failed.
-        ended = Submission.objects.filter(pk=submission.pk, status__in=[RunStatus.QUEUED, RunStatus.RUNNING]).update(
-            status=RunStatus.COMPLETED, completed_at=timezone.now()
-        )
-        if ended:
-            _force_failed(submission, error, None)
+        _force_failed(submission, error, None)
         return
     with transaction.atomic():
         # The run's row first, then the assessment's: the order sync takes them in.
@@ -375,7 +371,7 @@ def _claim(assessment: Assessment) -> tuple[Submission, dict] | None:
         have = {
             "authentication": bool(docs and docs.authentication is not None),
             "assessment": bool(docs and docs.assessment is not None),
-            "score": Score.objects.filter(submission=submission).exists(),
+            "score": Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists(),
             "outcome": submission.outcome,
         }
     return submission, have
@@ -404,7 +400,7 @@ def _fetch(submission: Submission, have: dict) -> dict:
             fetched["score"] = engine.score(request_id)
             if fetched["score"] is None:
                 return fetched
-        elif score_stage not in ("NOT_PRODUCED", "FAILED"):
+        elif score_stage not in ("NOT_PRODUCED", "FAILED") or not _forced_settled(submission, status):
             return fetched
     if stages.get("assessment") == "READY" and not have["assessment"]:
         fetched["assessment"] = engine.assessment(request_id)
@@ -459,17 +455,26 @@ def _advance(submission: Submission, fetched: dict) -> None:
         _move_run(submission, Stage.SCORING, "case.scoring")
 
     if submission.outcome != Outcome.CLEAR and not _scoring_resumed(submission, status):
+        # Forced, but the engine has not started scoring it: given up on after a while, so the
+        # case goes back to the decision (where the reviewer can ask again) rather than waiting on.
+        started = submission.score_forced_at
+        if started and started < timezone.now() - datetime.timedelta(seconds=settings.ENGINE_FORCE_START_SECONDS):
+            transaction.on_commit(lambda: _fail(submission, "The AI engine did not start scoring it. Try again."))
         return
+    settled = _forced_settled(submission, status)
     score_stage, assessment_stage = stages.get("score"), stages.get("assessment")
-    if not hasattr(submission, "score"):
+    engine_score = Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists()
+    if not engine_score:
         if score_stage == "READY":
             document = fetched.get("score")
             if document is None:
                 return
             docs.score = document
             docs.save(update_fields=["score"])
+            # A score this app once calculated itself gives way to the engine's.
+            Score.objects.filter(submission=submission).exclude(source=ScoreSource.ENGINE).delete()
             Score.objects.create(submission=submission, source=ScoreSource.ENGINE, **_rounded(adapt.score_from_engine(document)))
-        elif score_stage not in ("NOT_PRODUCED", "FAILED"):
+        elif score_stage not in ("NOT_PRODUCED", "FAILED") or not settled:
             return
         # NOT_PRODUCED or FAILED: CLEAR but unscored by the engine. Only the engine scores, so the
         # case goes on to the decision without one.
@@ -479,10 +484,10 @@ def _advance(submission: Submission, fetched: dict) -> None:
             return  # reported ready but not served yet: the next poll fetches it
         docs.assessment = document
         docs.save(update_fields=["assessment"])
-    elif assessment_stage not in ("READY", "NOT_PRODUCED", "FAILED"):
+    elif assessment_stage not in ("READY", "NOT_PRODUCED", "FAILED") or (assessment_stage != "READY" and not settled):
         return
     _finish_run(submission)
-    scored = Score.objects.filter(submission=submission).exists()
+    scored = Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists()
     if submission.score_forced_at and not scored:
         Submission.objects.filter(pk=submission.pk).update(force_error="The AI engine did not produce a score.")
     _move_run(submission, Stage.DECISION_PENDING, "case.scored" if scored else "case.ready_for_decision")
@@ -560,6 +565,7 @@ def complete_review(assessment: Assessment, reviewer: User) -> None:
             _move(row, Stage.AWAITING_APPLICANT, "case.returned_to_applicant", reviewer)
         elif settings.ENGINE_FORCE_SCORE and submission.engine_request_id:
             _move(row, Stage.SCORING, "case.force_score", reviewer)
+            _start_forcing(submission)
             forced = True
         else:
             _move(row, Stage.DECISION_PENDING, "case.ready_for_decision", reviewer)
@@ -582,7 +588,9 @@ def can_force_score(assessment: Assessment, submission: Submission | None) -> bo
         return False
     if assessment.stage not in (Stage.DECISION_PENDING, Stage.SCORING):
         return False
-    return not Score.objects.filter(submission=submission).exists()
+    # A score this app calculated itself (before only the engine scored) does not stop it: the
+    # engine's score replaces it.
+    return not Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists()
 
 
 def force_score(assessment: Assessment, reviewer: User) -> None:
@@ -590,11 +598,24 @@ def force_score(assessment: Assessment, reviewer: User) -> None:
     could not be reached the first time, or the flags were accepted before scoring was forced)."""
     with transaction.atomic():
         row = _locked(assessment, Stage.DECISION_PENDING, Stage.SCORING)
-        if not can_force_score(row, latest_submission(row)):
+        submission = latest_submission(row)
+        if not can_force_score(row, submission):
             raise TransitionError("This assessment cannot be sent to the AI engine for scoring.")
         if row.stage != Stage.SCORING:
             _move(row, Stage.SCORING, "case.force_score", reviewer)
+        _start_forcing(submission)
     _request_forced_score(assessment, reviewer)
+
+
+def _start_forcing(submission: Submission) -> None:
+    """Marks the run as being scored at the reviewer's request, in the transaction that moves the
+    case to SCORING, so the run is followed from then on whatever happens to the engine call: a
+    second request finds it running and is refused, and a request that never reaches the engine
+    ends after ENGINE_FORCE_START_SECONDS instead of leaving the case in SCORING."""
+    Submission.objects.filter(pk=submission.pk).update(
+        status=RunStatus.RUNNING, score_forced_at=timezone.now(), force_error="", completed_at=None,
+        last_polled_at=timezone.now(),
+    )
 
 
 def _request_forced_score(assessment: Assessment, actor: User | None) -> None:
@@ -618,10 +639,8 @@ def _request_forced_score(assessment: Assessment, actor: User | None) -> None:
         logger.exception("Forcing the score of %s attempt %s failed", assessment.public_id, submission.attempt_no)
         _force_failed(submission, "The request to the AI engine failed. Try again shortly.", actor)
         return
-    Submission.objects.filter(pk=submission.pk).update(
-        score_forced_at=timezone.now(), force_error="", status=RunStatus.RUNNING, completed_at=None,
-        last_polled_at=None,
-    )
+    # Accepted: the run is already being followed (see _start_forcing); check on it at once.
+    Submission.objects.filter(pk=submission.pk, status=RunStatus.RUNNING).update(last_polled_at=None)
 
 
 def _engine_reports_clear(request_id: str) -> bool:
@@ -632,10 +651,15 @@ def _engine_reports_clear(request_id: str) -> bool:
 
 
 def _force_failed(submission: Submission, reason: str, actor: User | None) -> None:
-    """The engine did not score the run after all: the case goes to the decision without a score,
-    as it did before scoring could be forced, and the reason is kept for the reviewer."""
+    """The engine did not score the run after all: the run ends (its authentication stands), the
+    case goes to the decision without a score, and the reason is kept for the reviewer, who can ask
+    again. A repeated call for a run already ended changes nothing."""
     with transaction.atomic():
-        Submission.objects.filter(pk=submission.pk).update(force_error=reason[:500])
+        ended = Submission.objects.filter(pk=submission.pk, status__in=[RunStatus.QUEUED, RunStatus.RUNNING]).update(
+            status=RunStatus.COMPLETED, completed_at=timezone.now(), score_forced_at=None, force_error=reason[:500]
+        )
+        if not ended:
+            return
         row = Assessment.objects.select_for_update().get(pk=submission.assessment_id)
         if row.stage != Stage.SCORING or latest_submission(row).pk != submission.pk:
             return
@@ -650,6 +674,27 @@ def _scoring_resumed(submission: Submission, status: dict) -> bool:
     if submission.score_forced_at is None:
         return False
     return status.get("outcome") == Outcome.CLEAR or status.get("stages", {}).get("score") == "READY"
+
+
+def _forced_settled(submission: Submission, status: dict) -> bool:
+    """Whether a stage the engine reports as not produced (or failed) can be believed. For a run
+    that was not forced, always. For a forced run, only once the engine says it completed after it
+    was forced: until then those stages may still be the original run's, before scoring resumed."""
+    if submission.score_forced_at is None:
+        return True
+
+    def when(value):
+        try:
+            return datetime.datetime.fromisoformat(str(value).replace("Z", "+00:00")) if value else None
+        except ValueError:
+            return None
+
+    forced_at, completed_at = when(status.get("score_forced_at")), when(status.get("completed_at"))
+    if forced_at is None or completed_at is None:
+        return False
+    if forced_at.tzinfo is None or completed_at.tzinfo is None:
+        forced_at, completed_at = forced_at.replace(tzinfo=None), completed_at.replace(tzinfo=None)
+    return completed_at >= forced_at
 
 
 def undo_ruling(assessment: Assessment, qid: str, reviewer: User) -> None:

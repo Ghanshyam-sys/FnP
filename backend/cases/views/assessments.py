@@ -236,11 +236,13 @@ class AssessmentListView(APIView):
             items = list(with_queue_summary(visible).order_by("-updated_at", "-id"))
             return Response({"results": [assessment_payload(a, request.user) for a in items], "next": None})
 
-        # The reviewer's queue holds only what applicants have submitted: a form still being filled
-        # in (started by the applicant, or opened by the reviewer and not sent yet) is not theirs to
-        # work on. It joins the queue on its first submission and stays there.
-        visible = visible.exclude(stage=Stage.NOT_SUBMITTED)
+        # The reviewer's queue holds what applicants have submitted: a form still being filled in
+        # (started by the applicant, or opened by the reviewer and not sent yet) joins it on its first
+        # submission and stays there. Those not submitted yet are listed only when asked for
+        # (?stage=NOT_SUBMITTED), so the reviewer can still find, and remove, one they opened.
         stage = request.query_params.get("stage")
+        if stage != Stage.NOT_SUBMITTED:
+            visible = visible.exclude(stage=Stage.NOT_SUBMITTED)
         if stage:
             if stage not in Stage.values:
                 raise ValidationError({"stage": "Unknown stage."})

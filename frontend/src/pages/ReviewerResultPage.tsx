@@ -43,11 +43,27 @@ export default function ReviewerResultPage() {
       <div className="page">
         <ReviewerCaseHeader assignment={assignment} stage={stage} />
         <ReviewerTabs assessmentId={id} active="scoring" scoringReady />
-        <EmptyState icon={<InfoIcon size={22} />} title="Scoring in progress">
+        <EmptyState
+          icon={<InfoIcon size={22} />}
+          title="Scoring in progress"
+          action={
+            data.run?.canForceScore && !assignment.ownApplication ? (
+              <button className="btn btn-primary" disabled={forceScore.isPending} onClick={() => forceScore.mutate(undefined)}>
+                {forceScore.isPending ? "Sending…" : "Send it to the AI engine again"}
+              </button>
+            ) : undefined
+          }
+        >
           {data.run?.scoreForced
             ? "You accepted every flagged answer, so the AI engine is scoring the assessment and writing its summary."
             : "The AI engine is scoring the assessment and writing its summary."}{" "}
           This page updates by itself once it is done; it usually takes under a minute.
+          {forceScore.isError && (
+            <>
+              {" "}
+              <strong>Not sent.</strong> {refusalMessage(forceScore.error, "detail")}
+            </>
+          )}
         </EmptyState>
         <footer className="actionbar">
           <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
@@ -147,8 +163,26 @@ export default function ReviewerResultPage() {
           <InfoIcon size={17} />
           <div>
             <strong>Scored by the app's own rules.</strong> This score was calculated by the app, not
-            the AI engine, before only AI-engine scores were used. It is shown because the decision
-            was made on it.
+            the AI engine, before only AI-engine scores were used.{" "}
+            {decision
+              ? "It is shown because the decision was made on it."
+              : data.run?.canForceScore
+                ? "Request an AI score to replace it, or decide on it as it stands."
+                : "Decide on it as it stands."}
+            {!decision && data.run?.canForceScore && !ownApplication && (
+              <div className="notice-actions">
+                <button
+                  className="btn btn-ghost btn-sm"
+                  disabled={forceScore.isPending}
+                  onClick={() => forceScore.mutate(undefined)}
+                >
+                  {forceScore.isPending ? "Sending…" : "Request AI score"}
+                </button>
+                {forceScore.isError && (
+                  <span className="field-error">{refusalMessage(forceScore.error, "detail")}</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

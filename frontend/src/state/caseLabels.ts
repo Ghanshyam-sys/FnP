@@ -26,7 +26,7 @@ export const STAGE_LABELS: Record<Stage, { reviewer: string; applicant: string; 
 };
 
 /** Cases needing the reviewer's hands come first, then work in flight, then settled ones. */
-const ORDER: Stage[] = [
+export const QUEUE_ORDER: Stage[] = [
   "REVIEW_PENDING",
   "DECISION_PENDING",
   "AUTH_FAILED",
@@ -39,8 +39,8 @@ const ORDER: Stage[] = [
 ];
 
 export function queueRank(stage: Stage): number {
-  const index = ORDER.indexOf(stage);
-  return index === -1 ? ORDER.length : index;
+  const index = QUEUE_ORDER.indexOf(stage);
+  return index === -1 ? QUEUE_ORDER.length : index;
 }
 
 /** True when the stage is one the reviewer has to act on (a failed run can be retried). */

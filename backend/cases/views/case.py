@@ -9,7 +9,7 @@ from rest_framework.views import APIView
 from engine import client as engine
 
 from .. import adapt, workflow
-from ..models import Assessment, RunStatus, ScoreSource, Stage, Verdict
+from ..models import Assessment, RunStatus, Stage, Verdict
 from ..permissions import IsReviewer, assessment_for
 from .common import Conflict, ServiceUnavailable, require_not_own, require_owner
 
@@ -102,10 +102,11 @@ def case_payload(assessment: Assessment) -> dict:
             for r in submission.rulings.all()
         }
     score = getattr(submission, "score", None)
-    # Only the AI engine's scores are shown, with one exception: a score this app once calculated
-    # itself (an older case whose flags the reviewer accepted) is still shown on a case that was
-    # decided on it, so the record shows what the decision was based on. Its source says which.
-    if score is not None and (score.source == ScoreSource.ENGINE or decision is not None):
+    # The AI engine scores every case now. A score this app once calculated itself (an older case
+    # whose flags the reviewer accepted) is still shown, so the record is complete; its source says
+    # which, the pages label it, and on an undecided case the reviewer can ask the engine for its
+    # own score, which replaces it.
+    if score is not None:
         payload["score"] = _score_payload(score)
     if docs and docs.assessment:
         payload["assessment"] = adapt.final_assessment(assessment, docs.assessment)

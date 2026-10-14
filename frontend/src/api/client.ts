@@ -41,22 +41,23 @@ function csrfToken(): string {
 type Method = "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
 
 /**
- * Every API response is written to the browser console, one collapsed group per call, to see what
- * the backend returned. On by default; off in a build made with VITE_API_LOG=false, and switchable
- * in a browser from its console: localStorage.fnpApiLog = "false" (or "true"), then reload.
+ * API responses can be written to the browser console, one collapsed group per call, to see what
+ * the backend returned. They hold personal data, so this is on only while developing (npm run dev)
+ * or in a build made with VITE_API_LOG=true. In any browser it can be switched for that browser
+ * from its console: localStorage.fnpApiLog = "true" (or "false"), then reload.
  */
-function apiLogOn(): boolean {
+const API_LOG_ON: boolean = (() => {
   try {
     const choice = localStorage.getItem("fnpApiLog");
-    if (choice !== null) return choice !== "false";
+    if (choice !== null) return choice === "true";
   } catch {
-    // Storage blocked: fall back to the build's setting.
+    // Storage blocked: the build's setting.
   }
-  return import.meta.env.VITE_API_LOG !== "false";
-}
+  return import.meta.env.DEV || import.meta.env.VITE_API_LOG === "true";
+})();
 
 function logResponse(method: Method, path: string, status: number | string, started: number, data?: unknown) {
-  if (!apiLogOn()) return;
+  if (!API_LOG_ON) return;
   const ok = typeof status === "number" && status < 400;
   const label = `[API] ${method} /api${path} → ${status} (${Math.round(performance.now() - started)} ms)`;
   console.groupCollapsed(`%c${label}`, `color: ${ok ? "#1c7c3a" : "#c0392b"}`);

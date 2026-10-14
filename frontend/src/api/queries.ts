@@ -151,17 +151,18 @@ export function useDepartments() {
 
 /**
  * The applicant's own assessments, or the reviewer's queue, a page at a time. The reviewer can
- * narrow the queue to one department.
+ * narrow the queue to one department and/or one stage.
  */
-export function useAssessments(department = "") {
+export function useAssessments(department = "", stage = "") {
   const { data: user } = useSession();
   return useInfiniteQuery({
-    queryKey: [...keys.assessments, department],
+    queryKey: [...keys.assessments, department, stage],
     // Signed out, there is nothing to list (the page sends the user to sign in).
     enabled: Boolean(user),
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams();
       if (department) params.set("department", department);
+      if (stage) params.set("stage", stage);
       if (pageParam) params.set("cursor", pageParam);
       const query = params.toString();
       return api<Page<Assessment>>("GET", `/assessments${query ? `?${query}` : ""}`);

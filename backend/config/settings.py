@@ -157,6 +157,9 @@ ENGINE_MAX_RUN_SECONDS = int(env("ENGINE_MAX_RUN_SECONDS", "3600"))
 # (POST /authentication/force-score), so the decision has a score and an assessment. Off: the case
 # goes to the decision unscored, as before.
 ENGINE_FORCE_SCORE = env_bool("ENGINE_FORCE_SCORE", True)
+# A forced run the engine has not started scoring this long after it was asked is given up on (the
+# case returns to the decision, where the reviewer can ask again).
+ENGINE_FORCE_START_SECONDS = int(env("ENGINE_FORCE_START_SECONDS", "300"))
 
 # ---- Sessions and CSRF. The frontend is served from the same origin (dev proxy / reverse proxy).
 SESSION_COOKIE_HTTPONLY = True

@@ -19,8 +19,11 @@ export default function ResultPage() {
 
   if (view.status === "loading") return <Loading />;
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
-  const { assessment: assignment, data, outcome, score: scoreResult } = view;
+  const { assessment: assignment, data, outcome, score: engineOrLegacy } = view;
   const decision = data.decision;
+  // A score the app once calculated itself is the applicant's to see only once a decision was made
+  // on it: until then the reviewer may still replace it with the AI engine's.
+  const scoreResult = data.score?.source === "backend_override" && !decision ? null : engineOrLegacy;
 
   // Open once the case is with the reviewer for a decision, or decided. It may have no score: the
   // AI engine scores only a submission in which every answer was authenticated.
@@ -70,13 +73,12 @@ export default function ResultPage() {
         </div>
       )}
 
-      {data.score?.source === "backend_override" && (
+      {scoreResult && data.score?.source === "backend_override" && (
         <div className="notice notice-info">
           <InfoIcon size={17} />
           <div>
             <strong>Scored by the app's own rules.</strong> This score was calculated by the app, not
-            the AI engine, before only AI-engine scores were used. It is shown because the decision
-            was made on it.
+            the AI engine, before only AI-engine scores were used.
           </div>
         </div>
       )}

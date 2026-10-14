@@ -260,6 +260,15 @@ select.input:disabled {
   line-height: 1.5;
 }
 
+/* A follow-up action inside a notice, on its own line under the text. */
+.notice-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.6rem;
+}
+
 .notice strong {
   color: inherit;
   font-weight: 600;

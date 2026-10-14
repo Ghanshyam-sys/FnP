@@ -83,9 +83,14 @@ class QuestionSettingSerializer(serializers.Serializer):
 
 def _section_weight_errors(sections, questions: dict, weights: dict) -> dict:
     """Each section's weight is fixed: its questions' weights, as edited, must add up to it
-    exactly, so the sections keep their share of the score and the total stays the same."""
+    exactly, so the sections keep their share of the score and the total stays the same. Only the
+    sections where a weight changes are checked: a save of other settings is never refused over
+    weights it does not touch."""
     errors = {}
+    touched = {questions[qid].section_id for qid in weights}
     for section in sections:
+        if section.pk not in touched:
+            continue
         total = sum(
             (weights.get(q.qid, q.weight) for q in questions.values() if q.section_id == section.pk), Decimal(0)
         )
@@ -149,7 +154,10 @@ class QuestionnaireView(APIView):
         if errors:
             raise ValidationError(errors)
         current_sections = list(QuestionSection.objects.filter(version=current).order_by("position"))
-        weights = {qid: c["weight"] for qid, c in changes.items() if "weight" in c}
+        # The weights that actually change (the page sends every question's weight).
+        weights = {
+            qid: c["weight"] for qid, c in changes.items() if "weight" in c and c["weight"] != questions[qid].weight
+        }
         section_errors = _section_weight_errors(current_sections, questions, weights)
         if section_errors:
             raise ValidationError({"sections": section_errors})

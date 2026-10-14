@@ -342,7 +342,9 @@ def test_the_queue_lists_only_submitted_assessments(applicant, reviewer, opened)
     # Neither the applicant's own draft nor the one the reviewer opened is in the queue yet.
     body = reviewer.get("/api/assessments").json()
     assert body["results"] == [] and (body["total"], body["actionable"]) == (0, 0)
-    assert reviewer.get("/api/assessments", stage="NOT_SUBMITTED").json()["results"] == []
+    # Asked for, the ones not submitted yet are listed, with their own totals.
+    drafts = reviewer.get("/api/assessments", stage="NOT_SUBMITTED").json()
+    assert {a["id"] for a in drafts["results"]} == {own, opened} and drafts["total"] == 2
     # Once submitted, it is listed, and it stays listed through every later stage.
     Assessment.objects.filter(public_id=own).update(stage=Stage.AUTH_RUNNING)
     assert [a["id"] for a in reviewer.get("/api/assessments").json()["results"]] == [own]
@@ -585,11 +587,34 @@ def test_initiated_on_today_is_allowed(reviewer):
     assert reviewer.post("/api/assessments", {**NEW, "initiatedOn": today}).status_code == 201
 
 
-def test_a_section_without_questions_is_reported_not_a_server_error(reviewer):
+def test_a_section_weight_total_of_zero_is_reported_not_a_server_error():
+    from decimal import Decimal
+    from types import SimpleNamespace
+
     from cases.models import QuestionSection
+    from cases.views.catalogue import _section_weight_errors
 
     current = QuestionnaireVersion.objects.get(is_active=True)
-    QuestionSection.objects.create(version=current, name="Empty", weight=5, position=99)
-    response = reviewer.put("/api/questionnaire", {"version": current.label, "questions": {}})
-    assert response.status_code == 400
-    assert "add up to 0" in response.json()["sections"]["Empty"]
+    section = QuestionSection.objects.create(version=current, name="Empty", weight=Decimal("5"), position=99)
+    # Its one question's weight changed to 0: the total is 0, reported, not an error in the check.
+    question = SimpleNamespace(qid="X", section_id=section.pk, weight=Decimal("2"))
+    errors = _section_weight_errors([section], {"X": question}, {"X": Decimal("0")})
+    assert "add up to 0" in errors["Empty"]
+
+
+def test_other_settings_save_although_stored_weights_do_not_add_up(reviewer):
+    from cases.models import Question
+
+    # A rounding difference in the stored weights (13.99 against a section weight of 14).
+    current = QuestionnaireVersion.objects.get(is_active=True)
+    Question.objects.filter(version=current, qid="CoI2").update(weight="4.99")
+    q = reviewer.get("/api/questionnaire").json()["current"]
+    a1 = next(x for x in q["questions"] if x["qid"] == "A1")
+    coi2 = next(x for x in q["questions"] if x["qid"] == "CoI2")
+    body = {"version": current.label, "questions": {
+        # Only A1's file types change; every weight is sent back as it is.
+        "A1": {"allowedAnswers": a1["allowedAnswers"], "fileTypes": ["pdf", "png"], "maxFiles": a1["maxFiles"], "weight": a1["weight"]},
+        "CoI2": {"allowedAnswers": coi2["allowedAnswers"], "fileTypes": coi2["fileTypes"], "maxFiles": coi2["maxFiles"], "weight": coi2["weight"]},
+    }}
+    response = reviewer.put("/api/questionnaire", body)
+    assert response.status_code == 200, response.json()

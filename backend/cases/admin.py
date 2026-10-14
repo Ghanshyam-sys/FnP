@@ -93,27 +93,29 @@ class ReadOnlyInline(admin.TabularInline):
 
 # ---- People and reference data -----------------------------------------------------------------
 
-# Stages in which the applicant still has to act: fill in and submit, or send new evidence.
-WAITING_ON_APPLICANT = (Stage.NOT_SUBMITTED, Stage.AWAITING_APPLICANT)
+# Stages after which an application needs nothing more from its applicant.
+DECIDED = (Stage.ACCEPTED, Stage.REJECTED)
 
 
-def waiting_on(user: User) -> list[str]:
-    """The user's own applications that are still waiting on them as the applicant."""
+def undecided(user: User) -> list[str]:
+    """The user's own applications not decided yet. Even a submitted one can still come back to
+    them as the applicant (the reviewer may ask for new evidence)."""
     return list(
-        Assessment.objects.filter(applicant=user, stage__in=WAITING_ON_APPLICANT)
+        Assessment.objects.filter(applicant=user).exclude(stage__in=DECIDED)
         .order_by("public_id").values_list("public_id", flat=True)
     )
 
 
 def promotion_refused(user: User) -> str | None:
     """Why the user cannot be given reviewer access yet, if they cannot. A reviewer is sent to the
-    reviewer pages, so applications still waiting on them as the applicant could not be finished."""
-    pending = waiting_on(user)
+    reviewer pages, so an application of theirs that is not decided yet could reach a step they,
+    as its applicant, could no longer take."""
+    pending = undecided(user)
     if not pending:
         return None
     return (
-        f"{user.email} still has applications to finish as an applicant ({', '.join(pending)}). "
-        "They must submit them, or the applications must be removed, before reviewer access is given."
+        f"{user.email} still has applications that are not decided ({', '.join(pending)}). They must "
+        "be decided, or removed if not submitted yet, before reviewer access is given."
     )
 
 
@@ -172,6 +174,7 @@ class UserAdmin(admin.ModelAdmin):
             audit.record(request.user, action, target_type="user", target_id=obj.pk)
         if "role" in form.changed_data:
             role_changed(request, obj, form.initial.get("role"))
+            end_sessions([obj])
 
     @admin.action(description="Give reviewer (admin) access to the selected users")
     def make_reviewer(self, request, queryset):
@@ -182,7 +185,7 @@ class UserAdmin(admin.ModelAdmin):
         self._set_role(request, queryset, Role.APPLICANT)
 
     def _set_role(self, request, queryset, role):
-        changed, skipped, blocked = 0, [], 0
+        changed, skipped, blocked, moved = 0, [], 0, []
         for user in queryset:
             if user.role == role:
                 continue
@@ -198,7 +201,10 @@ class UserAdmin(admin.ModelAdmin):
             user.role = role
             user.save(update_fields=["role"])
             role_changed(request, user, before)
+            moved.append(user)
             changed += 1
+        # Everyone changed is signed out, in one pass over the sessions.
+        end_sessions(moved)
         label = Role(role).label.lower()
         if changed:
             self.message_user(request, f"{changed} user(s) are now {label}s.", messages.SUCCESS)
@@ -220,11 +226,10 @@ def role_fixed(request, user: User) -> bool:
 
 
 def role_changed(request, user: User, before) -> None:
-    """Records the change and signs the user out everywhere, so their next sign-in opens the app
-    for their new role instead of a session made for the old one."""
+    """Records the change. The caller then signs the user out everywhere (end_sessions), so their
+    next sign-in opens the app for their new role instead of a session made for the old one."""
     audit.record(request.user, "user.role_change", target_type="user", target_id=user.pk,
                  metadata={"from": before, "to": user.role})
-    end_sessions(user)
 
 
 @admin.register(Department)

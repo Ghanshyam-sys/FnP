@@ -361,7 +361,6 @@ export default function AssessmentSummaryPane({
                     {meta.generated_at && <> · generated {formatGeneratedAt(meta.generated_at)}</>}
                   </span>
                 )}
-                {meta?.inputs_digest && <span className="pane-digest">Inputs digest {meta.inputs_digest}</span>}
               </footer>
             </>
           )}

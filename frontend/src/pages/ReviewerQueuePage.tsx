@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAssessments, useDepartments } from "../api/queries";
 import { formatDate } from "../utils/format";
-import { STAGE_LABELS, needsReviewer } from "../state/caseLabels";
+import { QUEUE_ORDER, STAGE_LABELS, needsReviewer } from "../state/caseLabels";
 import { Loading, LoadError } from "../components/LoadState";
 import EmptyState from "../components/EmptyState";
 import DepartmentIcon from "../components/DepartmentIcon";
@@ -14,7 +14,6 @@ import {
   BankIcon,
   CheckCircleIcon,
   GridIcon,
-  PlusIcon,
   SlidersIcon,
 } from "../components/icons";
 import type { Assessment, Stage } from "../api/types";
@@ -29,9 +28,13 @@ export default function ReviewerQueuePage() {
   const notice = (useLocation().state as QueueNotice | null)?.notice;
   // "" lists every department.
   const [department, setDepartment] = useState("");
+  // "" is every submitted case (the queue); a stage narrows it to that stage. NOT_SUBMITTED lists
+  // the ones not submitted yet, to find or remove one opened for an applicant.
+  const [status, setStatus] = useState<Stage | "">("");
+  const showDrafts = status === "NOT_SUBMITTED";
   const departments = useDepartments();
   // Refreshes itself while any listed case is still with the engine.
-  const list = useAssessments(department);
+  const list = useAssessments(department, status);
 
   if (list.isPending) return <Loading />;
   if (list.isError && !list.data) return <LoadError error={list.error} onRetry={() => list.refetch()} />;
@@ -64,7 +67,9 @@ export default function ReviewerQueuePage() {
         <div className="page-head-text">
           <h1>Assessment queue</h1>
           <p className="page-sub">
-            {total} submitted fit and proper assessment{total === 1 ? "" : "s"}{" "}
+            {total} {showDrafts ? "not yet submitted" : "submitted"} fit and proper assessment
+            {total === 1 ? "" : "s"}
+            {status && !showDrafts ? ` with status ${STAGE_LABELS[status].reviewer}` : ""}{" "}
             {departmentName ? `for ${departmentName}` : "across all departments"}.{" "}
             {actionable > 0
               ? `${actionable} need${actionable === 1 ? "s" : ""} your attention.`
@@ -80,10 +85,6 @@ export default function ReviewerQueuePage() {
             <SlidersIcon size={15} />
             Configure questions
           </button>
-          <button className="btn btn-primary" onClick={() => navigate(routes.reviewerNewAssessment())}>
-            <PlusIcon size={15} />
-            New assessment
-          </button>
         </div>
       </header>
 
@@ -95,6 +96,23 @@ export default function ReviewerQueuePage() {
       )}
 
       <div className="queue-filter">
+        <label className="field-label" htmlFor="queue-status">
+          Status
+        </label>
+        <select
+          id="queue-status"
+          className="input"
+          value={status}
+          onChange={(e) => setStatus(e.target.value as Stage | "")}
+        >
+          <option value="">All submitted</option>
+          {QUEUE_ORDER.filter((s) => s !== "NOT_SUBMITTED").map((s) => (
+            <option key={s} value={s}>
+              {STAGE_LABELS[s].reviewer}
+            </option>
+          ))}
+          <option value="NOT_SUBMITTED">Not submitted yet</option>
+        </select>
         <label className="field-label" htmlFor="queue-department">
           Department
         </label>
@@ -116,11 +134,23 @@ export default function ReviewerQueuePage() {
       {rows.length === 0 ? (
         <EmptyState
           icon={<BankIcon size={22} />}
-          title={departmentName ? `No submitted assessments for ${departmentName}` : "No submitted assessments yet"}
+          title={
+            showDrafts
+              ? departmentName
+                ? `Nothing waiting to be submitted for ${departmentName}`
+                : "Nothing waiting to be submitted"
+              : status
+                ? `No assessments with status ${STAGE_LABELS[status].reviewer}${departmentName ? ` for ${departmentName}` : ""}`
+                : departmentName
+                  ? `No submitted assessments for ${departmentName}`
+                  : "No submitted assessments yet"
+          }
         >
-          Assessments appear here once the applicant submits them, whether they started the
-          application themselves or you opened it for them. Choose New assessment to open one
-          against an application; it joins the queue when the applicant submits it.
+          {showDrafts
+            ? "Applications opened or started but not submitted yet appear here. Open one to see it or remove it."
+            : status
+              ? "Choose another status, or All submitted, to see the rest of the queue."
+              : "Assessments appear here once the applicant submits them."}
         </EmptyState>
       ) : (
         <div className="case-grid">

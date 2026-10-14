@@ -358,10 +358,6 @@
   color: var(--ink-3);
 }
 
-.pane-digest {
-  word-break: break-all;
-}
-
 .pane-empty {
   display: flex;
   flex-direction: column;

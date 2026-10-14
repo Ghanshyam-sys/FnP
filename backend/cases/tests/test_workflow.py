@@ -856,7 +856,7 @@ def test_a_highlight_stream_is_released_even_if_never_read():
     assert stream.exited == 1
 
 
-def test_a_score_the_app_calculated_itself_shows_only_once_the_case_was_decided_on_it(reviewer):
+def test_a_score_the_app_calculated_itself_is_shown_with_its_source(reviewer):
     from decimal import Decimal
 
     from cases.models import Decision, QuestionnaireVersion
@@ -870,7 +870,8 @@ def test_a_score_the_app_calculated_itself_shows_only_once_the_case_was_decided_
         band="Elevated", knock_out=False, recommendation="Refer", lines=[],
     )
     url = f"/api/assessments/{assessment.public_id}/case"
-    assert reviewer.get(url).json()["score"] is None
+    # Shown on an undecided case too, so the reviewer sees what is on record; its source says which.
+    assert reviewer.get(url).json()["score"]["source"] == "backend_override"
     Decision.objects.create(assessment=assessment, verdict="accepted", remarks="On the old score.", reviewer=make.reviewer())
     type(assessment).objects.filter(pk=assessment.pk).update(stage=Stage.ACCEPTED)
     score = reviewer.get(url).json()["score"]
@@ -926,4 +927,82 @@ def test_the_review_is_sent_once(reviewer, case, flagged):
     send(reviewer, case, ACCEPT)
     assert reviewer.post(f"/api/assessments/{case}/complete-review").status_code == 409
     assert flagged.forced == [("req1", case)]
+
+
+# ---- Forcing the score: interruptions, repeats and stale stages -------------------------------
+
+def test_a_force_request_that_never_reaches_the_engine_is_given_up_after_a_while(
+    monkeypatch, reviewer, case, flagged, django_capture_on_commit_callbacks
+):
+    from cases import workflow
+
+    # The process stops after the case moved to SCORING but before the engine call.
+    monkeypatch.setattr(workflow, "_request_forced_score", lambda assessment, actor: None)
+    body = send(reviewer, case, ACCEPT)
+    assert body["stage"] == "SCORING" and body["run"]["status"] == "running"  # followed, not orphaned
+    # Within the wait it stays in scoring; after it, the case returns to the decision.
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["stage"] == "SCORING"
+    Submission.objects.update(score_forced_at=timezone.now() - datetime.timedelta(minutes=10), last_polled_at=None)
+    with django_capture_on_commit_callbacks(execute=True):
+        reviewer.get(f"/api/assessments/{case}/case")
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"] is None
+    assert "did not start scoring" in body["run"]["forceScoreError"] and body["run"]["canForceScore"] is True
+    assert body["run"]["scoreForced"] is False
+
+
+def test_a_second_force_request_is_refused_while_the_first_one_runs(reviewer, case, flagged):
+    send(reviewer, case, ACCEPT)
+    assert reviewer.post(f"/api/assessments/{case}/force-score").status_code == 409
+    assert flagged.forced == [("req1", case)]
+
+
+def test_a_finished_forced_run_is_not_reopened(reviewer, case, flagged):
+    send(reviewer, case, ACCEPT)
+    flagged.finish_forced()
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["stage"] == "DECISION_PENDING"
+    assert reviewer.post(f"/api/assessments/{case}/force-score").status_code == 409
+    run = Submission.objects.get()
+    assert run.status == "completed" and flagged.forced == [("req1", case)]
+
+
+def _forced_status(forced_at, completed_at, score="NOT_PRODUCED", assessment="NOT_PRODUCED"):
+    doc = engine_fixture("status-APP004-return.json")
+    return {**doc, "outcome": "CLEAR", "score_forced": True, "score_forced_at": forced_at,
+            "completed_at": completed_at, "stages": {"authentication": "READY", "score": score, "assessment": assessment}}
+
+
+def test_stages_left_from_the_original_run_do_not_end_a_forced_run(reviewer, case, flagged):
+    send(reviewer, case, ACCEPT)
+    # The engine already reports CLEAR, but its stages and completion are still the original run's.
+    flagged.status_doc = _forced_status("2026-10-14T10:00:00+00:00", "2026-10-14T09:00:00+00:00")
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "SCORING" and body["run"]["forceScoreError"] is None
+    # Completed after it was forced, and still not produced: then it really was not scored.
+    flagged.status_doc = _forced_status("2026-10-14T10:00:00+00:00", "2026-10-14T10:02:00+00:00")
+    Submission.objects.update(last_polled_at=None)
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"] is None
+    assert body["run"]["forceScoreError"] == "The AI engine did not produce a score."
+
+
+def test_an_engine_score_replaces_one_the_app_calculated_itself(reviewer, case, flagged):
+    from decimal import Decimal
+
+    from cases.models import Assessment, Ruling
+
+    run = Submission.objects.get()
+    Ruling.objects.create(submission=run, qid="PC1", verdict="accepted", comment="ok", reviewer=make.reviewer())
+    Assessment.objects.filter(public_id=case).update(stage=Stage.DECISION_PENDING)
+    Score.objects.create(
+        submission=run, source="backend_override", risk_score=Decimal("32"), normalised=Decimal("0.32"),
+        band="Elevated", knock_out=False, recommendation="Refer", lines=[],
+    )
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["score"]["source"] == "backend_override" and body["run"]["canForceScore"] is True
+    assert reviewer.post(f"/api/assessments/{case}/force-score").json()["stage"] == "SCORING"
+    flagged.finish_forced()
+    body = reviewer.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "DECISION_PENDING" and body["score"]["source"] == "engine"
+    assert Score.objects.count() == 1
 
