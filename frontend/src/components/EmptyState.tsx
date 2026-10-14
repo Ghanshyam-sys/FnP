@@ -14,7 +14,7 @@ export default function EmptyState({
 }) {
   return (
     <div className="card empty-state">
-      <span className="empty-icon">{icon}</span>
+      <span className="empty-icon is-hex">{icon}</span>
       <h2>{title}</h2>
       <p>{children}</p>
       {action}

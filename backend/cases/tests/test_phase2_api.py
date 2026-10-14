@@ -618,3 +618,38 @@ def test_other_settings_save_although_stored_weights_do_not_add_up(reviewer):
     }}
     response = reviewer.put("/api/questionnaire", body)
     assert response.status_code == 200, response.json()
+
+
+# ---- Queue search, status groups and counts; an applicant's document progress -----------------
+
+def test_the_queue_can_be_searched_grouped_and_counted(reviewer):
+    a = make.assessment(public_id="FNP-2026-0101", reference="BL-SEARCH-1", stage=Stage.REVIEW_PENDING)
+    Assessment.objects.filter(pk=a.pk).update(applicant_name="Maria L. van Wyk")
+    make.assessment(public_id="FNP-2026-0102", reference="BL-SEARCH-2", stage=Stage.SCORING)
+    make.assessment(public_id="FNP-2026-0103", reference="BL-SEARCH-3", stage=Stage.ACCEPTED)
+    make.assessment(public_id="FNP-2026-0104", reference="BL-SEARCH-4", stage=Stage.NOT_SUBMITTED)
+    ids = lambda **q: [r["id"] for r in reviewer.get("/api/assessments", **q).json()["results"]]
+    # Search by name, reference or case id; not-submitted ones stay out unless asked for.
+    assert ids(q="van wyk") == ["FNP-2026-0101"]
+    assert ids(q="BL-SEARCH-3") == ["FNP-2026-0103"]
+    assert ids(q="BL-SEARCH-4") == [] and ids(q="BL-SEARCH-4", stage="NOT_SUBMITTED") == ["FNP-2026-0104"]
+    # Groups of stages.
+    assert ids(stage="NEEDS_ACTION") == ["FNP-2026-0101"]
+    assert ids(stage="IN_PROGRESS") == ["FNP-2026-0102"]
+    assert ids(stage="DECIDED") == ["FNP-2026-0103"]
+    assert reviewer.get("/api/assessments", stage="SOMETHING").status_code == 400
+    # Counts of every stage, whatever the status filter.
+    counts = reviewer.get("/api/assessments", stage="DECIDED").json()["stageCounts"]
+    assert counts == {"REVIEW_PENDING": 1, "SCORING": 1, "ACCEPTED": 1, "NOT_SUBMITTED": 1}
+
+
+def test_an_applicants_draft_shows_how_many_documents_are_attached(applicant, opened):
+    draft = applicant.get("/api/assessments").json()["results"][0]
+    # A1 always needs its document, and every application the CV; nothing attached yet.
+    needed = draft["progress"]["documentsNeeded"]
+    assert draft["progress"] == {"documentsNeeded": needed, "documentsAttached": 0} and needed >= 2
+    applicant.post(f"/api/assessments/{opened}/evidence", {"file": pdf(), "qid": "CV", "optionCode": "CURRICULUM_VITAE"}, multipart=True)
+    assert applicant.get("/api/assessments").json()["results"][0]["progress"]["documentsAttached"] == 1
+    # Answering Yes where that needs a document adds one to what is needed.
+    applicant.patch(f"/api/assessments/{opened}/form", {"answers": {"A4": "Yes"}})
+    assert applicant.get("/api/assessments").json()["results"][0]["progress"]["documentsNeeded"] == needed + 1

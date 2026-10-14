@@ -1,0 +1,378 @@
+/* ============================================================
+   Sign-in page: the iRIS RegAI lockup, and how the app works in motion
+   ============================================================ */
+
+/* ---- The lockup (components/BrandLockup.tsx) ---- */
+.lockup {
+  display: block;
+  height: var(--lockup-h, 84px);
+  width: calc(var(--lockup-h, 84px) * 740 / 205);
+  overflow: visible;
+}
+
+.lockup-regai {
+  font-family: "Montserrat", var(--sans);
+  font-weight: 500;
+  font-size: 84px;
+  letter-spacing: -0.5px;
+  fill: var(--brand-copper);
+}
+
+.lockup-tagline {
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 26px;
+  fill: var(--accent);
+}
+
+/* On a phone the lockup is small, so its tagline is set as text under it instead. */
+.login-tagline-text {
+  display: none;
+  margin: 0.35rem 0 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--accent);
+}
+
+.lockup-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .lockup-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .lockup-dark {
+  display: inline;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .lockup-light {
+    display: none;
+  }
+
+  :root:not([data-theme="light"]) .lockup-dark {
+    display: inline;
+  }
+}
+
+/* ---- How it works, in motion (components/LoginFlow.tsx): a 12 second loop ----
+   Phases: 0–15% the application arrives; 15–50% the AI reads and checks it; 50–96% the score and
+   the decision. Every part's own style is its finished state, so with the motion off it is drawn
+   complete. */
+.login-flow {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.login-flow svg {
+  display: block;
+  height: clamp(110px, 32vh - 60px, 205px);
+  width: auto;
+  aspect-ratio: 440 / 205;
+  max-width: 100%;
+  overflow: visible;
+}
+
+.lf-card {
+  fill: var(--surface-raised);
+  stroke: var(--hairline);
+  stroke-width: 1.5;
+}
+
+.lf-line-strong {
+  fill: var(--ink-3);
+  opacity: 0.55;
+}
+
+.lf-line {
+  fill: var(--hairline);
+}
+
+.lf-mark {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.lf-mark circle {
+  fill: var(--good);
+}
+
+.lf-mark.is-flag circle {
+  fill: var(--warning);
+}
+
+.lf-mark path,
+.lf-stamp path {
+  fill: none;
+  stroke: #ffffff;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.lf-beam {
+  fill: var(--accent);
+  opacity: 0;
+}
+
+.lf-link {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-dasharray: 4 6;
+  stroke-linecap: round;
+}
+
+.lf-chip rect {
+  fill: var(--accent-wash);
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.lf-chip text {
+  fill: var(--accent);
+  font-family: "Montserrat", var(--sans);
+  font-size: 26px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.lf-ring-track {
+  fill: none;
+  stroke: var(--bar-track);
+  stroke-width: 9;
+}
+
+.lf-ring {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 9;
+  stroke-linecap: round;
+  stroke-dasharray: 251.3;
+  stroke-dashoffset: 196; /* a low score: about a fifth of the ring */
+}
+
+.lf-score-value {
+  fill: var(--ink);
+  font-size: 26px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.lf-score-band {
+  fill: var(--ink-2);
+  font-size: 14px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+.lf-stamp {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+.lf-stamp rect {
+  fill: var(--good-wash);
+  stroke: var(--good);
+  stroke-width: 1.5;
+}
+
+.lf-stamp path {
+  stroke: var(--good);
+  stroke-width: 2.4;
+}
+
+.lf-stamp text {
+  fill: var(--good-ink);
+  font-size: 13px;
+  font-weight: 700;
+  text-anchor: middle;
+}
+
+.lf-caption {
+  fill: var(--ink-3);
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: middle;
+}
+
+/* The motion */
+.lf-doc {
+  animation: lf-doc 12s ease-in-out infinite;
+}
+
+.lf-beam {
+  animation: lf-beam 12s ease-in-out infinite;
+}
+
+.lf-link {
+  animation: lf-dash 1s linear infinite;
+}
+
+.lf-chip {
+  animation: lf-chip 12s ease-in-out infinite;
+}
+
+.lf-ring {
+  animation: lf-ring 12s ease-in-out infinite;
+}
+
+.lf-score-value {
+  animation: lf-show-60 12s ease infinite;
+}
+
+.lf-score-band {
+  animation: lf-show-64 12s ease infinite;
+}
+
+.lf-stamp {
+  animation: lf-stamp 12s ease infinite;
+}
+
+.lf-mark-1 { animation: lf-mark-1 12s ease infinite; }
+.lf-mark-2 { animation: lf-mark-2 12s ease infinite; }
+.lf-mark-3 { animation: lf-mark-3 12s ease infinite; }
+.lf-mark-4 { animation: lf-mark-4 12s ease infinite; }
+.lf-mark-5 { animation: lf-mark-5 12s ease infinite; }
+
+@keyframes lf-doc {
+  0% { opacity: 0; transform: translateY(10px); }
+  6%, 96% { opacity: 1; transform: none; }
+  100% { opacity: 0; transform: none; }
+}
+
+@keyframes lf-beam {
+  0%, 14% { opacity: 0; transform: translateY(0); }
+  17% { opacity: 0.28; transform: translateY(0); }
+  44% { opacity: 0.28; transform: translateY(98px); }
+  47%, 100% { opacity: 0; transform: translateY(98px); }
+}
+
+@keyframes lf-dash {
+  to { stroke-dashoffset: -20; }
+}
+
+@keyframes lf-chip {
+  0%, 15% { filter: none; }
+  22%, 46% { filter: drop-shadow(0 0 7px var(--accent)); }
+  52%, 100% { filter: none; }
+}
+
+@keyframes lf-ring {
+  0%, 52% { stroke-dashoffset: 251.3; opacity: 1; }
+  64%, 96% { stroke-dashoffset: 196; opacity: 1; }
+  100% { stroke-dashoffset: 196; opacity: 0; }
+}
+
+@keyframes lf-show-60 {
+  0%, 58% { opacity: 0; }
+  62%, 96% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes lf-show-64 {
+  0%, 62% { opacity: 0; }
+  66%, 96% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+@keyframes lf-stamp {
+  0%, 72% { opacity: 0; transform: scale(0.6); }
+  76% { opacity: 1; transform: scale(1.08); }
+  79%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1); }
+}
+
+@keyframes lf-mark-1 {
+  0%, 19.5% { opacity: 0; transform: scale(0.3); }
+  22% { opacity: 1; transform: scale(1.15); }
+  23.5%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+@keyframes lf-mark-2 {
+  0%, 25.5% { opacity: 0; transform: scale(0.3); }
+  28% { opacity: 1; transform: scale(1.15); }
+  29.5%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+@keyframes lf-mark-3 {
+  0%, 31.5% { opacity: 0; transform: scale(0.3); }
+  34% { opacity: 1; transform: scale(1.15); }
+  35.5%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+@keyframes lf-mark-4 {
+  0%, 37.5% { opacity: 0; transform: scale(0.3); }
+  40% { opacity: 1; transform: scale(1.15); }
+  41.5%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+@keyframes lf-mark-5 {
+  0%, 43.5% { opacity: 0; transform: scale(0.3); }
+  46% { opacity: 1; transform: scale(1.15); }
+  47.5%, 96% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; }
+}
+
+/* The step being shown lights up, in time with the drawing. Drawn still, all three are lit. */
+.login-flow ~ .login-brand-copy .login-steps li:nth-child(1) .login-step-dot {
+  animation: lf-step-1 12s ease infinite;
+}
+
+.login-flow ~ .login-brand-copy .login-steps li:nth-child(2) .login-step-dot {
+  animation: lf-step-2 12s ease infinite;
+}
+
+.login-flow ~ .login-brand-copy .login-steps li:nth-child(3) .login-step-dot {
+  animation: lf-step-3 12s ease infinite;
+}
+
+@keyframes lf-step-1 {
+  0%, 15% { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 5px var(--accent-wash); }
+  18%, 100% { background: var(--surface-sunken); color: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--hairline); }
+}
+
+@keyframes lf-step-2 {
+  0%, 15% { background: var(--surface-sunken); color: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--hairline); }
+  18%, 50% { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 5px var(--accent-wash); }
+  53%, 100% { background: var(--surface-sunken); color: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--hairline); }
+}
+
+@keyframes lf-step-3 {
+  0%, 50% { background: var(--surface-sunken); color: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--hairline); }
+  53%, 96% { background: var(--accent); color: var(--on-accent); box-shadow: 0 0 0 5px var(--accent-wash); }
+  100% { background: var(--surface-sunken); color: var(--ink-3); box-shadow: inset 0 0 0 1.5px var(--hairline); }
+}
+
+/* Less motion: the drawing still, complete, and all three steps lit. */
+@media (prefers-reduced-motion: reduce) {
+  .login-flow *,
+  .login-steps .login-step-dot {
+    animation: none !important;
+  }
+}
+
+/* A phone or narrow tablet: the brand panel is a slim header, so the drawing is left out there (the
+   page stays on one screen); the sign-in card is what matters. */
+@media (max-width: 880px) {
+  .login-flow {
+    display: none;
+  }
+
+  .login-lockup .lockup-tagline {
+    display: none;
+  }
+
+  .login-tagline-text {
+    display: block;
+  }
+}

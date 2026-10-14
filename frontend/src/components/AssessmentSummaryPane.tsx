@@ -5,7 +5,6 @@ import {
   CheckCircleIcon,
   DownloadIcon,
   InfoIcon,
-  ShieldCheckIcon,
   XIcon,
 } from "./icons";
 import ConcernCard from "./ConcernCard";
@@ -69,9 +68,7 @@ function PrintHeader({ assignment }: { assignment: Assessment }) {
   return (
     <header className="pane-print-head">
       <div className="pane-print-brand">
-        <span className="pane-print-mark">
-          <ShieldCheckIcon size={14} />
-        </span>
+        <img className="pane-print-logo" src="/brand/iris-logo.png" alt="iRIS" width="38" height="24" />
         <span>Fit and Proper Assessment</span>
         <span className="pane-print-doc">Assessment summary</span>
       </div>

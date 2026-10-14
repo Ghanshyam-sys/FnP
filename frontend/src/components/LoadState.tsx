@@ -3,14 +3,22 @@ import AssessmentNotFound from "./AssessmentNotFound";
 import { ApiError } from "../api/client";
 import { AlertTriangleIcon } from "./icons";
 
-/** Shown while a page's data is on its way. */
+/** Shown while a page's data is on its way: the outline of a page, so it does not jump on arrival. */
 export function Loading() {
   return (
-    <div className="page">
-      <p className="page-loading" role="status">
-        <span className="status-spinner" aria-hidden="true" />
+    <div className="page" aria-busy="true">
+      <p className="sr-only" role="status">
         Loading…
       </p>
+      <div className="skeleton" aria-hidden="true">
+        <span className="sk sk-title" />
+        <span className="sk sk-line" />
+        <div className="sk-grid">
+          <span className="sk sk-card" />
+          <span className="sk sk-card" />
+          <span className="sk sk-card" />
+        </div>
+      </div>
     </div>
   );
 }

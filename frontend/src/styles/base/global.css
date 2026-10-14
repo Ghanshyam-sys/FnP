@@ -1,24 +1,35 @@
 :root {
-  /* Neutrals — warm greys, so the institutional blue stays the only saturated thing */
-  --page: #f2f2ef;
-  --surface: #fcfcfb;
+  /* Neutrals — the warm off-whites of the IRIS brand, so its green stays the only saturated thing */
+  --page: #f3f1ec;
+  --surface: #fdfcfa;
   --surface-raised: #ffffff;
-  --surface-sunken: #f6f6f3;
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-3: #8a8881;
-  --hairline: #e3e2dc;
+  --surface-sunken: #f7f5f1;
+  --ink: #121a16;
+  --ink-2: #4f5551;
+  --ink-3: #7c827e;
+  --hairline: #e5e1d9;
   --ring: rgba(11, 11, 11, 0.08);
 
-  /* Accent — steps 450/550/600 of one validated blue ramp */
-  --accent: #1c5cab;
-  --accent-strong: #184f95;
-  --accent-bright: #2a78d6;
-  --accent-wash: #edf3fd;
-  --accent-track: #cde2fb;
-  --accent-ink: #14477f;
+  /* Accent — the IRIS green (from the logo) and steps of its ramp. White text on it: 7.8:1. */
+  --accent: #36594b;
+  --accent-strong: #2a4a3d;
+  --accent-bright: #4a7766;
+  --accent-wash: #e8f0eb;
+  --accent-track: #cfe0d6;
+  --accent-ink: #24443a;
   /* Unfilled chart track — a lighter step of the fill's own ramp */
-  --bar-track: #cde2fb;
+  --bar-track: #d5e3db;
+  /* Text and icons on the accent */
+  --on-accent: #ffffff;
+
+  /* IRIS brand — copper from the logo, and the sand and sage of its background shapes. For the
+     logo, the login artwork and small accents only: never buttons or status. */
+  --brand-copper: #6f4a2f;
+  --brand-copper-soft: #b98a63;
+  --brand-sand: #ebe4e1;
+  --brand-sage: #a8b6af;
+  --brand-deep: #547166;
+  --brand-logo: url("/brand/iris-logo.png");
 
   /* Status — fixed palette, always paired with an icon and a label */
   --good: #0ca30c;
@@ -71,23 +82,31 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --page: #0d0d0d;
-    --surface: #1a1a19;
-    --surface-raised: #232321;
-    --surface-sunken: #141413;
-    --ink: #ffffff;
-    --ink-2: #c3c2b7;
-    --ink-3: #8a8881;
-    --hairline: #2c2c2a;
+    --page: #0c110f;
+    --surface: #161c19;
+    --surface-raised: #1d2420;
+    --surface-sunken: #111613;
+    --ink: #f1f4f2;
+    --ink-2: #b3bcb6;
+    --ink-3: #87918b;
+    --hairline: #29322d;
     --ring: rgba(255, 255, 255, 0.1);
 
-    --accent: #3987e5;
-    --accent-strong: #5598e7;
-    --accent-bright: #5598e7;
-    --accent-wash: rgba(57, 135, 229, 0.14);
-    --accent-track: #184f95;
-    --bar-track: rgba(57, 135, 229, 0.22);
-    --accent-ink: #9ec5f4;
+    --accent: #86b8a2;
+    --accent-strong: #9fcab6;
+    --accent-bright: #9fcab6;
+    --accent-wash: rgba(134, 184, 162, 0.14);
+    --accent-track: #2c4a3d;
+    --bar-track: rgba(134, 184, 162, 0.22);
+    --accent-ink: #b6d8c8;
+    --on-accent: #0f1512;
+
+    --brand-copper: #c9966c;
+    --brand-copper-soft: #a87a55;
+    --brand-sand: #2a2622;
+    --brand-sage: #33443c;
+    --brand-deep: #1f2c26;
+    --brand-logo: url("/brand/iris-logo-dark.png");
 
     --good-wash: rgba(12, 163, 12, 0.16);
     --good-ink: #6fd06f;
@@ -107,23 +126,31 @@
 }
 
 :root[data-theme="dark"] {
-  --page: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-raised: #232321;
-  --surface-sunken: #141413;
-  --ink: #ffffff;
-  --ink-2: #c3c2b7;
-  --ink-3: #8a8881;
-  --hairline: #2c2c2a;
+  --page: #0c110f;
+  --surface: #161c19;
+  --surface-raised: #1d2420;
+  --surface-sunken: #111613;
+  --ink: #f1f4f2;
+  --ink-2: #b3bcb6;
+  --ink-3: #87918b;
+  --hairline: #29322d;
   --ring: rgba(255, 255, 255, 0.1);
 
-  --accent: #3987e5;
-  --accent-strong: #5598e7;
-  --accent-bright: #5598e7;
-  --accent-wash: rgba(57, 135, 229, 0.14);
-  --accent-track: #184f95;
-  --bar-track: rgba(57, 135, 229, 0.22);
-  --accent-ink: #9ec5f4;
+  --accent: #86b8a2;
+  --accent-strong: #9fcab6;
+  --accent-bright: #9fcab6;
+  --accent-wash: rgba(134, 184, 162, 0.14);
+  --accent-track: #2c4a3d;
+  --bar-track: rgba(134, 184, 162, 0.22);
+  --accent-ink: #b6d8c8;
+  --on-accent: #0f1512;
+
+  --brand-copper: #c9966c;
+  --brand-copper-soft: #a87a55;
+  --brand-sand: #2a2622;
+  --brand-sage: #33443c;
+  --brand-deep: #1f2c26;
+  --brand-logo: url("/brand/iris-logo-dark.png");
 
   --good-wash: rgba(12, 163, 12, 0.16);
   --good-ink: #6fd06f;

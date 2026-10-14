@@ -5,6 +5,7 @@ import { keys, switchUser, useSession } from "./api/queries";
 import { ApiError } from "./api/client";
 import { Loading } from "./components/LoadState";
 import AppShell from "./components/AppShell";
+import Toaster from "./components/Toaster";
 import ApplicantRoute from "./components/ApplicantRoute";
 import ReviewerRoute from "./components/ReviewerRoute";
 import LoginPage from "./pages/LoginPage";
@@ -108,6 +109,7 @@ export default function App() {
             </Routes>
           </AppShell>
         </SessionGate>
+        <Toaster />
       </BrowserRouter>
     </QueryClientProvider>
   );

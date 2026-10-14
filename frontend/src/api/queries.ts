@@ -27,6 +27,7 @@ import type {
 } from "./types";
 import type { Answer, EvidenceRole } from "../domain/types";
 import type { NewAssessmentInput } from "../domain/newAssessment";
+import { toast, type ToastTone } from "../state/toast";
 
 export const keys = {
   session: ["session"] as const,
@@ -153,16 +154,17 @@ export function useDepartments() {
  * The applicant's own assessments, or the reviewer's queue, a page at a time. The reviewer can
  * narrow the queue to one department and/or one stage.
  */
-export function useAssessments(department = "", stage = "") {
+export function useAssessments(department = "", stage = "", search = "") {
   const { data: user } = useSession();
   return useInfiniteQuery({
-    queryKey: [...keys.assessments, department, stage],
+    queryKey: [...keys.assessments, department, stage, search],
     // Signed out, there is nothing to list (the page sends the user to sign in).
     enabled: Boolean(user),
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams();
       if (department) params.set("department", department);
       if (stage) params.set("stage", stage);
+      if (search) params.set("q", search);
       if (pageParam) params.set("cursor", pageParam);
       const query = params.toString();
       return api<Page<Assessment>>("GET", `/assessments${query ? `?${query}` : ""}`);
@@ -203,6 +205,7 @@ export function useRemoveAssessment(id: string) {
       client.removeQueries({ queryKey: keys.assessment(id) });
       client.removeQueries({ queryKey: keys.case(id) });
       client.invalidateQueries({ queryKey: keys.assessments });
+      toast("Application removed.");
     },
   });
 }
@@ -337,7 +340,10 @@ export function useCase(id: string) {
  * A refused step usually means the case moved on (the other party acted), so it is refreshed then
  * too, and the page shows where it now stands.
  */
-function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>) {
+/** What to confirm once a step succeeded: a message, and its tone if not "good". */
+type Confirm<T> = (updated: Case, input: T) => string | [string, ToastTone];
+
+function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>, confirm?: Confirm<T>) {
   const client = useQueryClient();
   const refreshRelated = () => {
     client.invalidateQueries({ queryKey: keys.assessment(id) });
@@ -346,9 +352,14 @@ function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>) {
   };
   return useMutation({
     mutationFn: step,
-    onSuccess: (updated) => {
+    onSuccess: (updated, input) => {
       client.setQueryData(keys.case(id), updated);
       refreshRelated();
+      const said = confirm?.(updated, input);
+      if (said) {
+        if (typeof said === "string") toast(said);
+        else toast(said[0], said[1]);
+      }
     },
     onError: () => {
       client.invalidateQueries({ queryKey: keys.case(id) });
@@ -357,29 +368,55 @@ function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>) {
   });
 }
 
-export const useSubmit = (id: string) => useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/submit`));
-export const useResubmit = (id: string) => useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/resubmit`));
-export const useRetry = (id: string) => useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/retry`));
+export const useSubmit = (id: string) =>
+  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/submit`), () =>
+    "Application submitted. The AI engine is checking your evidence."
+  );
+export const useResubmit = (id: string) =>
+  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/resubmit`), () => "Resubmitted with your new evidence.");
+export const useRetry = (id: string) =>
+  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/retry`), () => "Sent to the AI engine again.");
 
 export const useRule = (id: string) =>
-  useCaseStep(id, ({ qid, verdict, comment }: { qid: string; verdict: Verdict; comment: string }) =>
-    api<Case>("PUT", `/assessments/${id}/rulings/${qid}`, { verdict, comment })
+  useCaseStep(
+    id,
+    ({ qid, verdict, comment }: { qid: string; verdict: Verdict; comment: string }) =>
+      api<Case>("PUT", `/assessments/${id}/rulings/${qid}`, { verdict, comment }),
+    (_, { qid, verdict }) => `${qid} ${verdict === "accepted" ? "accepted" : "rejected"}: ruling saved.`
   );
 
 export const useUndoRuling = (id: string) =>
-  useCaseStep(id, (qid: string) => api<Case>("DELETE", `/assessments/${id}/rulings/${qid}`));
+  useCaseStep(
+    id,
+    (qid: string) => api<Case>("DELETE", `/assessments/${id}/rulings/${qid}`),
+    (_, qid) => [`Ruling on ${qid} undone.`, "info"]
+  );
 
 /** Reviewer: sends the case on once every flagged answer has a ruling. */
 export const useCompleteReview = (id: string) =>
-  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/complete-review`));
+  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/complete-review`), (updated) =>
+    updated.stage === "AWAITING_APPLICANT"
+      ? "Returned to the applicant with your comments."
+      : updated.stage === "SCORING"
+        ? "Sent to the AI engine for scoring."
+        : "Sent on for your decision."
+  );
 
 /** Reviewer: asks the AI engine to score a case whose flagged answers were all accepted. */
 export const useForceScore = (id: string) =>
-  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/force-score`));
+  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/force-score`), (updated) =>
+    updated.stage === "SCORING"
+      ? "Sent to the AI engine for scoring."
+      : ["The AI engine did not take it; the reason is on the page.", "critical"]
+  );
 
 export const useDecide = (id: string) =>
-  useCaseStep(id, ({ verdict, remarks }: { verdict: Verdict; remarks: string }) =>
-    api<Case>("POST", `/assessments/${id}/decision`, { verdict, remarks })
+  useCaseStep(
+    id,
+    ({ verdict, remarks }: { verdict: Verdict; remarks: string }) =>
+      api<Case>("POST", `/assessments/${id}/decision`, { verdict, remarks }),
+    (_, { verdict }) =>
+      `Assessment ${verdict === "accepted" ? "accepted" : "rejected"}. The applicant can see your feedback.`
   );
 
 // ---- The reviewer's admin panel ----------------------------------------------------------------

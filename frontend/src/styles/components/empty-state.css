@@ -91,7 +91,7 @@
 .stepper .is-done .step-marker {
   background: var(--accent);
   border-color: var(--accent);
-  color: var(--white);
+  color: var(--on-accent);
 }
 
 .stepper .is-done .step-label {
@@ -110,6 +110,16 @@
 }
 
 .stepper .is-current .step-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* A finished step opened again: its marker keeps the tick, ringed to show it is the page in view. */
+.stepper .is-viewing .step-marker {
+  box-shadow: 0 0 0 3px var(--accent-wash);
+}
+
+.stepper .is-viewing .step-label {
   color: var(--ink);
   font-weight: 600;
 }

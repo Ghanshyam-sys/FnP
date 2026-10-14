@@ -28,7 +28,7 @@
 
 .outcome-tab.is-active {
   background: var(--accent);
-  color: var(--white);
+  color: var(--on-accent);
 }
 
 .outcome-tab.is-disabled {

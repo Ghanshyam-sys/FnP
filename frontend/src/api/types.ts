@@ -41,6 +41,8 @@ export interface Assessment {
   updatedAt: string;
   /** Whether the person viewing it may remove it (only before submission). */
   removable: boolean;
+  /** An applicant's form not submitted yet: documents attached of those it needs. */
+  progress?: { documentsNeeded: number; documentsAttached: number };
   /** The viewer's own application: a reviewer may not rule on or decide it. */
   ownApplication: boolean;
   /** Started by the applicant themselves, rather than opened for them by the reviewer. */
@@ -120,6 +122,8 @@ export interface Page<T> {
   total?: number;
   /** How many of those the reviewer has to act on. */
   actionable?: number;
+  /** The reviewer queue: how many cases are at each stage (department and search applied). */
+  stageCounts?: Partial<Record<Stage, number>>;
 }
 
 export interface CatalogueQuestion {

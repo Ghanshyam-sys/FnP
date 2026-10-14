@@ -24,7 +24,7 @@
 
 .reviewer-tabs > .is-active {
   background: var(--accent);
-  color: var(--white);
+  color: var(--on-accent);
   cursor: default;
 }
 

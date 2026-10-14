@@ -7,7 +7,7 @@ import Modal from "../components/Modal";
 import { useAssessments, useRemoveAssessment, useResetForm, useSession } from "../api/queries";
 import { STAGE_LABELS } from "../state/caseLabels";
 import { Loading, LoadError } from "../components/LoadState";
-import { formatDate } from "../utils/format";
+import { formatDate, formatShortDay } from "../utils/format";
 import type { Assessment, Stage } from "../api/types";
 import DepartmentIcon from "../components/DepartmentIcon";
 import { AlertTriangleIcon, ArrowRightIcon, MailIcon, PencilIcon, PlusIcon } from "../components/icons";
@@ -67,6 +67,18 @@ export default function AssessmentsPage() {
 
   const email = user.email;
   const assignments = list.data.pages.flatMap((p) => p.results);
+  // The name on their most recent application, to greet them by.
+  const firstName = assignments.find((a) => a.applicantName.trim())?.applicantName.trim().split(/\s+/)[0];
+  // Where their applications stand, in a sentence.
+  const count = (pred: (a: Assessment) => boolean) => assignments.filter(pred).length;
+  const decided = (s: Stage) => s === "ACCEPTED" || s === "REJECTED";
+  const parts = [
+    [count((a) => a.stage === "NOT_SUBMITTED"), "not submitted yet"],
+    [count((a) => a.stage === "AWAITING_APPLICANT"), "waiting for your new evidence"],
+    [count((a) => a.stage !== "NOT_SUBMITTED" && a.stage !== "AWAITING_APPLICANT" && !decided(a.stage)), "being assessed"],
+    [count((a) => decided(a.stage)), "decided"],
+  ].filter(([n]) => (n as number) > 0).map(([n, label]) => `${n} ${label}`);
+  const summary = `You have ${assignments.length} application${assignments.length === 1 ? "" : "s"}: ${parts.join(", ")}.`;
 
   const open = (assessment: Assessment) => {
     setSelected(assessment);
@@ -154,12 +166,10 @@ export default function AssessmentsPage() {
     <div className="page">
       <header className="page-head">
         <div className="page-head-text">
-          <h1>Your assessments</h1>
+          <h1>{firstName ? `Welcome back, ${firstName}` : "Your assessments"}</h1>
           <p className="page-sub">
             {assignments.length > 0
-              ? `${assignments.length} fit and proper assessment${
-                  assignments.length > 1 ? "s have" : " has"
-                } been started for your applications. Complete each one for its department.`
+              ? summary
               : "Fit and proper assessments for your applications appear here."}
           </p>
         </div>
@@ -205,6 +215,33 @@ export default function AssessmentsPage() {
                   <span className="tile-label">Position</span>
                   <span className="tile-value">{assignment.position}</span>
                 </span>
+
+                {stage === "NOT_SUBMITTED" && assignment.progress ? (
+                  <span className="tile-progress">
+                    <span className="tile-progress-label">
+                      {assignment.progress.documentsAttached} of {assignment.progress.documentsNeeded} documents attached
+                    </span>
+                    <span
+                      className="tile-progress-track"
+                      role="progressbar"
+                      aria-label="Documents attached"
+                      aria-valuemin={0}
+                      aria-valuemax={assignment.progress.documentsNeeded}
+                      aria-valuenow={assignment.progress.documentsAttached}
+                    >
+                      <span
+                        className="tile-progress-fill"
+                        style={{
+                          width: `${Math.round((assignment.progress.documentsAttached / Math.max(1, assignment.progress.documentsNeeded)) * 100)}%`,
+                        }}
+                      />
+                    </span>
+                  </span>
+                ) : stage !== "NOT_SUBMITTED" ? (
+                  <span className="tile-since">
+                    {STAGE_LABELS[stage].applicant} since {formatShortDay(assignment.updatedAt)}
+                  </span>
+                ) : null}
 
                 <span className="tile-foot">
                   <span className="tile-ref">{assignment.reference}</span>

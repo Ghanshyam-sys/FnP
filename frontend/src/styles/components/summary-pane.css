@@ -420,13 +420,15 @@
     --surface: #ffffff;
     --surface-raised: #ffffff;
     --surface-sunken: #f6f6f3;
-    --ink: #0b0b0b;
-    --ink-2: #3f3e3b;
+    --ink: #121a16;
+    --ink-2: #3f4642;
     --ink-3: #75736d;
     --hairline: #dcdbd4;
-    --accent: #1c5cab;
-    --accent-wash: #edf3fd;
-    --accent-ink: #14477f;
+    --accent: #36594b;
+    --accent-wash: #e8f0eb;
+    --accent-ink: #24443a;
+    --on-accent: #ffffff;
+    --brand-logo: url("/brand/iris-logo.png");
     --good-wash: #e7f6e7;
     --good-ink: #0a6b0a;
     --warning-wash: #fdf3e0;
@@ -490,14 +492,10 @@
     color: var(--ink-2);
   }
 
-  .pane-print-mark {
-    display: inline-grid;
-    place-items: center;
-    width: 16pt;
-    height: 16pt;
-    border-radius: 4pt;
-    background: var(--accent);
-    color: #ffffff;
+  .pane-print-logo {
+    display: block;
+    width: auto;
+    height: 18pt;
   }
 
   .pane-print-doc {
@@ -553,7 +551,7 @@
   .pane .qid,
   .pane-condition-id,
   .pane-count,
-  .pane-print-mark {
+  .pane-print-logo {
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
   }

@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAssessments, useDepartments } from "../api/queries";
-import { formatDate } from "../utils/format";
+import { daysSince, formatDate } from "../utils/format";
 import { QUEUE_ORDER, STAGE_LABELS, needsReviewer } from "../state/caseLabels";
 import { Loading, LoadError } from "../components/LoadState";
 import EmptyState from "../components/EmptyState";
@@ -14,6 +14,7 @@ import {
   BankIcon,
   CheckCircleIcon,
   GridIcon,
+  SearchIcon,
   SlidersIcon,
 } from "../components/icons";
 import type { Assessment, Stage } from "../api/types";
@@ -23,6 +24,26 @@ interface QueueRow {
   stage: Stage;
 }
 
+/** Groups of stages the status filter and the summary tiles offer (the API understands them too). */
+const GROUPS = {
+  NEEDS_ACTION: { label: "Needs your action", stages: ["REVIEW_PENDING", "DECISION_PENDING", "AUTH_FAILED"] },
+  IN_PROGRESS: { label: "In progress", stages: ["AUTH_RUNNING", "SCORING"] },
+  DECIDED: { label: "Decided", stages: ["ACCEPTED", "REJECTED"] },
+} as const satisfies Record<string, { label: string; stages: Stage[] }>;
+type Group = keyof typeof GROUPS;
+type Status = Stage | Group | "";
+
+const statusLabel = (status: Exclude<Status, "">) =>
+  status in GROUPS ? GROUPS[status as Group].label : STAGE_LABELS[status as Stage].reviewer;
+
+/** The summary tiles: each a count and a way into that part of the queue. */
+const TILES: { status: Group | "AWAITING_APPLICANT"; label: string; tone: string }[] = [
+  { status: "NEEDS_ACTION", label: "Needs your action", tone: "critical" },
+  { status: "IN_PROGRESS", label: "In progress", tone: "info" },
+  { status: "AWAITING_APPLICANT", label: "Waiting on applicants", tone: "warning" },
+  { status: "DECIDED", label: "Decided", tone: "good" },
+];
+
 export default function ReviewerQueuePage() {
   const navigate = useNavigate();
   const notice = (useLocation().state as QueueNotice | null)?.notice;
@@ -30,11 +51,18 @@ export default function ReviewerQueuePage() {
   const [department, setDepartment] = useState("");
   // "" is every submitted case (the queue); a stage narrows it to that stage. NOT_SUBMITTED lists
   // the ones not submitted yet, to find or remove one opened for an applicant.
-  const [status, setStatus] = useState<Stage | "">("");
+  const [status, setStatus] = useState<Status>("");
   const showDrafts = status === "NOT_SUBMITTED";
+  // What is typed, and what is searched for once typing pauses.
+  const [searchText, setSearchText] = useState("");
+  const [search, setSearch] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(searchText.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchText]);
   const departments = useDepartments();
   // Refreshes itself while any listed case is still with the engine.
-  const list = useAssessments(department, status);
+  const list = useAssessments(department, status, search);
 
   if (list.isPending) return <Loading />;
   if (list.isError && !list.data) return <LoadError error={list.error} onRetry={() => list.refetch()} />;
@@ -51,6 +79,11 @@ export default function ReviewerQueuePage() {
   const total = latest?.total ?? rows.length;
   const actionable = latest?.actionable ?? rows.filter((r) => needsReviewer(r.stage)).length;
   const departmentName = departments.data?.find((d) => d.key === department)?.name;
+  const stageCounts = latest?.stageCounts ?? {};
+  const tileCount = (tile: (typeof TILES)[number]) =>
+    tile.status in GROUPS
+      ? GROUPS[tile.status as Group].stages.reduce((n, s) => n + (stageCounts[s] ?? 0), 0)
+      : (stageCounts[tile.status as Stage] ?? 0);
 
   const openCase = (row: QueueRow) => {
     const target = row.stage === "DECISION_PENDING" ? "result" : "authentication";
@@ -69,7 +102,8 @@ export default function ReviewerQueuePage() {
           <p className="page-sub">
             {total} {showDrafts ? "not yet submitted" : "submitted"} fit and proper assessment
             {total === 1 ? "" : "s"}
-            {status && !showDrafts ? ` with status ${STAGE_LABELS[status].reviewer}` : ""}{" "}
+            {status && !showDrafts ? ` with status ${statusLabel(status)}` : ""}
+            {search ? ` matching “${search}”` : ""}{" "}
             {departmentName ? `for ${departmentName}` : "across all departments"}.{" "}
             {actionable > 0
               ? `${actionable} need${actionable === 1 ? "s" : ""} your attention.`
@@ -95,7 +129,36 @@ export default function ReviewerQueuePage() {
         </div>
       )}
 
+      <div className="queue-kpis" role="group" aria-label="Queue summary">
+        {TILES.map((tile) => {
+          const on = status === tile.status;
+          return (
+            <button
+              key={tile.status}
+              type="button"
+              className={`queue-kpi is-${tile.tone}${on ? " is-on" : ""}`}
+              aria-pressed={on}
+              onClick={() => setStatus(on ? "" : tile.status)}
+            >
+              <span className="queue-kpi-count">{tileCount(tile)}</span>
+              <span className="queue-kpi-label">{tile.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <div className="queue-filter">
+        <label className="queue-search">
+          <SearchIcon size={15} />
+          <input
+            type="search"
+            className="input"
+            placeholder="Search name, reference or case ID"
+            aria-label="Search the queue"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+          />
+        </label>
         <label className="field-label" htmlFor="queue-status">
           Status
         </label>
@@ -103,14 +166,23 @@ export default function ReviewerQueuePage() {
           id="queue-status"
           className="input"
           value={status}
-          onChange={(e) => setStatus(e.target.value as Stage | "")}
+          onChange={(e) => setStatus(e.target.value as Status)}
         >
           <option value="">All submitted</option>
-          {QUEUE_ORDER.filter((s) => s !== "NOT_SUBMITTED").map((s) => (
-            <option key={s} value={s}>
-              {STAGE_LABELS[s].reviewer}
-            </option>
-          ))}
+          <optgroup label="Groups">
+            {(Object.keys(GROUPS) as Group[]).map((g) => (
+              <option key={g} value={g}>
+                {GROUPS[g].label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Stage">
+            {QUEUE_ORDER.filter((s) => s !== "NOT_SUBMITTED").map((s) => (
+              <option key={s} value={s}>
+                {STAGE_LABELS[s].reviewer}
+              </option>
+            ))}
+          </optgroup>
           <option value="NOT_SUBMITTED">Not submitted yet</option>
         </select>
         <label className="field-label" htmlFor="queue-department">
@@ -135,18 +207,22 @@ export default function ReviewerQueuePage() {
         <EmptyState
           icon={<BankIcon size={22} />}
           title={
-            showDrafts
+            search
+              ? `No assessments match “${search}”`
+              : showDrafts
               ? departmentName
                 ? `Nothing waiting to be submitted for ${departmentName}`
                 : "Nothing waiting to be submitted"
               : status
-                ? `No assessments with status ${STAGE_LABELS[status].reviewer}${departmentName ? ` for ${departmentName}` : ""}`
+                ? `No assessments with status ${statusLabel(status)}${departmentName ? ` for ${departmentName}` : ""}`
                 : departmentName
                   ? `No submitted assessments for ${departmentName}`
                   : "No submitted assessments yet"
           }
         >
-          {showDrafts
+          {search
+            ? "Check the spelling, or search by another part of the name, the application reference or the case ID."
+            : showDrafts
             ? "Applications opened or started but not submitted yet appear here. Open one to see it or remove it."
             : status
               ? "Choose another status, or All submitted, to see the rest of the queue."
@@ -174,6 +250,12 @@ export default function ReviewerQueuePage() {
                 <p className="case-role">
                   {assignment.position} · {assignment.entity}
                 </p>
+
+                {needsReviewer(stage) && daysSince(assignment.updatedAt) >= 1 && (
+                  <p className={`case-age${daysSince(assignment.updatedAt) >= 3 ? " is-late" : ""}`}>
+                    Waiting {daysSince(assignment.updatedAt)} day{daysSince(assignment.updatedAt) === 1 ? "" : "s"}
+                  </p>
+                )}
 
                 <dl className="case-meta">
                   <div>

@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 
 from .. import audit, catalogue, validation, workflow
 from ..models import (
+    Answer,
     AnswerValue,
     ApplicantProfile,
     Assessment,
@@ -66,6 +67,36 @@ QUEUE_ORDER = [
 ]
 # Stages the reviewer has to act on (frontend: needsReviewer).
 NEEDS_REVIEWER = [Stage.REVIEW_PENDING, Stage.DECISION_PENDING, Stage.AUTH_FAILED]
+# Groups the queue's status filter offers besides each single stage (?stage=NEEDS_ACTION, say).
+STAGE_GROUPS = {
+    "NEEDS_ACTION": NEEDS_REVIEWER,
+    "IN_PROGRESS": [Stage.AUTH_RUNNING, Stage.SCORING],
+    "DECIDED": [Stage.ACCEPTED, Stage.REJECTED],
+}
+# Longest search text accepted (a name, reference, case id or email).
+SEARCH_MAX = 100
+
+
+def _stages(value: str | None) -> list[str] | None:
+    """The stages a ?stage= asks for: one stage, a group, or None for no filter."""
+    if not value:
+        return None
+    if value in STAGE_GROUPS:
+        return list(STAGE_GROUPS[value])
+    if value in Stage.values:
+        return [value]
+    raise ValidationError({"stage": "Unknown stage."})
+
+
+def document_progress(a: Assessment) -> dict:
+    """For a form not submitted yet: how many of the documents it needs are attached, by the rule
+    submitting checks (one per answer that needs evidence, and the CV)."""
+    questions = catalogue.questions(catalogue.version_for(a).pk)
+    saved = dict(a.answers.values_list("qid", "value"))
+    needed = [qid for qid, q in questions.items() if catalogue.evidence_required(q, saved.get(qid, Answer.NO))]
+    needed.append(catalogue.CV_QID)
+    attached = set(a.evidence.filter(superseded_at__isnull=True).values_list("qid", flat=True))
+    return {"documentsNeeded": len(needed), "documentsAttached": sum(1 for qid in needed if qid in attached)}
 QUEUE_RANK = Case(
     *(When(stage=stage, then=Value(rank)) for rank, stage in enumerate(QUEUE_ORDER)),
     default=Value(len(QUEUE_ORDER)),
@@ -234,24 +265,38 @@ class AssessmentListView(APIView):
             _follow_running(None if request.user.is_reviewer else visible)
         if not request.user.is_reviewer:
             items = list(with_queue_summary(visible).order_by("-updated_at", "-id"))
-            return Response({"results": [assessment_payload(a, request.user) for a in items], "next": None})
+            results = []
+            for a in items:
+                payload = assessment_payload(a, request.user)
+                # An applicant has a handful at most, so this is a few small queries per draft.
+                if a.stage == Stage.NOT_SUBMITTED:
+                    payload["progress"] = document_progress(a)
+                results.append(payload)
+            return Response({"results": results, "next": None})
 
         # The reviewer's queue holds what applicants have submitted: a form still being filled in
         # (started by the applicant, or opened by the reviewer and not sent yet) joins it on its first
         # submission and stays there. Those not submitted yet are listed only when asked for
         # (?stage=NOT_SUBMITTED), so the reviewer can still find, and remove, one they opened.
-        stage = request.query_params.get("stage")
-        if stage != Stage.NOT_SUBMITTED:
-            visible = visible.exclude(stage=Stage.NOT_SUBMITTED)
-        if stage:
-            if stage not in Stage.values:
-                raise ValidationError({"stage": "Unknown stage."})
-            visible = visible.filter(stage=stage)
+        stages = _stages(request.query_params.get("stage"))
         department = request.query_params.get("department")
         if department:
             if not Department.objects.filter(key=department).exists():
                 raise ValidationError({"department": "Unknown department."})
             visible = visible.filter(department__key=department)
+        search = (request.query_params.get("q") or "").strip()[:SEARCH_MAX]
+        if search:
+            visible = visible.filter(
+                Q(applicant_name__icontains=search) | Q(parent_reference__icontains=search)
+                | Q(public_id__icontains=search) | Q(applicant__email__icontains=search)
+            )
+        # The count of each stage among what the department and search leave, whatever the status
+        # filter: the queue's summary tiles, each a way into that part of the queue.
+        stage_counts = dict(visible.order_by().values_list("stage").annotate(n=Count("pk")))
+        if stages is None or Stage.NOT_SUBMITTED not in stages:
+            visible = visible.exclude(stage=Stage.NOT_SUBMITTED)
+        if stages:
+            visible = visible.filter(stage__in=stages)
         qs = with_queue_summary(visible).annotate(queue_rank=QUEUE_RANK).order_by("queue_rank", "-updated_at", "-id")
         cursor = request.query_params.get("cursor")
         if cursor:
@@ -274,6 +319,7 @@ class AssessmentListView(APIView):
             "next": _encode_cursor(page[-1]) if more else None,
             "total": totals["total"],
             "actionable": totals["actionable"],
+            "stageCounts": stage_counts,
         })
 
     def post(self, request):

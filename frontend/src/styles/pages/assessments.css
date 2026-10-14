@@ -80,6 +80,42 @@
   font-weight: 500;
 }
 
+/* A draft: how many of the documents it needs are attached. */
+.tile-progress {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+}
+
+.tile-progress-label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--ink-2);
+}
+
+.tile-progress-track {
+  display: block;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--bar-track);
+  overflow: hidden;
+}
+
+.tile-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+/* A submitted one: where it stands, and since when. */
+.tile-since {
+  margin-top: 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
 .tile-foot {
   display: flex;
   align-items: center;

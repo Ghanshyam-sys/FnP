@@ -15,6 +15,21 @@ export function formatDate(iso: string): string {
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
 
+/** "12 Oct" from a timestamp, in local time (with the year when it is not this year). */
+export function formatShortDay(iso: string, now: Date = new Date()): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString("en-GB", sameYear ? { day: "numeric", month: "short" } : { day: "numeric", month: "short", year: "numeric" });
+}
+
+/** Whole days from a timestamp to now (0 on the same day). */
+export function daysSince(iso: string, now: Date = new Date()): number {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return 0;
+  return Math.max(0, Math.floor((now.getTime() - date.getTime()) / 86_400_000));
+}
+
 /** "12 Oct 2026, 14:05" from a timestamp, in local time. */
 export function formatDateTime(iso: string): string {
   const date = new Date(iso);
