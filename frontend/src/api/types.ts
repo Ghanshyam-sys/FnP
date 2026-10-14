@@ -296,6 +296,9 @@ export interface Case {
   rejected: string[];
   /** Rejected answers with no new document since the run they were rejected in. */
   unreplaced: string[];
+  /** Under review, once every flagged answer has a ruling: "accept" (all accepted: on to scoring)
+   * or "return" (any rejected: back to the applicant). Null until then. */
+  reviewOutcome: "accept" | "return" | null;
   score: ApiScore | null;
   /** The engine's written assessment, links already pointing at this backend. */
   assessment: FinalAssessment | null;
@@ -317,24 +320,35 @@ export interface FinalAssessment {
     risk_band: string;
     weighted_risk: string;
     knock_out_triggered: boolean;
+    /** Present when a reviewer forced a run that did not authenticate CLEAR on to scoring. */
+    authentication_override?: {
+      note?: string;
+      forced_at?: string;
+      is_score_forced?: boolean;
+      original_outcome?: string;
+    };
   };
-  executive_summary: string;
-  concerns: {
+  // The engine leaves out a part it has nothing for (no question was not applicable, say), so every
+  // part below may be missing.
+  executive_summary?: string;
+  concerns?: {
     qid: string;
     section: string;
     severity: string;
     risk_type: string;
     statement: string;
-    condition_id: string;
-    condition: string;
-    quote: string;
-    evidence_url: string | null;
+    /** The proposed condition: newer engine versions may leave it out. */
+    condition_id?: string;
+    condition?: string;
+    quote?: string;
+    evidence_url?: string | null;
   }[];
-  strengths: { qid: string; statement: string }[];
-  for_supervisor: string[];
-  questions: { passed: string; conditional: string; not_applicable: string };
-  evidence: { documents_read: number; questions_verified: number; questions_self_declared: number };
-  assessment: {
+  strengths?: { qid: string; statement: string }[];
+  for_supervisor?: string[];
+  /** Question ids per outcome, as "A1, A4, Q1" (or a list); an outcome with none may be missing. */
+  questions?: { passed?: string | string[]; conditional?: string | string[]; not_applicable?: string | string[] };
+  evidence?: { documents_read?: number; questions_verified?: number; questions_self_declared?: number };
+  assessment?: {
     version: string;
     generated_at: string;
     inputs_digest: string;

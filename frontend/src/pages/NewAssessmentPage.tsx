@@ -109,7 +109,7 @@ export default function NewAssessmentPage({ mode }: { mode: NewAssessmentMode })
           return;
         }
         const state: QueueNotice = {
-          notice: `Assessment ${created.id} opened for ${created.applicantName}. They see it the next time they sign in as ${created.applicantEmail}.`,
+          notice: `Assessment ${created.id} opened for ${created.applicantName}. They see it the next time they sign in as ${created.applicantEmail}, and it appears in this queue once they submit it.`,
         };
         navigate(routes.reviewer(), { state, replace: true });
       },

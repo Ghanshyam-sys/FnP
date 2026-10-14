@@ -169,6 +169,7 @@ def test_who_may_remove_an_application(as_user, applicant, reviewer, opened):
 
 def test_the_queue_can_be_filtered_to_one_department(applicant, reviewer, opened):
     own = applicant.post("/api/assessments", OWN).json()["id"]
+    Assessment.objects.update(stage=Stage.AUTH_RUNNING)  # the queue lists submitted ones
     insurance = reviewer.get("/api/assessments", department="insurance").json()["results"]
     assert [a["id"] for a in insurance] == [own]
     assert [a["id"] for a in reviewer.get("/api/assessments", department="banking").json()["results"]] == [opened]
@@ -189,11 +190,11 @@ def _with_a_flagged_run(assessment):
 
 
 def test_reviewer_queue_is_keyset_paginated_with_a_fixed_number_of_queries(reviewer):
-    _with_a_flagged_run(make.assessment(public_id="FNP-2026-9999", reference="BL-X-SMALL"))
+    _with_a_flagged_run(make.assessment(public_id="FNP-2026-9999", reference="BL-X-SMALL", stage=Stage.ACCEPTED))
     with CaptureQueriesContext(connection) as small:
         reviewer.get("/api/assessments")
     for i in range(55):
-        assessment = make.assessment(public_id=f"FNP-2026-{i:04d}", reference=f"BL-X-{i}")
+        assessment = make.assessment(public_id=f"FNP-2026-{i:04d}", reference=f"BL-X-{i}", stage=Stage.ACCEPTED)
         if i % 5 == 0:
             _with_a_flagged_run(assessment)
     with CaptureQueriesContext(connection) as large:
@@ -318,7 +319,7 @@ def test_an_upload_while_the_engine_is_unreachable_is_a_503(monkeypatch, applica
 
 def test_reviewer_queue_pages_cases_needing_the_reviewer_first_and_counts_the_whole_queue(reviewer):
     for i in range(55):
-        make.assessment(public_id=f"FNP-2026-{i:04d}", reference=f"BL-Q-{i}")
+        make.assessment(public_id=f"FNP-2026-{i:04d}", reference=f"BL-Q-{i}", stage=Stage.ACCEPTED)
     # Needs the reviewer, but last changed long before everything else: newest-first paging alone
     # would leave it on the second page.
     waiting = make.assessment(public_id="FNP-2026-0900", reference="BL-Q-WAIT", stage=Stage.REVIEW_PENDING)
@@ -334,6 +335,22 @@ def test_reviewer_queue_pages_cases_needing_the_reviewer_first_and_counts_the_wh
     # Newest activity first within a stage.
     stamps = [a["updatedAt"] for a in first["results"][1:] + second["results"]]
     assert stamps == sorted(stamps, reverse=True)
+
+
+def test_the_queue_lists_only_submitted_assessments(applicant, reviewer, opened):
+    own = applicant.post("/api/assessments", OWN).json()["id"]
+    # Neither the applicant's own draft nor the one the reviewer opened is in the queue yet.
+    body = reviewer.get("/api/assessments").json()
+    assert body["results"] == [] and (body["total"], body["actionable"]) == (0, 0)
+    assert reviewer.get("/api/assessments", stage="NOT_SUBMITTED").json()["results"] == []
+    # Once submitted, it is listed, and it stays listed through every later stage.
+    Assessment.objects.filter(public_id=own).update(stage=Stage.AUTH_RUNNING)
+    assert [a["id"] for a in reviewer.get("/api/assessments").json()["results"]] == [own]
+    Assessment.objects.filter(public_id=own).update(stage=Stage.ACCEPTED)
+    assert reviewer.get("/api/assessments").json()["total"] == 1
+    # The reviewer can still open an unsubmitted one directly, and the applicant still lists theirs.
+    assert reviewer.get(f"/api/assessments/{opened}").status_code == 200
+    assert {a["id"] for a in applicant.get("/api/assessments").json()["results"]} == {own, opened}
 
 
 def test_a_malformed_cursor_is_a_bad_request(reviewer):

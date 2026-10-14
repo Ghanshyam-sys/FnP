@@ -19,7 +19,8 @@ from .models import (
 )
 
 CV_DOC_TYPE = "curriculum_vitae"
-_HIGHLIGHT = re.compile(r"/authentication/evidence-highlight/[^/]+/([A-Za-z0-9._-]+\.pdf)(?:#page=(\d+))?$")
+# Anything after the page number (a stray quote, say) is dropped.
+_HIGHLIGHT = re.compile(r"/authentication/evidence-highlight/[^/]+/([A-Za-z0-9._-]+\.pdf)(?:#page=(\d+)[^/]*)?$")
 
 
 # ---- Outbound ---------------------------------------------------------------------------------

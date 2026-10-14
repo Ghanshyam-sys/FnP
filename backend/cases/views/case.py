@@ -59,6 +59,9 @@ def case_payload(assessment: Assessment) -> dict:
         "rejected": sorted(workflow.rejected_qids(assessment)),
         # Answers sent back that still have no new document: resubmitting waits until this is empty.
         "unreplaced": [],
+        # Under review: whether every flagged answer has a ruling, and where they send the case
+        # ("accept": on to scoring; "return": back to the applicant). Null until then.
+        "reviewOutcome": None,
         "score": None,
         "assessment": None,
         "decision": None if decision is None else {
@@ -84,6 +87,8 @@ def case_payload(assessment: Assessment) -> dict:
         # Whether the reviewer may ask the engine to score it (again).
         "canForceScore": workflow.can_force_score(assessment, submission),
     }
+    if assessment.stage == Stage.REVIEW_PENDING:
+        payload["reviewOutcome"] = workflow.review_outcome(submission)
     if assessment.stage == Stage.AWAITING_APPLICANT:
         current = list(assessment.evidence.filter(superseded_at__isnull=True))
         payload["unreplaced"] = workflow.unreplaced_rejections(assessment, current)
@@ -180,6 +185,20 @@ class RulingView(APIView):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.undo_ruling, assessment, qid, request.user)
+        assessment.refresh_from_db()
+        return Response(case_payload(assessment))
+
+
+class CompleteReviewView(APIView):
+    """Reviewer: once every flagged answer has a ruling, sends the case on: to scoring if all were
+    accepted, back to the applicant if any was rejected."""
+
+    permission_classes = [IsReviewer]
+
+    def post(self, request, public_id):
+        assessment = _assessment(request, public_id)
+        require_not_own(request.user, assessment)
+        _transition(workflow.complete_review, assessment, request.user)
         assessment.refresh_from_db()
         return Response(case_payload(assessment))
 

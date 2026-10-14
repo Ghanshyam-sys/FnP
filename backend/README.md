@@ -73,7 +73,7 @@ cases/workflow.py       the only code that changes a case's stage (submit, follo
 cases/adapt.py          engine requests and responses in and out (engine URLs never reach the browser)
 cases/scoring.py        scoring for cases the reviewer accepted after flags
 cases/catalogue.py      questionnaire versions, evidence rule, engine evidence options (cached)
-cases/validation.py     input rules: applicant details, new assessments, uploaded files
+cases/validation.py     input rules: new assessments, uploaded files
 cases/views/            API views; cases/permissions.py holds the access rule every view uses
 cases/authentication.py session sign-in (401 when there is none)
 cases/middleware.py     refuses oversized request bodies before they are read; the admin site's CSP
@@ -106,7 +106,8 @@ media/                  uploaded documents (git-ignored), see below
 | `GET /api/assessments/{id}/evidence/{eid}/file` | owner, reviewer | Download a document |
 | `POST /api/assessments/{id}/submit` | owner | Send the form and documents to the engine |
 | `GET /api/assessments/{id}/case` | owner, reviewer | Stage, report, flags, rulings, score, written assessment, decision (follows a running engine job first) |
-| `PUT/DELETE /api/assessments/{id}/rulings/{qid}` | reviewer | Accept or reject a flagged answer / undo it |
+| `PUT/DELETE /api/assessments/{id}/rulings/{qid}` | reviewer | Accept or reject a flagged answer / undo it (until the review is sent on) |
+| `POST /api/assessments/{id}/complete-review` | reviewer | Once every flagged answer has a ruling: on to scoring if all were accepted (force-score), back to the applicant if any was rejected |
 | `POST /api/assessments/{id}/decision` | reviewer | Accept or reject the case, with feedback |
 | `POST /api/assessments/{id}/force-score` | reviewer | Ask the engine again to score a case whose flagged answers were all accepted (when it was not scored) |
 | `POST /api/assessments/{id}/resubmit` | owner | Send again after the reviewer returned it (new documents for the rejected answers only) |
@@ -120,8 +121,8 @@ Engine runs are followed by the `follow_runs` worker, which checks each run in p
 once per `ENGINE_POLL_INTERVAL_SECONDS`, longest-unchecked first; only one process follows a run
 at a time. Pages then only read the database. If the worker is not running, the case page and the
 assessment list move overdue runs on themselves, so a case never stalls, only slower to load. A clear run is scored by the engine and gets its written assessment. When the engine
-returns a case, the reviewer rules on every flagged answer before it moves on: back to the
-applicant if any is rejected; if all are accepted, the engine is asked to score the same run anyway
+returns a case, the reviewer rules on every flagged answer (each ruling can be undone), then sends
+it on with a button: back to the applicant if any is rejected (no engine call); if all are accepted, the engine is asked to score the same run anyway
 (`POST /authentication/force-score` with its `request_id`, our case id as `application_id`, and
 `is_score_forced: true`), and the case comes to the decision with the engine's score and written
 assessment. If the engine refuses or cannot be reached, the case goes to the decision unscored with

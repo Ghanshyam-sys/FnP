@@ -11,7 +11,8 @@ import {
 import { displaySection } from "../domain/sectionLabels";
 import { reportQuestions } from "../api/adapt";
 import AnswerTag from "./AnswerTag";
-import ConcernCard, { type Concern } from "./ConcernCard";
+import ConcernCard from "./ConcernCard";
+import { concernKey, type Concern } from "../domain/concerns";
 import type {
   AuthenticationOutcome,
   Band,
@@ -125,7 +126,7 @@ function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: 
                 </p>
               )}
               {concerns.length > 0 ? (
-                concerns.map((c) => <ConcernCard key={c.condition_id} concern={c} showSection={false} />)
+                concerns.map((c, i) => <ConcernCard key={concernKey(c, i)} concern={c} showSection={false} />)
               ) : (
                 <p className="risk-detail-note">
                   <InfoIcon size={14} />

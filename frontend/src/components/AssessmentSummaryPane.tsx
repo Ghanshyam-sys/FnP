@@ -9,6 +9,7 @@ import {
   XIcon,
 } from "./icons";
 import ConcernCard from "./ConcernCard";
+import { concernKey } from "../domain/concerns";
 import type { Assessment, Case, FinalAssessment } from "../api/types";
 
 const VERDICT_TONE: Record<string, string> = {
@@ -36,13 +37,15 @@ function formatDay(value: string): string {
  * The engine lists question outcomes as "A1, A4, Q1": shown as the question tags used everywhere
  * else. Anything that is not such a list is shown as written.
  */
-function QuestionIds({ list }: { list: string }) {
-  const ids = list
+function QuestionIds({ list }: { list?: string | string[] | null }) {
+  // The engine leaves an outcome out when no question has it, and may send a list instead of text.
+  const text = Array.isArray(list) ? list.join(", ") : typeof list === "string" ? list : "";
+  const ids = text
     .split(",")
     .map((id) => id.trim())
     .filter(Boolean);
   if (ids.length === 0) return <dd className="pane-qsplit-none">None</dd>;
-  if (ids.some((id) => /\s/.test(id))) return <dd>{list}</dd>;
+  if (ids.some((id) => /\s/.test(id))) return <dd>{text}</dd>;
   return (
     <dd className="pane-qids">
       {ids.map((id) => (
@@ -191,6 +194,14 @@ export default function AssessmentSummaryPane({
   }, [applicantName, assignment.id]);
 
   const determination = assessment?.determination;
+  // Parts the engine may leave out, so a missing one shows as empty rather than breaking the pane.
+  const concerns = assessment?.concerns ?? [];
+  const strengths = assessment?.strengths ?? [];
+  const forSupervisor = assessment?.for_supervisor ?? [];
+  const outcomes = assessment?.questions ?? {};
+  const evidence = assessment?.evidence;
+  const meta = assessment?.assessment;
+  const override = determination?.authentication_override;
   // The running footer on every printed page. CSS cannot read the case from the page, so the
   // rule is written with it.
   const pageFooter = `@page { @bottom-left { content: ${cssString(`${assignment.id} · ${applicantName}`)}; } }`;
@@ -264,30 +275,40 @@ export default function AssessmentSummaryPane({
                     <dd>{determination.knock_out_triggered ? "Triggered" : "None"}</dd>
                   </div>
                 </dl>
+                {override?.note && (
+                  <p className="pane-override" role="note">
+                    <AlertTriangleIcon size={14} />
+                    <span>
+                      <strong>Scored at the reviewer's request.</strong> {override.note}
+                    </span>
+                  </p>
+                )}
               </section>
 
-              <section className="pane-section">
-                <h3>Executive summary</h3>
-                <p className="pane-prose">{assessment.executive_summary}</p>
-              </section>
+              {assessment.executive_summary && (
+                <section className="pane-section">
+                  <h3>Executive summary</h3>
+                  <p className="pane-prose">{assessment.executive_summary}</p>
+                </section>
+              )}
 
               <section className="pane-section">
                 <h3>
                   Concerns and proposed conditions
-                  <span className="pane-count">{assessment.concerns.length}</span>
+                  <span className="pane-count">{concerns.length}</span>
                 </h3>
-                {assessment.concerns.map((c) => (
-                  <ConcernCard concern={c} key={c.condition_id} />
+                {concerns.map((c, i) => (
+                  <ConcernCard concern={c} key={concernKey(c, i)} />
                 ))}
               </section>
 
               <section className="pane-section">
                 <h3>
-                  Strengths<span className="pane-count">{assessment.strengths.length}</span>
+                  Strengths<span className="pane-count">{strengths.length}</span>
                 </h3>
                 <ul className="pane-list">
-                  {assessment.strengths.map((s) => (
-                    <li key={s.qid}>
+                  {strengths.map((s, i) => (
+                    <li key={`${s.qid}-${i}`}>
                       <CheckCircleIcon size={14} />
                       <span>
                         <span className="qid">{s.qid}</span> {s.statement}
@@ -300,8 +321,8 @@ export default function AssessmentSummaryPane({
               <section className="pane-section">
                 <h3>For the supervisor</h3>
                 <ul className="pane-list pane-list-questions">
-                  {assessment.for_supervisor.map((q) => (
-                    <li key={q}>
+                  {forSupervisor.map((q, i) => (
+                    <li key={i}>
                       <AlertTriangleIcon size={14} />
                       <span>{q}</span>
                     </li>
@@ -314,31 +335,33 @@ export default function AssessmentSummaryPane({
                 <dl className="pane-qsplit">
                   <div>
                     <dt>Passed</dt>
-                    <QuestionIds list={assessment.questions.passed} />
+                    <QuestionIds list={outcomes.passed} />
                   </div>
                   <div>
                     <dt>Conditional</dt>
-                    <QuestionIds list={assessment.questions.conditional} />
+                    <QuestionIds list={outcomes.conditional} />
                   </div>
                   <div>
                     <dt>Not applicable</dt>
-                    <QuestionIds list={assessment.questions.not_applicable} />
+                    <QuestionIds list={outcomes.not_applicable} />
                   </div>
                 </dl>
               </section>
 
               <footer className="pane-meta">
-                <span>
-                  {assessment.evidence.documents_read} documents read ·{" "}
-                  {assessment.evidence.questions_verified} questions verified ·{" "}
-                  {assessment.evidence.questions_self_declared} self-declared
-                </span>
-                <span>
-                  Assessment v{assessment.assessment.version} · rules v
-                  {assessment.assessment.rules_version} · generated{" "}
-                  {formatGeneratedAt(assessment.assessment.generated_at)}
-                </span>
-                <span className="pane-digest">Inputs digest {assessment.assessment.inputs_digest}</span>
+                {evidence && (
+                  <span>
+                    {evidence.documents_read ?? 0} documents read · {evidence.questions_verified ?? 0} questions
+                    verified · {evidence.questions_self_declared ?? 0} self-declared
+                  </span>
+                )}
+                {meta && (
+                  <span>
+                    Assessment v{meta.version} · rules v{meta.rules_version}
+                    {meta.generated_at && <> · generated {formatGeneratedAt(meta.generated_at)}</>}
+                  </span>
+                )}
+                {meta?.inputs_digest && <span className="pane-digest">Inputs digest {meta.inputs_digest}</span>}
               </footer>
             </>
           )}

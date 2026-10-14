@@ -123,6 +123,31 @@
   color: var(--ink);
 }
 
+/* The engine's note on a case scored at the reviewer's request (findings accepted, not resolved). */
+.pane-override {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.75rem;
+  border-left: 3px solid var(--warning);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: var(--surface-sunken);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--ink-2);
+}
+
+.pane-override svg {
+  flex: none;
+  margin-top: 0.2rem;
+  color: var(--warning);
+}
+
+.pane-override strong {
+  color: var(--ink);
+}
+
 .pane-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));

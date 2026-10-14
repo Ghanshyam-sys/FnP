@@ -37,6 +37,27 @@ export default function ReviewerResultPage() {
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
   const { assessment: assignment, data, outcome, score: scoreResult } = view;
   const stage = data.stage;
+  // Sent on to scoring: the engine is working; this page refreshes until the score is in.
+  if (stage === "SCORING") {
+    return (
+      <div className="page">
+        <ReviewerCaseHeader assignment={assignment} stage={stage} />
+        <ReviewerTabs assessmentId={id} active="scoring" scoringReady />
+        <EmptyState icon={<InfoIcon size={22} />} title="Scoring in progress">
+          {data.run?.scoreForced
+            ? "You accepted every flagged answer, so the AI engine is scoring the assessment and writing its summary."
+            : "The AI engine is scoring the assessment and writing its summary."}{" "}
+          This page updates by itself once it is done; it usually takes under a minute.
+        </EmptyState>
+        <footer className="actionbar">
+          <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+            <ArrowLeftIcon size={15} />
+            Back to the queue
+          </button>
+        </footer>
+      </div>
+    );
+  }
   // Open once the case is waiting on (or has) a decision. It may have no score: the AI engine
   // scores only a submission in which every answer was authenticated.
   if (!isScored(stage) || !outcome) {

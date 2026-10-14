@@ -368,6 +368,10 @@ export const useRule = (id: string) =>
 export const useUndoRuling = (id: string) =>
   useCaseStep(id, (qid: string) => api<Case>("DELETE", `/assessments/${id}/rulings/${qid}`));
 
+/** Reviewer: sends the case on once every flagged answer has a ruling. */
+export const useCompleteReview = (id: string) =>
+  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/complete-review`));
+
 /** Reviewer: asks the AI engine to score a case whose flagged answers were all accepted. */
 export const useForceScore = (id: string) =>
   useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/force-score`));

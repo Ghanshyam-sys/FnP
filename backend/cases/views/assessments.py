@@ -214,9 +214,9 @@ class ReviewerNewAssessmentSerializer(NewAssessmentSerializer):
 
 
 class AssessmentListView(APIView):
-    """GET: an applicant's own assessments, newest activity first; or for the reviewer the queue
-    (optionally one stage and/or one department), in QUEUE_ORDER and newest activity first within
-    a stage, keyset-paginated, with the queue's totals across every page. POST: the reviewer opens
+    """GET: an applicant's own assessments, newest activity first; or for the reviewer the queue of
+    submitted assessments (optionally one stage and/or one department), in QUEUE_ORDER and newest
+    activity first within a stage, keyset-paginated, with the queue's totals across every page. POST: the reviewer opens
     an assessment for an applicant, or an applicant starts their own."""
 
     def get_throttles(self):
@@ -236,6 +236,10 @@ class AssessmentListView(APIView):
             items = list(with_queue_summary(visible).order_by("-updated_at", "-id"))
             return Response({"results": [assessment_payload(a, request.user) for a in items], "next": None})
 
+        # The reviewer's queue holds only what applicants have submitted: a form still being filled
+        # in (started by the applicant, or opened by the reviewer and not sent yet) is not theirs to
+        # work on. It joins the queue on its first submission and stays there.
+        visible = visible.exclude(stage=Stage.NOT_SUBMITTED)
         stage = request.query_params.get("stage")
         if stage:
             if stage not in Stage.values:

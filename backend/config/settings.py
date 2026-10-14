@@ -225,5 +225,11 @@ LOGGING = {
     "disable_existing_loggers": False,
     "handlers": {"console": {"class": "logging.StreamHandler"}},
     "root": {"handlers": ["console"], "level": "WARNING"},
-    "loggers": {"cases": {"level": "INFO"}, "engine": {"level": "INFO"}},
+    "loggers": {
+        "cases": {"level": "INFO"},
+        "engine": {"level": "INFO"},
+        # One line per call to the AI engine (method, URL, status), e.g. in `journalctl -u
+        # fnp-portal-worker`. ENGINE_LOG_REQUESTS=false hides them.
+        "httpx": {"level": "INFO" if env_bool("ENGINE_LOG_REQUESTS", True) else "WARNING"},
+    },
 }

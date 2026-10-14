@@ -2,9 +2,9 @@
 
     NOT_SUBMITTED --submit--> AUTH_RUNNING --CLEAR--> SCORING (engine) --> DECISION_PENDING --> ACCEPTED / REJECTED
                                    |                                          ^
-                                   +--RETURN_TO_FILER--> REVIEW_PENDING --every flag ruled, all accepted--> SCORING (forced)
+                                   +--RETURN_TO_FILER--> REVIEW_PENDING --every flag ruled, all accepted, reviewer sends it on--> SCORING (forced)
                                    |       (no answer flagged: straight to DECISION_PENDING, unscored)
-                                   |                         +--every flag ruled, any rejected--> AWAITING_APPLICANT --resubmit--> AUTH_RUNNING
+                                   |                         +--every flag ruled, any rejected, reviewer returns it--> AWAITING_APPLICANT --resubmit--> AUTH_RUNNING
                                    +--engine failure--> AUTH_FAILED --retry--> AUTH_RUNNING
 
 Every transition locks the assessment row, checks the stage it starts from, and writes its audit
@@ -517,11 +517,8 @@ def _rounded(score: dict) -> dict:
 # ---- The reviewer's work ----------------------------------------------------------------------
 
 def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer: User) -> None:
-    """Records the reviewer's ruling on one flagged answer. Once every flag has a ruling, the case
-    moves on: back to the applicant if any was rejected (with every rejection at once), otherwise
-    to the engine to be scored after all (force-score), then on to the decision with its score and
-    assessment. Until then, any ruling can be undone."""
-    forced = False
+    """Records the reviewer's ruling on one flagged answer. The case stays under review, and any
+    ruling can be undone, until the reviewer sends it on with complete_review."""
     with transaction.atomic():
         row = _locked(assessment, Stage.REVIEW_PENDING)
         submission = latest_submission(row)
@@ -533,10 +530,33 @@ def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer:
         )
         audit.record(reviewer, "case.rule", assessment_ref=row.public_id, target_type="question", target_id=qid,
                      metadata={"verdict": verdict})
-        verdicts = dict(submission.rulings.values_list("qid", "verdict"))
-        if not set(flags) <= set(verdicts):
-            return
-        if Verdict.REJECTED in verdicts.values():
+
+
+def review_outcome(submission: Submission | None) -> str | None:
+    """Where the reviewer's rulings send the case once every flagged answer has one: "accept" (all
+    accepted: on to scoring) or "return" (any rejected: back to the applicant). None while a flag
+    still waits for a ruling."""
+    if submission is None:
+        return None
+    flags = flagged_qids(submission)
+    verdicts = dict(submission.rulings.values_list("qid", "verdict"))
+    if not flags or not set(flags) <= set(verdicts):
+        return None
+    return "return" if Verdict.REJECTED in verdicts.values() else "accept"
+
+
+def complete_review(assessment: Assessment, reviewer: User) -> None:
+    """The reviewer sends the case on once every flagged answer has a ruling: back to the applicant,
+    with the comments, if any was rejected (the engine is not involved); otherwise to the engine to
+    be scored after all (force-score), then on to the decision with its score and assessment."""
+    forced = False
+    with transaction.atomic():
+        row = _locked(assessment, Stage.REVIEW_PENDING)
+        submission = latest_submission(row)
+        outcome = review_outcome(submission)
+        if outcome is None:
+            raise TransitionError("Rule on every flagged answer first.")
+        if outcome == "return":
             _move(row, Stage.AWAITING_APPLICANT, "case.returned_to_applicant", reviewer)
         elif settings.ENGINE_FORCE_SCORE and submission.engine_request_id:
             _move(row, Stage.SCORING, "case.force_score", reviewer)
@@ -544,7 +564,7 @@ def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer:
         else:
             _move(row, Stage.DECISION_PENDING, "case.ready_for_decision", reviewer)
     if forced:
-        # After the ruling is saved: the engine call holds no lock.
+        # After the move is saved: the engine call holds no lock.
         _request_forced_score(assessment, reviewer)
 
 

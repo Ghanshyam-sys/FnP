@@ -64,7 +64,7 @@ export default function ReviewerQueuePage() {
         <div className="page-head-text">
           <h1>Assessment queue</h1>
           <p className="page-sub">
-            {total} fit and proper assessment{total === 1 ? "" : "s"}{" "}
+            {total} submitted fit and proper assessment{total === 1 ? "" : "s"}{" "}
             {departmentName ? `for ${departmentName}` : "across all departments"}.{" "}
             {actionable > 0
               ? `${actionable} need${actionable === 1 ? "s" : ""} your attention.`
@@ -116,10 +116,11 @@ export default function ReviewerQueuePage() {
       {rows.length === 0 ? (
         <EmptyState
           icon={<BankIcon size={22} />}
-          title={departmentName ? `No assessments for ${departmentName}` : "No assessments yet"}
+          title={departmentName ? `No submitted assessments for ${departmentName}` : "No submitted assessments yet"}
         >
-          Assessments appear here once they are opened, by you or by an applicant starting their
-          own application. Choose New assessment to open one against an application.
+          Assessments appear here once the applicant submits them, whether they started the
+          application themselves or you opened it for them. Choose New assessment to open one
+          against an application; it joins the queue when the applicant submits it.
         </EmptyState>
       ) : (
         <div className="case-grid">
@@ -186,6 +187,9 @@ export default function ReviewerQueuePage() {
 function CaseFootNote({ row }: { row: QueueRow }) {
   const { flagged, openFlags, rejected, decisionRemarks } = row.assignment.queue;
 
+  if (row.stage === "REVIEW_PENDING" && openFlags === 0 && flagged.length > 0) {
+    return <span className="case-note is-critical">All answers ruled on — send it on</span>;
+  }
   if (row.stage === "REVIEW_PENDING") {
     return (
       <span className="case-note is-critical">

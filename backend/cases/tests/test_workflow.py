@@ -366,6 +366,12 @@ def test_an_unreachable_engine_leaves_the_case_running(monkeypatch, no_poll_dela
 
 # ---- A run returned to the filer ---------------------------------------------------------------
 
+def send(reviewer, case, ruling):
+    """Rules on PC1 (the only flag) and sends the case on with the button, as the reviewer does."""
+    assert reviewer.put(f"/api/assessments/{case}/rulings/PC1", ruling).status_code == 200
+    return reviewer.post(f"/api/assessments/{case}/complete-review").json()
+
+
 @pytest.fixture
 def flagged(monkeypatch, no_poll_delay, applicant, case):
     """APP004's real result: PC1 flagged (an undeclared conviction)."""
@@ -392,7 +398,7 @@ def test_a_return_with_no_answer_at_fault_goes_straight_to_the_decision(monkeypa
 
 
 def test_a_rejected_document_follows_the_settings_the_case_was_submitted_under(reviewer, applicant, case, flagged):
-    reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Need the court order."})
+    send(reviewer, case, {"verdict": "rejected", "comment": "Need the court order."})
     # Settings change after submission: PC1 would now take images only.
     pc1 = {"allowedAnswers": ["Yes", "No"], "fileTypes": ["png"], "maxFiles": 1}
     assert reviewer.put("/api/questionnaire", {"version": "v1", "questions": {"PC1": pc1}}).json()["version"] == "v2"
@@ -413,7 +419,7 @@ ACCEPT = {"verdict": "accepted", "comment": "Expunged."}
 
 
 def test_accepting_every_flag_has_the_engine_score_the_same_run(reviewer, case, flagged):
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    body = send(reviewer, case, ACCEPT)
     assert flagged.forced == [("req1", case)]  # the run reviewed, under the case's own id
     assert body["stage"] == "SCORING" and body["rulings"]["PC1"]["verdict"] == "accepted"
     assert body["run"]["scoreForced"] is True and body["run"]["status"] == "running"
@@ -437,7 +443,7 @@ def test_accepting_every_flag_has_the_engine_score_the_same_run(reviewer, case, 
 
 def test_a_refused_force_score_leaves_the_case_on_the_decision_and_can_be_asked_again(applicant, reviewer, case, flagged):
     flagged.force_refusal = client.ForceRefused("The submission is still running.")
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    body = send(reviewer, case, ACCEPT)
     assert body["stage"] == "DECISION_PENDING" and body["score"] is None
     assert body["run"]["forceScoreError"] == "The submission is still running."
     assert body["run"]["canForceScore"] is True
@@ -455,7 +461,7 @@ def test_a_refused_force_score_leaves_the_case_on_the_decision_and_can_be_asked_
 
 def test_an_unreachable_engine_leaves_the_case_on_the_decision(reviewer, case, flagged):
     flagged.force_refusal = EngineUnavailable("down")
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    body = send(reviewer, case, ACCEPT)
     assert body["stage"] == "DECISION_PENDING"
     assert "could not be reached" in body["run"]["forceScoreError"] and body["run"]["canForceScore"] is True
 
@@ -465,7 +471,7 @@ def test_a_run_forced_before_is_simply_followed_again(reviewer, case, flagged):
     flagged.force_refusal = client.ForceRefused("Already forced.")
     flagged.finish_forced()
     flagged.forced.append(("req1", case))  # forced earlier, so the engine serves its score
-    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    send(reviewer, case, ACCEPT)
     body = reviewer.get(f"/api/assessments/{case}/case").json()
     assert body["stage"] == "DECISION_PENDING" and body["score"]["source"] == "engine"
 
@@ -473,7 +479,7 @@ def test_a_run_forced_before_is_simply_followed_again(reviewer, case, flagged):
 def test_a_forced_run_that_fails_goes_back_to_the_decision_not_to_auth_failed(
     reviewer, case, flagged, django_capture_on_commit_callbacks
 ):
-    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    send(reviewer, case, ACCEPT)
     flagged.status_doc = {**engine_fixture("status-APP001-clear.json"), "status": "FAILED", "error": "Scoring crashed."}
     with django_capture_on_commit_callbacks(execute=True):
         reviewer.get(f"/api/assessments/{case}/case")
@@ -486,14 +492,14 @@ def test_a_forced_run_that_fails_goes_back_to_the_decision_not_to_auth_failed(
 def test_a_forced_runs_time_limit_counts_from_when_it_was_forced(reviewer, case, flagged):
     # Sent long ago, but forced just now: still followed, not failed as overdue.
     Submission.objects.update(submitted_at=timezone.now() - datetime.timedelta(days=1))
-    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    send(reviewer, case, ACCEPT)
     flagged.finish_forced()
     assert reviewer.get(f"/api/assessments/{case}/case").json()["score"]["source"] == "engine"
 
 
 def test_with_force_score_off_accepting_every_flag_goes_to_the_decision_unscored(reviewer, case, flagged, settings):
     settings.ENGINE_FORCE_SCORE = False
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    body = send(reviewer, case, ACCEPT)
     assert body["stage"] == "DECISION_PENDING" and body["score"] is None and flagged.forced == []
     assert body["run"]["canForceScore"] is False
 
@@ -529,7 +535,7 @@ def test_the_engine_is_sent_exactly_the_three_keys(monkeypatch):
 
 
 def test_a_rejection_returns_the_case_and_only_that_document_can_change(reviewer, applicant, case, flagged):
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Need the court order."}).json()
+    body = send(reviewer, case, {"verdict": "rejected", "comment": "Need the court order."})
     assert body["stage"] == "AWAITING_APPLICANT" and body["rejected"] == ["PC1"]
 
     new = {"file": SimpleUploadedFile("court-order.pdf", PDF), "qid": "PC1", "optionCode": "POLICE_CLEARANCE"}
@@ -567,6 +573,8 @@ def test_a_rejection_waits_until_every_flag_is_ruled_on(reviewer, case, flagged)
     # The reviewer can still rule on A1, and change their mind on PC1.
     assert body["stage"] == "REVIEW_PENDING"
     body = reviewer.put(f"/api/assessments/{case}/rulings/A1", {"verdict": "accepted", "comment": "Fine."}).json()
+    assert body["stage"] == "REVIEW_PENDING" and body["reviewOutcome"] == "return"
+    body = reviewer.post(f"/api/assessments/{case}/complete-review").json()
     assert body["stage"] == "AWAITING_APPLICANT" and body["rejected"] == ["PC1"]
 
 
@@ -671,7 +679,7 @@ def test_highlights_pass_through_after_the_access_check(monkeypatch, as_user, ap
 
 
 def test_every_step_is_audited(reviewer, case, flagged):
-    reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Need more."})
+    send(reviewer, case, {"verdict": "rejected", "comment": "Need more."})
     actions = list(AuditEvent.objects.filter(assessment_ref=case).order_by("id").values_list("action", flat=True))
     assert actions[0] == "assessment.create"
     assert actions[-4:] == ["case.submit", "case.review_pending", "case.rule", "case.returned_to_applicant"]
@@ -680,7 +688,7 @@ def test_every_step_is_audited(reviewer, case, flagged):
 # ---- What a submission may carry ---------------------------------------------------------------
 
 def test_a_resubmission_needs_new_evidence_for_each_rejected_answer(reviewer, applicant, case, flagged):
-    reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Need the court order."})
+    send(reviewer, case, {"verdict": "rejected", "comment": "Need the court order."})
     flagged.status_doc = PENDING
     # Unchanged: the engine would only read the same document again.
     response = applicant.post(f"/api/assessments/{case}/resubmit")
@@ -826,7 +834,7 @@ def test_a_retry_resends_the_failed_run_as_it_was(monkeypatch, applicant, case):
 
 
 def test_the_case_lists_rejected_answers_still_waiting_for_new_evidence(reviewer, applicant, case, flagged):
-    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Court order."}).json()
+    body = send(reviewer, case, {"verdict": "rejected", "comment": "Court order."})
     assert body["unreplaced"] == ["PC1"]
     attach(applicant, case, "PC1", "POLICE_CLEARANCE")
     assert applicant.get(f"/api/assessments/{case}/case").json()["unreplaced"] == []
@@ -867,3 +875,55 @@ def test_a_score_the_app_calculated_itself_shows_only_once_the_case_was_decided_
     type(assessment).objects.filter(pk=assessment.pk).update(stage=Stage.ACCEPTED)
     score = reviewer.get(url).json()["score"]
     assert score["source"] == "backend_override" and score["band"] == "Elevated"
+
+
+def test_an_engine_evidence_link_with_trailing_characters_still_becomes_ours():
+    a = make.assessment()
+    base = "http://40.81.225.53:8000/authentication/evidence-highlight/5b4896aef3/CoI2_registry_p2.pdf"
+    ours = f"/api/assessments/{a.public_id}/highlights/CoI2_registry_p2.pdf"
+    assert adapt.highlight_url(a, base + "#page=2") == ours + "#page=2"
+    assert adapt.highlight_url(a, base + "#page=2%22") == ours + "#page=2"
+    # Still never a path outside the run's own folder.
+    assert adapt.highlight_url(a, base + "#page=2/../../x.pdf") is None
+
+
+# ---- Sending the review on --------------------------------------------------------------------
+
+def test_rulings_alone_do_not_move_the_case_and_can_be_changed_until_it_is_sent(reviewer, case, flagged):
+    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT).json()
+    assert body["stage"] == "REVIEW_PENDING" and body["reviewOutcome"] == "accept" and flagged.forced == []
+    # Changed to a rejection, then undone and accepted again: nothing is sent meanwhile.
+    body = reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Hm."}).json()
+    assert body["reviewOutcome"] == "return"
+    assert reviewer.delete(f"/api/assessments/{case}/rulings/PC1").json()["reviewOutcome"] is None
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    assert flagged.forced == [] and stage(case) == Stage.REVIEW_PENDING
+    # Sent on: undoing is no longer possible.
+    reviewer.post(f"/api/assessments/{case}/complete-review")
+    assert reviewer.delete(f"/api/assessments/{case}/rulings/PC1").status_code == 409
+
+
+def test_the_review_cannot_be_sent_while_a_flag_waits_for_a_ruling(applicant, reviewer, case, flagged):
+    from cases.models import QuestionResult
+
+    QuestionResult.objects.filter(qid="A1").update(status="issue")
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", ACCEPT)
+    response = reviewer.post(f"/api/assessments/{case}/complete-review")
+    assert response.status_code == 409 and "every flagged answer" in response.json()["detail"]
+    assert applicant.post(f"/api/assessments/{case}/complete-review").status_code == 403
+    assert flagged.forced == [] and stage(case) == Stage.REVIEW_PENDING
+
+
+def test_returning_to_the_applicant_does_not_call_the_engine(applicant, reviewer, case, flagged):
+    body = send(reviewer, case, {"verdict": "rejected", "comment": "Upload the court order."})
+    assert body["stage"] == "AWAITING_APPLICANT" and flagged.forced == []
+    # The applicant sees the reviewer's comment on the rejected answer.
+    seen = applicant.get(f"/api/assessments/{case}/case").json()
+    assert seen["rejected"] == ["PC1"] and seen["rulings"]["PC1"]["comment"] == "Upload the court order."
+
+
+def test_the_review_is_sent_once(reviewer, case, flagged):
+    send(reviewer, case, ACCEPT)
+    assert reviewer.post(f"/api/assessments/{case}/complete-review").status_code == 409
+    assert flagged.forced == [("req1", case)]
+

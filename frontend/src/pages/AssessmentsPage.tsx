@@ -54,6 +54,10 @@ export default function AssessmentsPage() {
   const [step, setStep] = useState<ModalStep>("choose");
   // "Start a new application" first offers the applications not yet submitted, if there are any.
   const [choosingStart, setChoosingStart] = useState(false);
+  // Its steps: the choices; which draft to remove (when several can be); confirming the removal.
+  const [startStep, setStartStep] = useState<"choose" | "pick" | "remove">("choose");
+  const [toRemove, setToRemove] = useState<Assessment | null>(null);
+  const draftRemoval = useRemoveAssessment(toRemove?.id ?? "");
 
   if (!user) return <Navigate to={routes.login()} replace />;
   // The reviewer's list of assessments is the queue.
@@ -94,12 +98,43 @@ export default function AssessmentsPage() {
   const ownDrafts = drafts.filter((a) => a.startedByApplicant).length;
   const atLimit = ownDrafts >= MAX_OPEN_DRAFTS;
 
+  // Only an application the applicant started themselves can be removed (the server's rule).
+  const removableDrafts = drafts.filter((a) => a.removable);
+
   const startNew = () => {
     if (drafts.length === 0) {
       navigate(routes.newApplication());
       return;
     }
+    setStartStep("choose");
+    setToRemove(null);
+    draftRemoval.reset();
     setChoosingStart(true);
+  };
+
+  const closeStart = () => setChoosingStart(false);
+
+  const askRemove = (draft?: Assessment) => {
+    draftRemoval.reset();
+    const only = draft ?? (removableDrafts.length === 1 ? removableDrafts[0] : null);
+    if (only) {
+      setToRemove(only);
+      setStartStep("remove");
+    } else {
+      setStartStep("pick");
+    }
+  };
+
+  const confirmDraftRemove = () => {
+    const removed = toRemove;
+    draftRemoval.mutate(undefined, {
+      onSuccess: () => {
+        setToRemove(null);
+        // Nothing left to continue: the popup has done its job. Otherwise back to the choices.
+        if (drafts.every((d) => d.id === removed?.id)) closeStart();
+        else setStartStep("choose");
+      },
+    });
   };
 
   const startApplication = (
@@ -182,74 +217,148 @@ export default function AssessmentsPage() {
       )}
 
       {choosingStart && (
-        <Modal labelledBy="start-modal-title" portal={false} onClose={() => setChoosingStart(false)}>
-          <h2 id="start-modal-title">Start a new application</h2>
-          <p className="modal-sub">
-            {drafts.length === 1
-              ? "You have an application that is not submitted yet. Continue it, or start another."
-              : `You have ${drafts.length} applications that are not submitted yet. Continue one, or start another.`}
-          </p>
-
-          {drafts.length === 1 && (
-            <dl className="modal-detail">
-              <div>
-                <dt>Department</dt>
-                <dd>{drafts[0].department.name}</dd>
-              </div>
-              <div>
-                <dt>Entity</dt>
-                <dd>{drafts[0].entity}</dd>
-              </div>
-              <div>
-                <dt>Position applied for</dt>
-                <dd>{drafts[0].position}</dd>
-              </div>
-            </dl>
-          )}
-
-          {drafts.map((draft) => (
-            <button className="choice" key={draft.id} onClick={() => navigate(routes.apply(draft.id))}>
-              <span className="choice-icon">
-                <PencilIcon size={17} />
+        <Modal labelledBy="start-modal-title" portal={false} onClose={closeStart}>
+          {startStep === "remove" && toRemove ? (
+            <>
+              <span className="modal-icon">
+                <AlertTriangleIcon size={20} />
               </span>
-              <span className="choice-text">
-                <span className="choice-title">Edit previous draft</span>
-                <span className="choice-sub">
-                  {drafts.length === 1
-                    ? draft.hasDraft
-                      ? "Continue where you left off"
-                      : "Not started yet — open the form"
-                    : `${draft.department.name} · ${draft.entity} · ${draft.reference}`}
+              <h2 id="start-modal-title">Remove this application?</h2>
+              <p className="modal-sub">
+                The {toRemove.department.name} application {toRemove.reference} and everything saved
+                for it are deleted. This cannot be undone.
+              </p>
+              {draftRemoval.isError && (
+                <p className="field-error" role="alert">
+                  It was not removed. It may have been submitted in the meantime; close this and check.
+                </p>
+              )}
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setStartStep("choose")}>
+                  Cancel
+                </button>
+                <button className="btn btn-critical" onClick={confirmDraftRemove} disabled={draftRemoval.isPending}>
+                  {draftRemoval.isPending ? "Removing…" : "Remove application"}
+                </button>
+              </div>
+            </>
+          ) : startStep === "pick" ? (
+            <>
+              <h2 id="start-modal-title">Remove an application</h2>
+              <p className="modal-sub">
+                Choose the application to delete. Only applications you started yourself, and have
+                not submitted, can be removed.
+              </p>
+              {removableDrafts.map((draft) => (
+                <button className="choice" key={draft.id} onClick={() => askRemove(draft)}>
+                  <span className="choice-icon">
+                    <AlertTriangleIcon size={17} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-title">{draft.department.name}</span>
+                    <span className="choice-sub">
+                      {draft.entity} · {draft.reference}
+                    </span>
+                  </span>
+                  <ArrowRightIcon size={15} className="choice-arrow" />
+                </button>
+              ))}
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={() => setStartStep("choose")}>
+                  Back
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <h2 id="start-modal-title">Start a new application</h2>
+              <p className="modal-sub">
+                {drafts.length === 1
+                  ? "You have an application that is not submitted yet. Continue it, or start another."
+                  : `You have ${drafts.length} applications that are not submitted yet. Continue one, or start another.`}
+              </p>
+
+              {drafts.length === 1 && (
+                <dl className="modal-detail">
+                  <div>
+                    <dt>Department</dt>
+                    <dd>{drafts[0].department.name}</dd>
+                  </div>
+                  <div>
+                    <dt>Entity</dt>
+                    <dd>{drafts[0].entity}</dd>
+                  </div>
+                  <div>
+                    <dt>Position applied for</dt>
+                    <dd>{drafts[0].position}</dd>
+                  </div>
+                </dl>
+              )}
+
+              {drafts.map((draft) => (
+                <button className="choice" key={draft.id} onClick={() => navigate(routes.apply(draft.id))}>
+                  <span className="choice-icon">
+                    <PencilIcon size={17} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-title">Edit previous draft</span>
+                    <span className="choice-sub">
+                      {drafts.length === 1
+                        ? draft.hasDraft
+                          ? "Continue where you left off"
+                          : "Not started yet — open the form"
+                        : `${draft.department.name} · ${draft.entity} · ${draft.reference}`}
+                    </span>
+                  </span>
+                  <ArrowRightIcon size={15} className="choice-arrow" />
+                </button>
+              ))}
+
+              <button
+                className={`choice${atLimit ? " is-disabled" : ""}`}
+                disabled={atLimit}
+                onClick={() => navigate(routes.newApplication())}
+              >
+                <span className="choice-icon">
+                  <PlusIcon size={17} />
                 </span>
-              </span>
-              <ArrowRightIcon size={15} className="choice-arrow" />
-            </button>
-          ))}
+                <span className="choice-text">
+                  <span className="choice-title">Start a new application</span>
+                  <span className="choice-sub">
+                    {atLimit
+                      ? `You have ${MAX_OPEN_DRAFTS} applications not submitted yet. Submit or remove one first.`
+                      : "Open a new form for another application"}
+                  </span>
+                </span>
+                <ArrowRightIcon size={15} className="choice-arrow" />
+              </button>
 
-          <button
-            className={`choice${atLimit ? " is-disabled" : ""}`}
-            disabled={atLimit}
-            onClick={() => navigate(routes.newApplication())}
-          >
-            <span className="choice-icon">
-              <PlusIcon size={17} />
-            </span>
-            <span className="choice-text">
-              <span className="choice-title">Start a new application</span>
-              <span className="choice-sub">
-                {atLimit
-                  ? `You have ${MAX_OPEN_DRAFTS} applications not submitted yet. Submit or remove one first.`
-                  : "Open a new form for another application"}
-              </span>
-            </span>
-            <ArrowRightIcon size={15} className="choice-arrow" />
-          </button>
+              {removableDrafts.length > 0 && (
+                <button className="choice" onClick={() => askRemove()}>
+                  <span className="choice-icon">
+                    <AlertTriangleIcon size={17} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-title">Remove application</span>
+                    <span className="choice-sub">
+                      {removableDrafts.length > 1
+                        ? "Choose a draft to delete, with everything saved for it"
+                        : drafts.length === 1
+                          ? "Delete it and everything saved for it"
+                          : `${removableDrafts[0].department.name} · ${removableDrafts[0].entity} · ${removableDrafts[0].reference}`}
+                    </span>
+                  </span>
+                  <ArrowRightIcon size={15} className="choice-arrow" />
+                </button>
+              )}
 
-          <div className="modal-actions">
-            <button className="btn btn-ghost" onClick={() => setChoosingStart(false)}>
-              Cancel
-            </button>
-          </div>
+              <div className="modal-actions">
+                <button className="btn btn-ghost" onClick={closeStart}>
+                  Cancel
+                </button>
+              </div>
+            </>
+          )}
         </Modal>
       )}
 

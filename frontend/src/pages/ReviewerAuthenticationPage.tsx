@@ -1,6 +1,14 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useCatalogue, useForm, useRemoveAssessment, useRetry, useRule, useUndoRuling } from "../api/queries";
+import {
+  useCatalogue,
+  useCompleteReview,
+  useForm,
+  useRemoveAssessment,
+  useRetry,
+  useRule,
+  useUndoRuling,
+} from "../api/queries";
 import { refusalMessage } from "../api/client";
 import { useCaseView } from "../api/useCaseView";
 import {
@@ -18,6 +26,7 @@ import AuthenticationReport from "../components/AuthenticationReport";
 import OverrideDialog from "../components/OverrideDialog";
 import ReviewerTabs from "../components/ReviewerTabs";
 import EmptyState from "../components/EmptyState";
+import Modal from "../components/Modal";
 import { ReviewerCaseHeader } from "../components/PageHeader";
 import { Loading, LoadError } from "../components/LoadState";
 import {
@@ -49,6 +58,9 @@ export default function ReviewerAuthenticationPage() {
   const undo = useUndoRuling(id);
   const retry = useRetry(id);
   const removal = useRemoveAssessment(id);
+  const completeReview = useCompleteReview(id);
+  // Asking to confirm before the case goes back to the applicant.
+  const [confirmReturn, setConfirmReturn] = useState(false);
 
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
   if (form.isError && !form.data) return <LoadError error={form.error} onRetry={form.refetch} />;
@@ -137,6 +149,20 @@ export default function ReviewerAuthenticationPage() {
   // A reviewer never rules on their own application (the server refuses it too).
   const ownApplication = assignment.ownApplication;
   const canRule = stage === "REVIEW_PENDING" && !ownApplication;
+  // Every flag ruled on: the reviewer sends the case on with the footer's button.
+  const reviewOutcome = canRule ? data.reviewOutcome : null;
+  const rejectedNow = Object.entries(data.rulings)
+    .filter(([, r]) => r.verdict === "rejected")
+    .map(([qid]) => qid);
+
+  const sendOn = () =>
+    completeReview.mutate(undefined, {
+      onSuccess: (updated) => {
+        setConfirmReturn(false);
+        // On to scoring: the scoring page shows its progress, then the score.
+        if (updated.stage === "SCORING" || updated.stage === "DECISION_PENDING") navigate(routes.reviewerResult(id));
+      },
+    });
 
   const confirm = (comment: string) => {
     if (!pending) return;
@@ -230,6 +256,26 @@ export default function ReviewerAuthenticationPage() {
           is done.
         </div>
       </div>
+    ) : reviewOutcome === "accept" ? (
+      <div className="notice notice-info">
+        <CheckCircleIcon size={17} />
+        <div>
+          <strong>You accepted every flagged answer.</strong> Choose Go to scoring and decision to
+          have the AI engine score the assessment and write its summary. Until then you can still
+          undo a ruling.
+        </div>
+      </div>
+    ) : reviewOutcome === "return" ? (
+      <div className="notice notice-warning">
+        <AlertTriangleIcon size={17} />
+        <div>
+          <strong>
+            You rejected {rejectedNow.length === 1 ? "an answer" : "answers"} ({rejectedNow.join(", ")}).
+          </strong>{" "}
+          Choose Return to applicant to send it back with your comments, so they can upload new
+          evidence. Until then you can still undo a ruling.
+        </div>
+      </div>
     ) : issues.length === 0 ? (
       <div className="notice notice-good">
         <CheckCircleIcon size={17} />
@@ -245,9 +291,9 @@ export default function ReviewerAuthenticationPage() {
           <strong>
             {open.length} question{open.length > 1 ? "s" : ""} awaiting your ruling
           </strong>{" "}
-          ({open.join(", ")}). Once every flagged answer has a ruling, the assessment moves on: if
-          you accept them all, the AI engine scores it and writes its assessment for your decision;
-          if you reject any, it goes back to the applicant.
+          ({open.join(", ")}). Once every flagged answer has a ruling, send it on: Go to scoring
+          and decision if you accepted them all (the AI engine scores it and writes its
+          assessment), or Return to applicant if you rejected any.
         </div>
       </div>
     ) : (
@@ -268,7 +314,11 @@ export default function ReviewerAuthenticationPage() {
     <div className="page">
       <ReviewerCaseHeader assignment={assignment} stage={stage} />
 
-      <ReviewerTabs assessmentId={id} active="authentication" scoringReady={isScored(stage)} />
+      <ReviewerTabs
+        assessmentId={id}
+        active="authentication"
+        scoringReady={isScored(stage) || stage === "SCORING"}
+      />
 
       <AuthenticationReport
         outcome={outcome}
@@ -276,6 +326,15 @@ export default function ReviewerAuthenticationPage() {
         notice={notice}
         questionFooter={questionFooter}
       />
+
+      {completeReview.isError && !confirmReturn && (
+        <div className="notice notice-critical" role="alert">
+          <AlertTriangleIcon size={17} />
+          <div>
+            <strong>It was not sent on.</strong> {refusalMessage(completeReview.error, "detail")}
+          </div>
+        </div>
+      )}
 
       {undo.isError && (
         <div className="notice notice-critical" role="alert">
@@ -291,13 +350,59 @@ export default function ReviewerAuthenticationPage() {
           <ArrowLeftIcon size={15} />
           Back to the queue
         </button>
-        {isScored(stage) && (
+        {reviewOutcome === "accept" && (
+          <button className="btn btn-primary" disabled={completeReview.isPending} onClick={sendOn}>
+            {completeReview.isPending ? "Sending…" : "Go to scoring and decision"}
+            <ArrowRightIcon size={15} />
+          </button>
+        )}
+        {reviewOutcome === "return" && (
+          <button
+            className="btn btn-primary"
+            disabled={completeReview.isPending}
+            onClick={() => {
+              completeReview.reset();
+              setConfirmReturn(true);
+            }}
+          >
+            <ArrowLeftIcon size={15} />
+            Return to applicant
+          </button>
+        )}
+        {(isScored(stage) || stage === "SCORING") && (
           <button className="btn btn-primary" onClick={() => navigate(routes.reviewerResult(id))}>
             Go to scoring and decision
             <ArrowRightIcon size={15} />
           </button>
         )}
       </footer>
+
+      {confirmReturn && (
+        <Modal labelledBy="return-title" onClose={() => setConfirmReturn(false)}>
+          <span className="modal-icon">
+            <AlertTriangleIcon size={20} />
+          </span>
+          <h2 id="return-title">Return to the applicant?</h2>
+          <p className="modal-sub">
+            {assignment.applicantName} is asked for new evidence for {rejectedNow.join(", ")} and sees
+            your comments on {rejectedNow.length === 1 ? "it" : "them"}. Your rulings can no longer be
+            changed once it is sent.
+          </p>
+          {completeReview.isError && (
+            <p className="field-error" role="alert">
+              {refusalMessage(completeReview.error, "detail")}
+            </p>
+          )}
+          <div className="modal-actions">
+            <button className="btn btn-ghost" onClick={() => setConfirmReturn(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" disabled={completeReview.isPending} onClick={sendOn}>
+              {completeReview.isPending ? "Sending…" : "Return to applicant"}
+            </button>
+          </div>
+        </Modal>
+      )}
 
       {pending && (
         <OverrideDialog

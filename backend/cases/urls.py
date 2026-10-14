@@ -3,7 +3,7 @@ from django.urls import path
 from .views.admin_panel import AdminOverviewView, AdminUserDetailView, AdminUserListView
 from .views.assessments import AssessmentDetailView, AssessmentListView
 from .views.case import (
-    CaseView, DecisionView, ForceScoreView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView,
+    CaseView, CompleteReviewView, DecisionView, ForceScoreView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView,
 )
 from .views.catalogue import CatalogueView, DepartmentListView, QuestionnaireView
 from .views.evidence import EvidenceDetailView, EvidenceFileView, EvidenceUploadView
@@ -35,5 +35,6 @@ urlpatterns = [
     path(f"{A}/rulings/<str:qid>", RulingView.as_view(), name="ruling"),
     path(f"{A}/decision", DecisionView.as_view(), name="decision"),
     path(f"{A}/force-score", ForceScoreView.as_view(), name="force-score"),
+    path(f"{A}/complete-review", CompleteReviewView.as_view(), name="complete-review"),
     path(f"{A}/highlights/<str:name>", HighlightView.as_view(), name="highlight"),
 ]

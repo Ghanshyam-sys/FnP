@@ -1,8 +1,6 @@
 import { ExternalLinkIcon } from "./icons";
 import { displaySection } from "../domain/sectionLabels";
-import type { FinalAssessment } from "../api/types";
-
-export type Concern = FinalAssessment["concerns"][number];
+import type { Concern } from "../domain/concerns";
 
 /**
  * One concern from the AI engine's written assessment: what it found, the passage in the evidence
@@ -19,19 +17,23 @@ export default function ConcernCard({ concern: c, showSection = true }: { concer
         {showSection && <span className="pane-concern-section">{displaySection(c.section)}</span>}
       </div>
       <p className="pane-prose">{c.statement}</p>
-      <blockquote className="pane-quote">
-        <span className="pane-quote-text">{c.quote}</span>
-        {c.evidence_url && (
-          <a href={c.evidence_url} target="_blank" rel="noreferrer">
-            View in evidence
-            <ExternalLinkIcon size={11} />
-          </a>
-        )}
-      </blockquote>
-      <div className="pane-condition">
-        <span className="pane-condition-id">{c.condition_id}</span>
-        <p>{c.condition}</p>
-      </div>
+      {(c.quote || c.evidence_url) && (
+        <blockquote className="pane-quote">
+          {c.quote && <span className="pane-quote-text">{c.quote}</span>}
+          {c.evidence_url && (
+            <a href={c.evidence_url} target="_blank" rel="noreferrer">
+              View in evidence
+              <ExternalLinkIcon size={11} />
+            </a>
+          )}
+        </blockquote>
+      )}
+      {c.condition && (
+        <div className="pane-condition">
+          {c.condition_id && <span className="pane-condition-id">{c.condition_id}</span>}
+          <p>{c.condition}</p>
+        </div>
+      )}
     </article>
   );
 }
