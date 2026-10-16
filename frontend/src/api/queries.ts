@@ -3,19 +3,21 @@
  * that affects it. A change's response is the updated resource, so it is written straight into the
  * cache instead of being fetched again.
  */
-import { useCallback, useState } from "react";
-import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useState } from "react";
+import { useInfiniteQuery, useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
 import { ApiError, api } from "./client";
 import type {
   AdminOverview,
   AdminUserDetail,
   AdminUserRow,
+  AnswerType,
   Assessment,
   Case,
   Catalogue,
   Department,
   EvidenceItem,
+  EvidenceRule,
   Form,
   Page,
   QuestionnaireSettings,
@@ -45,7 +47,10 @@ export const keys = {
 
 /** Stages the engine is still working through; a case page checks back while it is in one. */
 const RUNNING: Stage[] = ["AUTH_RUNNING", "SCORING"];
-const POLL_MS = 3000;
+/** How often a case page checks back: as often as the server asks the engine (every 5 seconds). */
+const POLL_MS = 5000;
+/** How often a list checks back: each check reloads every page of it shown so far. */
+const LIST_POLL_MS = 10000;
 
 // ---- Session ----------------------------------------------------------------------------------
 
@@ -111,8 +116,17 @@ export function useCatalogue() {
   });
 }
 
+/**
+ * The question settings. Not read again when the tab regains focus: a newer version would replace
+ * the editor's unsaved changes without a word. Another reviewer's change shows when saving (the
+ * save is refused as out of date) or on opening the page again.
+ */
 export function useQuestionnaire() {
-  return useQuery({ queryKey: keys.questionnaire, queryFn: () => api<QuestionnaireSettings>("GET", "/questionnaire") });
+  return useQuery({
+    queryKey: keys.questionnaire,
+    queryFn: () => api<QuestionnaireSettings>("GET", "/questionnaire"),
+    refetchOnWindowFocus: false,
+  });
 }
 
 export type QuestionSettings = Record<
@@ -120,7 +134,28 @@ export type QuestionSettings = Record<
   { allowedAnswers: Answer[]; fileTypes: string[]; maxFiles: number; weight?: number }
 >;
 
-/** Publishes settings edited from `version`; refused (409) if someone has published since. */
+/** The whole questionnaire as edited: its sections in order, each with its questions (qid null: added). */
+export interface SectionEdit {
+  name: string;
+  weight: number;
+  questions: {
+    qid: string | null;
+    text: string;
+    polarity: "Positive" | "Negative";
+    answerType: AnswerType;
+    weight: number;
+    allowedAnswers: Answer[];
+    fileTypes: string[];
+    maxFiles: 1 | 2;
+    evidenceRequired: EvidenceRule;
+    evidenceOptions: string[];
+  }[];
+}
+
+/**
+ * Publishes settings edited from `version` (refused, 409, if someone has published since): the
+ * whole questionnaire (`sections`), or only some questions' settings (`questions`).
+ */
 export function useSaveQuestionnaire() {
   const client = useQueryClient();
   const refresh = () => {
@@ -128,7 +163,7 @@ export function useSaveQuestionnaire() {
     client.invalidateQueries({ queryKey: keys.catalogue });
   };
   return useMutation({
-    mutationFn: (edit: { version: string; questions: QuestionSettings }) =>
+    mutationFn: (edit: { version: string; questions?: QuestionSettings; sections?: SectionEdit[] }) =>
       api<QuestionnaireVersion>("PUT", "/questionnaire", edit),
     onSuccess: (published) => {
       // The page moves onto the published version at once, so a follow-up save builds on it.
@@ -175,7 +210,7 @@ export function useAssessments(department = "", stage = "", search = "") {
     placeholderData: (previous) => previous,
     // The queue reflects running engine jobs; refresh it while any listed case is still running.
     refetchInterval: (query) =>
-      query.state.data?.pages.some((p) => p.results.some((a) => RUNNING.includes(a.stage))) ? POLL_MS : false,
+      query.state.data?.pages.some((p) => p.results.some((a) => RUNNING.includes(a.stage))) ? LIST_POLL_MS : false,
   });
 }
 
@@ -197,6 +232,18 @@ export function useCreateAssessment() {
   });
 }
 
+/**
+ * An applicant starts a new application from a decided one of theirs: the same details, a new
+ * reference, and the questions to fill in afresh. Takes the decided application's id.
+ */
+export function useContinueApplication() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (fromId: string) => api<Assessment>("POST", `/assessments/${fromId}/continue`),
+    onSuccess: () => client.invalidateQueries({ queryKey: keys.assessments }),
+  });
+}
+
 export function useRemoveAssessment(id: string) {
   const client = useQueryClient();
   return useMutation({
@@ -212,12 +259,14 @@ export function useRemoveAssessment(id: string) {
 
 // ---- The applicant's form ---------------------------------------------------------------------
 
-export function useForm(id: string) {
-  return useQuery({ queryKey: keys.form(id), queryFn: () => api<Form>("GET", `/assessments/${id}/form`) });
+/** The form; pass enabled=false to skip it until it is needed (the hook must still be called). */
+export function useForm(id: string, enabled = true) {
+  return useQuery({ queryKey: keys.form(id), queryFn: () => api<Form>("GET", `/assessments/${id}/form`), enabled });
 }
 
 export interface FormChanges {
-  answers?: Record<string, Answer>;
+  /** Yes, No or N/A for a choice question; the words for a text question. */
+  answers?: Record<string, string>;
 }
 
 /** A save the server refused, and the change it carried. */
@@ -252,7 +301,9 @@ export function useSaveForm(id: string) {
       client.setQueryData<Form>(keys.form(id), (form) =>
         form && {
           ...form,
-          answers: form.answers.map((a) => (changes.answers?.[a.qid] ? { ...a, value: changes.answers[a.qid] } : a)),
+          answers: form.answers.map((a) =>
+            changes.answers && a.qid in changes.answers ? { ...a, value: changes.answers[a.qid] } : a
+          ),
         }
       );
     },
@@ -274,6 +325,21 @@ export function useSaveForm(id: string) {
     [mutateAsync]
   );
   return { save, refusal };
+}
+
+/**
+ * Whether anything done on the form (an answer, an upload, a removal) is still being sent. While
+ * it is, closing or reloading the tab asks the browser to confirm, so it is not lost.
+ */
+export function useFormBusy(id: string): boolean {
+  const busy = useIsMutating({ mutationKey: keys.form(id) }) > 0;
+  useEffect(() => {
+    if (!busy) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [busy]);
+  return busy;
 }
 
 /** Starts a form over (before submission). Takes the assessment id when called. */
@@ -299,6 +365,8 @@ export interface Upload {
 export function useUploadEvidence(id: string) {
   const client = useQueryClient();
   return useMutation({
+    // Under the form's key, so the page can tell work on the form is still being sent.
+    mutationKey: [...keys.form(id), "upload"],
     mutationFn: ({ file, ...fields }: Upload) => {
       const body = new FormData();
       body.append("file", file);
@@ -312,6 +380,7 @@ export function useUploadEvidence(id: string) {
 export function useRemoveEvidence(id: string) {
   const client = useQueryClient();
   return useMutation({
+    mutationKey: [...keys.form(id), "remove"],
     mutationFn: (evidenceId: string) => api<void>("DELETE", `/assessments/${id}/evidence/${evidenceId}`),
     // Refused (the case moved on in another tab) or failed: the list is reloaded either way, so
     // it shows what is really attached.
@@ -335,15 +404,25 @@ export function useCase(id: string) {
   });
 }
 
+/** What to confirm once a step succeeded: a message, and its tone if not "good". */
+type Confirm<T> = (updated: Case, input: T) => string | [string, ToastTone];
+
 /**
  * Every workflow step answers with the updated case, which also changes the assessment's stage.
  * A refused step usually means the case moved on (the other party acted), so it is refreshed then
  * too, and the page shows where it now stands.
+ *
+ * After a step that succeeded, the stage it reports is written straight into the assessment, so
+ * the page needs no request to show it; the assessment and the form are marked out of date and
+ * read again when a page next needs them. Only the steps that change the form (submitting) read
+ * it again at once (`changesForm`).
  */
-/** What to confirm once a step succeeded: a message, and its tone if not "good". */
-type Confirm<T> = (updated: Case, input: T) => string | [string, ToastTone];
-
-function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>, confirm?: Confirm<T>) {
+function useCaseStep<T>(
+  id: string,
+  step: (input: T) => Promise<Case>,
+  confirm?: Confirm<T>,
+  { changesForm = false }: { changesForm?: boolean } = {}
+) {
   const client = useQueryClient();
   const refreshRelated = () => {
     client.invalidateQueries({ queryKey: keys.assessment(id) });
@@ -354,7 +433,12 @@ function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>, confirm?:
     mutationFn: step,
     onSuccess: (updated, input) => {
       client.setQueryData(keys.case(id), updated);
-      refreshRelated();
+      client.setQueryData<Assessment>(keys.assessment(id), (previous) =>
+        previous ? { ...previous, stage: updated.stage } : previous
+      );
+      client.invalidateQueries({ queryKey: keys.assessment(id), refetchType: "none" });
+      client.invalidateQueries({ queryKey: keys.assessments });
+      client.invalidateQueries({ queryKey: keys.form(id), refetchType: changesForm ? "active" : "none" });
       const said = confirm?.(updated, input);
       if (said) {
         if (typeof said === "string") toast(said);
@@ -369,11 +453,19 @@ function useCaseStep<T>(id: string, step: (input: T) => Promise<Case>, confirm?:
 }
 
 export const useSubmit = (id: string) =>
-  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/submit`), () =>
-    "Application submitted. The AI engine is checking your evidence."
+  useCaseStep(
+    id,
+    () => api<Case>("POST", `/assessments/${id}/submit`),
+    () => "Application submitted. The AI engine is checking your evidence.",
+    { changesForm: true }
   );
 export const useResubmit = (id: string) =>
-  useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/resubmit`), () => "Resubmitted with your new evidence.");
+  useCaseStep(
+    id,
+    () => api<Case>("POST", `/assessments/${id}/resubmit`),
+    () => "Resubmitted with your new evidence.",
+    { changesForm: true }
+  );
 export const useRetry = (id: string) =>
   useCaseStep(id, () => api<Case>("POST", `/assessments/${id}/retry`), () => "Sent to the AI engine again.");
 
@@ -399,7 +491,9 @@ export const useCompleteReview = (id: string) =>
       ? "Returned to the applicant with your comments."
       : updated.stage === "SCORING"
         ? "Sent to the AI engine for scoring."
-        : "Sent on for your decision."
+        : updated.run?.forceScoreError
+          ? ["Sent on for your decision, but the AI engine could not score it; the reason is on the page.", "critical"]
+          : "Sent on for your decision."
   );
 
 /** Reviewer: asks the AI engine to score a case whose flagged answers were all accepted. */

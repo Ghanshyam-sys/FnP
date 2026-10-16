@@ -1,6 +1,7 @@
 import re
 
 from django.conf import settings
+from django.db.models import prefetch_related_objects
 from django.http import Http404, StreamingHttpResponse
 from rest_framework import serializers
 from rest_framework.response import Response
@@ -43,10 +44,22 @@ def _score_payload(score) -> dict:
     }
 
 
+def _latest_run(assessment: Assessment):
+    """The latest run with what the case page reads from it, loaded together: its documents, its
+    score and its rulings (never the payload sent to the engine, which the page does not show)."""
+    return (
+        assessment.submissions.select_related("documents", "score")
+        .prefetch_related("rulings")
+        .defer("payload")
+        .order_by("-attempt_no")
+        .first()
+    )
+
+
 def case_payload(assessment: Assessment) -> dict:
     """Everything a case page shows: the stage, the latest run and its report, the reviewer's
     rulings, the score, the written assessment and the decision."""
-    submission = workflow.latest_submission(assessment)
+    submission = _latest_run(assessment)
     decision = getattr(assessment, "decision", None)
     payload = {
         "stage": assessment.stage,
@@ -56,7 +69,7 @@ def case_payload(assessment: Assessment) -> dict:
         "authentication": None,
         "flags": [],
         "rulings": {},
-        "rejected": sorted(workflow.rejected_qids(assessment)),
+        "rejected": sorted(workflow.rejected_qids(assessment, submission)),
         # Answers sent back that still have no new document: resubmitting waits until this is empty.
         "unreplaced": [],
         # Under review: whether every flagged answer has a ruling, and where they send the case
@@ -87,16 +100,21 @@ def case_payload(assessment: Assessment) -> dict:
         # Whether the reviewer may ask the engine to score it (again).
         "canForceScore": workflow.can_force_score(assessment, submission),
     }
+    docs = getattr(submission, "documents", None)
+    authenticated = bool(docs and docs.authentication)
+    # Read once where needed and shared below: the run's flags, and the documents it was sent with.
+    flags = workflow.flagged_qids(submission) if authenticated or assessment.stage == Stage.REVIEW_PENDING else []
+    if authenticated or assessment.stage == Stage.AWAITING_APPLICANT:
+        prefetch_related_objects([submission], "evidence_files")
     if assessment.stage == Stage.REVIEW_PENDING:
-        payload["reviewOutcome"] = workflow.review_outcome(submission)
+        payload["reviewOutcome"] = workflow.review_outcome(submission, flags)
     if assessment.stage == Stage.AWAITING_APPLICANT:
         current = list(assessment.evidence.filter(superseded_at__isnull=True))
-        payload["unreplaced"] = workflow.unreplaced_rejections(assessment, current)
-    docs = getattr(submission, "documents", None)
-    if docs and docs.authentication:
+        payload["unreplaced"] = workflow.unreplaced_rejections(assessment, current, submission)
+    if authenticated:
         evidence = list(submission.evidence_files.all())
         payload["authentication"] = adapt.authentication(assessment, docs.authentication, evidence)
-        payload["flags"] = workflow.flagged_qids(submission)
+        payload["flags"] = flags
         payload["rulings"] = {
             r.qid: {"verdict": r.verdict, "comment": r.comment, "at": r.created_at}
             for r in submission.rulings.all()
@@ -119,6 +137,12 @@ def _assessment(request, public_id) -> Assessment:
     )
 
 
+def _reloaded(assessment: Assessment) -> Assessment:
+    """The case as a step left it, read again with its decision (refresh_from_db would drop the
+    decision loaded with it, and reading it then takes a query of its own)."""
+    return Assessment.objects.select_related("applicant", "decision").get(pk=assessment.pk)
+
+
 def _transition(fn, *args):
     try:
         return fn(*args)
@@ -131,9 +155,11 @@ class CaseView(APIView):
 
     def get(self, request, public_id):
         assessment = _assessment(request, public_id)
-        if settings.ENGINE_FOLLOW_IN_REQUESTS:
+        # Only a run in flight can have moved on (sync does nothing otherwise); the case just read
+        # is current then, and is not read again.
+        if settings.ENGINE_FOLLOW_IN_REQUESTS and assessment.stage in workflow.FOLLOWED_STAGES:
             workflow.sync(assessment)
-        assessment.refresh_from_db()
+            assessment = _reloaded(assessment)
         return Response(case_payload(assessment))
 
 
@@ -144,8 +170,7 @@ class SubmitView(APIView):
         assessment = _assessment(request, public_id)
         require_owner(request.user, assessment)
         _transition(self.action, assessment, request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
 
 class ResubmitView(SubmitView):
@@ -160,8 +185,7 @@ class RetryView(APIView):
         if not request.user.is_reviewer:
             require_owner(request.user, assessment)
         _transition(workflow.retry, assessment, request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
 
 class RulingSerializer(serializers.Serializer):
@@ -179,15 +203,13 @@ class RulingView(APIView):
         data.is_valid(raise_exception=True)
         _transition(workflow.rule, assessment, qid, data.validated_data["verdict"],
                     data.validated_data["comment"], request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
     def delete(self, request, public_id, qid):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.undo_ruling, assessment, qid, request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
 
 class CompleteReviewView(APIView):
@@ -200,8 +222,7 @@ class CompleteReviewView(APIView):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.complete_review, assessment, request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
 
 class ForceScoreView(APIView):
@@ -215,8 +236,7 @@ class ForceScoreView(APIView):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.force_score, assessment, request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
 
 class DecisionSerializer(serializers.Serializer):
@@ -234,8 +254,7 @@ class DecisionView(APIView):
         data.is_valid(raise_exception=True)
         _transition(workflow.decide, assessment, data.validated_data["verdict"],
                     data.validated_data["remarks"], request.user)
-        assessment.refresh_from_db()
-        return Response(case_payload(assessment))
+        return Response(case_payload(_reloaded(assessment)))
 
 
 class _UpstreamBody:

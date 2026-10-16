@@ -1,5 +1,6 @@
 import datetime
 import json
+import re
 from contextlib import contextmanager
 
 import pytest
@@ -1006,3 +1007,54 @@ def test_an_engine_score_replaces_one_the_app_calculated_itself(reviewer, case, 
     assert body["stage"] == "DECISION_PENDING" and body["score"]["source"] == "engine"
     assert Score.objects.count() == 1
 
+
+
+def test_the_case_page_reads_its_run_once(reviewer, applicant, case, flagged):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    def get(user):
+        with CaptureQueriesContext(connection) as queries:
+            body = user.get(f"/api/assessments/{case}/case").json()
+        runs = [q for q in queries if 'FROM "submission"' in q["sql"] and '"submission"."attempt_no"' in q["sql"]]
+        return body, len(queries), len(runs)
+
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Need the court order."})
+    body, under_review, runs = get(reviewer)
+    assert body["reviewOutcome"] == "return" and body["rulings"]["PC1"]["verdict"] == "rejected"
+    assert under_review <= 7
+    assert runs == 1, "the latest run is read once"
+    reviewer.post(f"/api/assessments/{case}/complete-review")
+    body, returned, runs = get(applicant)
+    assert body["stage"] == "AWAITING_APPLICANT" and body["rejected"] == ["PC1"] and body["unreplaced"] == ["PC1"]
+    assert returned <= 8
+    assert runs == 1, "the latest run is read once"
+
+
+def test_following_a_run_being_scored_does_not_read_its_saved_documents(monkeypatch, no_poll_delay, applicant, case):
+    from django.db import connection
+    from django.test.utils import CaptureQueriesContext
+
+    from cases import workflow
+    from cases.models import Assessment
+
+    fake = FakeEngine(monkeypatch, "APP001-clear")
+    applicant.post(f"/api/assessments/{case}/submit")
+    scoring = engine_fixture("status-APP001-clear.json")
+    scoring["stages"] = {**scoring["stages"], "score": "PENDING", "assessment": "PENDING"}
+    fake.status_doc = scoring
+    assessment = Assessment.objects.get(public_id=case)
+    workflow.sync(assessment)
+    assessment.refresh_from_db()
+    assert assessment.stage == Stage.SCORING
+    with CaptureQueriesContext(connection) as queries:
+        workflow.sync(assessment)
+    # The saved authentication report (tens of KB) is neither read nor rewritten while scoring.
+    # (Only whether it is saved is asked: "authentication" IS NOT NULL.)
+    read = re.compile(r'"submission_document"\."authentication"(?! IS NOT NULL)')
+    assert not [q for q in queries if read.search(q["sql"])]
+    assert not [q for q in queries if '"submission"."payload"' in q["sql"]]
+    fake.finish()
+    workflow.sync(assessment)
+    assessment.refresh_from_db()
+    assert assessment.stage == Stage.DECISION_PENDING and Score.objects.get().source == "engine"

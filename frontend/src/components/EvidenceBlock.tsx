@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { ApiError } from "../api/client";
-import { acceptAttribute, formatHint, OTHER_CODE } from "../domain/catalogue";
+import { acceptAttribute, DEFAULT_MAX_UPLOAD_BYTES, fileProblem, formatHint, OTHER_CODE, sizeHint } from "../domain/catalogue";
+import { useCatalogue } from "../api/queries";
 import { FileTextIcon, UploadIcon, XIcon } from "./icons";
 import type { EvidenceOption } from "../domain/catalogue";
 import type { EvidenceRef, EvidenceRole } from "../domain/types";
@@ -126,6 +127,8 @@ function Picker({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const chooser = useRef<HTMLInputElement>(null);
+  // Already loaded by every page with a form; read here for the upload limit.
+  const maxBytes = useCatalogue().data?.maxUploadBytes ?? DEFAULT_MAX_UPLOAD_BYTES;
 
   const isOther = optionCode === OTHER_CODE;
   const canAttach = optionCode !== "" && (!isOther || description.trim() !== "") && !uploading;
@@ -134,6 +137,12 @@ function Picker({
   const errorId = `evidence-error-${role}-${qid}`;
 
   const upload = async (file: File) => {
+    // A file the server would refuse is refused here, before it is sent.
+    const problem = fileProblem(file, fileTypes, maxBytes);
+    if (problem) {
+      setError(problem);
+      return;
+    }
     setUploading(true);
     setError("");
     try {
@@ -188,7 +197,11 @@ function Picker({
           />
         )}
 
-        {optionCode && <span className="evidence-formats">Accepts {formatHint(fileTypes)}</span>}
+        {optionCode && (
+          <span className="evidence-formats">
+            Accepts {formatHint(fileTypes)}, {sizeHint(maxBytes)}
+          </span>
+        )}
         {error && (
           <p className="field-error" id={errorId} role="alert">
             {error}

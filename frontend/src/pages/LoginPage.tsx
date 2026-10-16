@@ -53,17 +53,20 @@ export default function LoginPage() {
   // new session.
   const busy = signIn.isPending || signOut.isPending || session.isPending;
 
+  // Which portal the typed value signs in to (null while it is not a full address or "admin").
+  const portal = portalFor(emailInput);
+  // The note under the field, if any: an error, the signed-out notice, or the portal it signs in to.
+  const hasHint = Boolean(error) || signedOut || portal !== null;
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    const value = emailInput.trim();
-    const isReviewer = value.toLowerCase() === REVIEWER_USERNAME;
-    if (!isReviewer && !EMAIL_PATTERN.test(value)) {
+    if (!portal) {
       setError(INVALID);
       return;
     }
     setError("");
-    signIn.mutate(value, {
+    signIn.mutate(emailInput.trim(), {
       onSuccess: ({ user }) => navigate(user.role === "reviewer" ? routes.reviewer() : routes.assessments()),
       onError: (err) =>
         setError(
@@ -136,10 +139,10 @@ export default function LoginPage() {
                   if (error === INVALID && portalFor(e.target.value)) setError("");
                 }}
                 onBlur={() => {
-                  if (emailInput.trim() && !portalFor(emailInput)) setError(INVALID);
+                  if (emailInput.trim() && !portal) setError(INVALID);
                 }}
                 aria-invalid={error === INVALID || undefined}
-                aria-describedby="email-hint"
+                aria-describedby={hasHint ? "email-hint" : undefined}
                 autoComplete="username"
                 autoFocus
               />
@@ -153,9 +156,9 @@ export default function LoginPage() {
                   You have been signed out. Sign in again to continue.
                 </p>
               )}
-              {!error && !signedOut && portalFor(emailInput) && (
+              {!error && !signedOut && portal && (
                 <p className="field-hint login-portal" id="email-hint">
-                  {portalFor(emailInput) === "reviewer"
+                  {portal === "reviewer"
                     ? "Signing in to the reviewer portal."
                     : "Signing in to the applicant portal."}
                 </p>

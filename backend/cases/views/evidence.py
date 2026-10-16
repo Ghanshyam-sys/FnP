@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 from engine.client import EngineUnavailable
 
 from .. import audit, catalogue, validation, workflow
-from ..models import Answer, AnswerValue, Assessment, EvidenceFile, EvidenceRole, Stage
+from ..models import AnswerValue, Assessment, EvidenceFile, EvidenceRole, Stage
 from ..permissions import assessment_for
 from ..storage import delete_files
 from .common import Conflict, ServiceUnavailable, lock, require_owner
@@ -102,12 +102,12 @@ class EvidenceUploadView(APIView):
             if question is None:
                 raise ValidationError({"qid": "Unknown question."})
             answer = AnswerValue.objects.filter(assessment=assessment, qid=qid).values_list("value", flat=True).first()
-            if not catalogue.evidence_required(question, answer or Answer.NO):
+            if not catalogue.evidence_required(question, catalogue.default_answer(question) if answer is None else answer):
                 raise ValidationError({"qid": "The current answer to this question does not need a document."})
             allowed, max_files = question.file_types, question.max_files
 
         try:
-            option = catalogue.option(qid, code)
+            option = catalogue.option(qid, code, None if qid == catalogue.CV_QID else question)
         except EngineUnavailable:
             raise ServiceUnavailable() from None
         if option is None:
@@ -149,6 +149,8 @@ class EvidenceUploadView(APIView):
         try:
             with transaction.atomic():
                 require_can_change(lock(assessment), qid)
+                if qid != catalogue.CV_QID:
+                    _still_takes(assessment, qid, option["code"], upload.name, role)
                 # A new document for the same slot replaces the old one. A supporting document only
                 # backs up the primary it was attached with, so a new primary replaces both.
                 remove_files(current if role == EvidenceRole.PRIMARY else current.filter(role=role))
@@ -163,6 +165,24 @@ class EvidenceUploadView(APIView):
             delete_files([evidence.file.name])
             raise
         return Response(evidence_payload(assessment, evidence), status=status.HTTP_201_CREATED)
+
+
+def _still_takes(assessment: Assessment, qid: str, code: str, name: str, role: str) -> None:
+    """With the form locked, whether the question as now published still takes this document: the
+    settings may have been published anew while the file was being received (a publish locks the
+    drafts it changes, so it has either finished or waits for this upload)."""
+    question = catalogue.questions(catalogue.version_for(assessment).pk).get(qid)
+    if question is None:
+        raise ValidationError({"qid": "This question is no longer on the form."})
+    answer = AnswerValue.objects.filter(assessment=assessment, qid=qid).values_list("value", flat=True).first()
+    if not catalogue.evidence_required(question, catalogue.default_answer(question) if answer is None else answer):
+        raise ValidationError({"qid": "The current answer to this question does not need a document."})
+    if catalogue.option(qid, code, question) is None:
+        raise ValidationError({"optionCode": "Choose a document type from the list."})
+    if not validation.format_allowed(name, question.file_types):
+        raise ValidationError({"file": f"This question accepts {', '.join(t.upper() for t in question.file_types)} files."})
+    if role == EvidenceRole.SUPPORTING and question.max_files < 2:
+        raise ValidationError({"role": "This question takes a single document."})
 
 
 class EvidenceDetailView(APIView):

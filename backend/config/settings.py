@@ -68,6 +68,7 @@ MIDDLEWARE = [
     # After the CSP middleware, so it hands it the admin's policy (responses pass back up the list).
     "cases.middleware.AdminCspMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "cases.auth_sessions.SessionRenewalMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -172,10 +173,13 @@ SESSION_COOKIE_SECURE = HTTPS
 # password (cases/views/session.py). On only where DEBUG is, unless set explicitly, so a deployment
 # never lets anyone in as the reviewer by typing a word.
 DEV_SIGN_IN = env_bool("DEV_SIGN_IN", DEBUG)
-# A session ends after 8 hours without use, not 8 hours after sign-in: every request renews it, so
+# A session ends after 8 hours without use, not 8 hours after sign-in: using it renews it, so
 # someone working through a long review is never signed out mid-task (the frontend assumes this).
+# It is renewed at most every few minutes rather than on every request (every poll would otherwise
+# write the session row): cases.auth_sessions.SessionRenewalMiddleware.
 SESSION_COOKIE_AGE = 8 * 60 * 60
-SESSION_SAVE_EVERY_REQUEST = True
+SESSION_ENGINE = "cases.auth_sessions"
+SESSION_SAVE_EVERY_REQUEST = False
 CSRF_COOKIE_HTTPONLY = False  # The SPA reads it to send X-CSRFToken; it is not a secret.
 CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SECURE = HTTPS

@@ -1,4 +1,5 @@
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useRef } from "react";
 import type { ReactNode } from "react";
 import { useAssessment, useSession, useSignOut } from "../api/queries";
 import { CheckIcon, LogOutIcon } from "./icons";
@@ -7,6 +8,7 @@ import { parseApplyPath, routes } from "../routes";
 import type { ApplyStep } from "../routes";
 import type { Stage } from "../api/types";
 import { useTrackHistoryEntry } from "../state/backNavigation";
+import { usePageChange } from "../state/pageChange";
 
 const STEPS = ["Data collection", "Review", "Authentication", "Result"] as const;
 
@@ -48,6 +50,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   // Lets a page tell a Back press from a reload or Forward (see state/backNavigation).
   useTrackHistoryEntry();
+  // The tab title, and the view and focus moving to a new page (state/pageChange).
+  const main = useRef<HTMLElement>(null);
+  usePageChange(main);
   const navigate = useNavigate();
   const { data: user } = useSession();
   const signOut = useSignOut();
@@ -62,7 +67,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
 
   const progress = stepIndex === null ? null : progressIndex(assessment?.stage, stepIndex);
 
-  if (!isPortal && stepIndex === null) return <main className="app-main">{children}</main>;
+  if (!isPortal && stepIndex === null) {
+    return (
+      <main className="app-main" ref={main} tabIndex={-1}>
+        {children}
+      </main>
+    );
+  }
 
   const handleSignOut = () => {
     signOut.mutate(undefined, { onSettled: () => navigate(routes.login()) });
@@ -126,7 +137,9 @@ export default function AppShell({ children }: { children: ReactNode }) {
           </nav>
         )}
       </header>
-      <main className="app-main">{children}</main>
+      <main className="app-main" ref={main} tabIndex={-1}>
+        {children}
+      </main>
     </>
   );
 }

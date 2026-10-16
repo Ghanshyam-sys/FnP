@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .views.admin_panel import AdminOverviewView, AdminUserDetailView, AdminUserListView
-from .views.assessments import AssessmentDetailView, AssessmentListView
+from .views.assessments import AssessmentDetailView, AssessmentListView, ContinueView
 from .views.case import (
     CaseView, CompleteReviewView, DecisionView, ForceScoreView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView,
 )
@@ -23,6 +23,7 @@ urlpatterns = [
     path("questionnaire", QuestionnaireView.as_view(), name="questionnaire"),
     path("assessments", AssessmentListView.as_view(), name="assessments"),
     path(A, AssessmentDetailView.as_view(), name="assessment"),
+    path(f"{A}/continue", ContinueView.as_view(), name="continue"),
     path(f"{A}/form", FormView.as_view(), name="form"),
     path(f"{A}/form/reset", FormResetView.as_view(), name="form-reset"),
     path(f"{A}/evidence", EvidenceUploadView.as_view(), name="evidence-upload"),

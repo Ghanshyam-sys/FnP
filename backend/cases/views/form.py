@@ -4,17 +4,33 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from engine.client import EngineUnavailable
+
 from .. import audit, catalogue
-from ..models import Answer, AnswerValue, ApplicantProfile, Assessment, EvidenceFile, Stage
+from ..models import AnswerType, AnswerValue, ApplicantProfile, Assessment, EvidenceFile, Stage, TEXT_ANSWER_MAX
 from ..permissions import assessment_for
 from .common import lock, require_editable, require_owner
 from .evidence import evidence_payload, remove_files
+
+def _own_options(questions: dict) -> dict[str, list[dict]]:
+    """The document types chosen for the questions added here, by code (the engine's list applies
+    to the others). Empty if the engine cannot be reached: the catalogue's copy is then used."""
+    chosen = {qid: q.evidence_options for qid, q in questions.items() if q.evidence_options}
+    if not chosen:
+        return {}
+    try:
+        by_code = catalogue.options_by_code()
+    except EngineUnavailable:
+        return {}
+    return {qid: catalogue.chosen_options(codes, by_code) for qid, codes in chosen.items()}
+
 
 def form_payload(assessment: Assessment) -> dict:
     """The form as the applicant fills it in. A question with no saved answer reads "No", which is
     what a blank form starts from."""
     questions = catalogue.questions(catalogue.version_for(assessment).pk)
     saved = dict(assessment.answers.values_list("qid", "value"))
+    own = _own_options(questions)
     evidence = assessment.evidence.filter(superseded_at__isnull=True).order_by("uploaded_at")
     return {
         "locked": assessment.stage != Stage.NOT_SUBMITTED,
@@ -27,8 +43,9 @@ def form_payload(assessment: Assessment) -> dict:
         "answers": [
             {
                 "qid": qid,
-                "value": saved.get(qid, Answer.NO),
-                "evidenceRequired": catalogue.evidence_required(q, saved.get(qid, Answer.NO)),
+                "value": saved.get(qid, catalogue.default_answer(q)),
+                "answerType": q.answer_type,
+                "evidenceRequired": catalogue.evidence_required(q, saved.get(qid, catalogue.default_answer(q))),
                 # The rule behind it ("always" or "if_yes"), so the form can follow a changed answer
                 # at once without reading the rule from the active catalogue (maybe another version).
                 "evidenceRule": q.evidence_required,
@@ -36,6 +53,10 @@ def form_payload(assessment: Assessment) -> dict:
                 "allowedAnswers": q.allowed_answers,
                 "fileTypes": q.file_types,
                 "maxFiles": q.max_files,
+                # For a question added here: the document types as this form's version gives them
+                # (the catalogue lists the latest version's), so the picker offers what an upload
+                # is checked against. Null otherwise: the engine's own list applies.
+                "evidenceOptions": own.get(qid),
             }
             for qid, q in questions.items()
         ],
@@ -58,6 +79,15 @@ def _validated_answers(body: dict, questions: dict) -> dict:
         question = questions.get(qid)
         if question is None:
             errors[f"answers.{qid}"] = "Unknown question."
+        elif question.answer_type == AnswerType.TEXT:
+            if not isinstance(value, str):
+                errors[f"answers.{qid}"] = "Enter the answer as text."
+            elif "\x00" in value or any(0xD800 <= ord(c) <= 0xDFFF for c in value):
+                errors[f"answers.{qid}"] = "The answer contains a character that cannot be saved."
+            elif len(value.strip()) > TEXT_ANSWER_MAX:
+                errors[f"answers.{qid}"] = f"Keep the answer to {TEXT_ANSWER_MAX} characters."
+            else:
+                answers[qid] = value.strip()
         elif value not in question.allowed_answers:
             errors[f"answers.{qid}"] = f"Choose one of {', '.join(question.allowed_answers)}."
         else:
@@ -83,11 +113,17 @@ class FormView(APIView):
         require_editable(assessment)
         if not isinstance(request.data, dict):
             raise ValidationError("Expected an object.")
-        questions = catalogue.questions(catalogue.version_for(assessment).pk)
+        version_id = catalogue.version_for(assessment).pk
+        questions = catalogue.questions(version_id)
         answers = _validated_answers(request.data, questions)
 
         with transaction.atomic():
             require_editable(lock(assessment))
+            # The settings may have been published anew while this request was on its way; with
+            # the form locked (a publish locks the drafts it changes) they are checked once more.
+            if catalogue.version_for(assessment).pk != version_id:
+                questions = catalogue.questions(catalogue.version_for(assessment).pk)
+                answers = _validated_answers(request.data, questions)
             for qid, value in answers.items():
                 AnswerValue.objects.update_or_create(assessment=assessment, qid=qid, defaults={"value": value})
             # A document only exists to support an answer that needs one; drop it the moment the

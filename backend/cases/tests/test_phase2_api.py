@@ -60,6 +60,7 @@ def test_catalogue_serves_the_question_set_and_engine_options(applicant):
     assert sum(q["weight"] for q in body["questions"]) == 100
     assert {"CV", "A1", "FC5"} <= set(body["evidenceOptions"])
     assert "cv_verification" not in body["evidenceOptions"]
+    assert body["maxUploadBytes"] == 15 * 1024 * 1024
 
 
 def test_catalogue_reports_an_unavailable_engine_as_503(applicant, monkeypatch):
@@ -258,8 +259,8 @@ def test_answers_save_and_personal_details_are_refused(applicant, opened):
     assert response.status_code == 200
     body = response.json()
     assert next(a for a in body["answers"] if a["qid"] == "A4") == {
-        "qid": "A4", "value": "Yes", "evidenceRequired": True, "evidenceRule": "if_yes",
-        "allowedAnswers": ["Yes", "No"], "fileTypes": ["pdf"], "maxFiles": 1,
+        "qid": "A4", "value": "Yes", "answerType": "choice", "evidenceRequired": True, "evidenceRule": "if_yes",
+        "allowedAnswers": ["Yes", "No"], "fileTypes": ["pdf"], "maxFiles": 1, "evidenceOptions": None,
     }
     assert applicant.get(f"/api/assessments/{opened}").json()["hasDraft"] is True
 
@@ -329,7 +330,8 @@ def test_reviewer_queue_pages_cases_needing_the_reviewer_first_and_counts_the_wh
     assert first["results"][0]["id"] == "FNP-2026-0900"
     assert (first["total"], first["actionable"]) == (56, 1)
     second = reviewer.get("/api/assessments", cursor=first["next"]).json()
-    assert (second["total"], second["actionable"]) == (56, 1) and second["next"] is None
+    # The counts come with the first page only; a later page just adds rows.
+    assert "total" not in second and "stageCounts" not in second and second["next"] is None
     ids = [a["id"] for a in first["results"] + second["results"]]
     assert len(ids) == len(set(ids)) == 56
     # Newest activity first within a stage.
@@ -647,9 +649,122 @@ def test_an_applicants_draft_shows_how_many_documents_are_attached(applicant, op
     draft = applicant.get("/api/assessments").json()["results"][0]
     # A1 always needs its document, and every application the CV; nothing attached yet.
     needed = draft["progress"]["documentsNeeded"]
-    assert draft["progress"] == {"documentsNeeded": needed, "documentsAttached": 0} and needed >= 2
+    assert draft["progress"] == {"documentsNeeded": needed, "documentsAttached": 0, "answersMissing": 0} and needed >= 2
     applicant.post(f"/api/assessments/{opened}/evidence", {"file": pdf(), "qid": "CV", "optionCode": "CURRICULUM_VITAE"}, multipart=True)
     assert applicant.get("/api/assessments").json()["results"][0]["progress"]["documentsAttached"] == 1
     # Answering Yes where that needs a document adds one to what is needed.
     applicant.patch(f"/api/assessments/{opened}/form", {"answers": {"A4": "Yes"}})
     assert applicant.get("/api/assessments").json()["results"][0]["progress"]["documentsNeeded"] == needed + 1
+
+
+def test_an_applicants_list_takes_the_same_queries_however_many_drafts(reviewer, applicant, opened):
+    with CaptureQueriesContext(connection) as one:
+        applicant.get("/api/assessments")
+    for i in range(4):
+        assert reviewer.post("/api/assessments", {**NEW, "reference": f"BL-2026-06{i}0"}).status_code == 201
+    with CaptureQueriesContext(connection) as five:
+        body = applicant.get("/api/assessments").json()
+    assert len(body["results"]) == 5 and all("progress" in a for a in body["results"])
+    assert len(five) == len(one)
+
+
+def test_a_resubmitted_case_card_describes_its_latest_run(reviewer):
+    a = make.assessment(public_id="FNP-2026-0201", reference="BL-RESUB-1", stage=Stage.REVIEW_PENDING)
+    _with_a_flagged_run(a)  # attempt 1: PC1 flagged and rejected
+    Submission.objects.create(assessment=a, attempt_no=2, version=a.version, payload={})
+    card = next(r for r in reviewer.get("/api/assessments").json()["results"] if r["id"] == "FNP-2026-0201")
+    assert card["queue"] == {"flagged": [], "openFlags": 0, "rejected": [], "decisionRemarks": None}
+
+
+def test_the_queue_totals_follow_the_status_filter(reviewer):
+    make.assessment(public_id="FNP-2026-0301", reference="BL-TOT-1", stage=Stage.REVIEW_PENDING)
+    make.assessment(public_id="FNP-2026-0302", reference="BL-TOT-2", stage=Stage.DECISION_PENDING)
+    make.assessment(public_id="FNP-2026-0303", reference="BL-TOT-3", stage=Stage.ACCEPTED)
+    make.assessment(public_id="FNP-2026-0304", reference="BL-TOT-4", stage=Stage.NOT_SUBMITTED)
+    totals = lambda **q: (lambda b: (b["total"], b["actionable"]))(reviewer.get("/api/assessments", **q).json())
+    assert totals() == (3, 2)
+    assert totals(stage="DECIDED") == (1, 0)
+    assert totals(stage="NEEDS_ACTION") == (2, 2)
+    assert totals(stage="REVIEW_PENDING") == (1, 1)
+    assert totals(stage="NOT_SUBMITTED") == (1, 0)
+
+
+# ---- Continuing from a decided application -----------------------------------------------------
+
+def _decided(applicant_email, public_id, reference, stage=Stage.ACCEPTED):
+    owner = make.user(applicant_email)
+    return make.assessment(applicant=owner, created_by=owner, public_id=public_id, reference=reference, stage=stage)
+
+
+def test_an_applicant_continues_from_a_decided_application(applicant):
+    source = _decided("a.nghipandulwa@example.na", "FNP-2026-0401", "BL-2506")
+    response = applicant.post(f"/api/assessments/{source.public_id}/continue")
+    assert response.status_code == 201
+    body = response.json()
+    assert body["id"] != source.public_id and body["stage"] == "NOT_SUBMITTED" and body["hasDraft"] is False
+    assert body["reference"] == "BL-2506-2"
+    assert (body["applicantName"], body["entity"], body["position"], body["department"]["key"]) == (
+        source.applicant_name, source.entity, source.position, "banking",
+    )
+    new = Assessment.objects.get(public_id=body["id"])
+    assert new.created_by_id == new.applicant_id == source.applicant_id
+    assert new.version.is_active and not new.answers.exists() and not new.evidence.exists()
+    assert AuditEvent.objects.filter(action="assessment.continue", assessment_ref=body["id"], metadata__from=source.public_id).exists()
+    # Again from the same one, and from the copy: the numbering carries on from the original.
+    assert applicant.post(f"/api/assessments/{source.public_id}/continue").json()["reference"] == "BL-2506-3"
+    Assessment.objects.filter(public_id=body["id"]).update(stage=Stage.REJECTED)
+    assert applicant.post(f"/api/assessments/{body['id']}/continue").json()["reference"] == "BL-2506-4"
+
+
+def test_a_reference_ending_in_a_number_is_not_mistaken_for_a_copy(applicant):
+    source = _decided("a.nghipandulwa@example.na", "FNP-2026-0402", "BL-2026-0510", Stage.REJECTED)
+    assert applicant.post(f"/api/assessments/{source.public_id}/continue").json()["reference"] == "BL-2026-0510-2"
+
+
+def test_only_decided_applications_of_ones_own_can_be_continued(applicant, reviewer, as_user):
+    for i, stage in enumerate([Stage.NOT_SUBMITTED, Stage.AUTH_RUNNING, Stage.REVIEW_PENDING, Stage.AWAITING_APPLICANT,
+                               Stage.SCORING, Stage.DECISION_PENDING, Stage.AUTH_FAILED]):
+        a = _decided("a.nghipandulwa@example.na", f"FNP-2026-05{i:02d}", f"BL-ST-{i}", stage)
+        assert applicant.post(f"/api/assessments/{a.public_id}/continue").status_code == 409, stage
+    accepted = _decided("a.nghipandulwa@example.na", "FNP-2026-0599", "BL-ST-OK")
+    other = as_user(make.user("someone.else@example.na"))
+    assert other.post(f"/api/assessments/{accepted.public_id}/continue").status_code == 404
+    assert reviewer.post(f"/api/assessments/{accepted.public_id}/continue").status_code == 403
+    assert not Assessment.objects.filter(parent_reference__istartswith="BL-ST-OK-").exists()
+
+
+def test_continuing_counts_towards_the_open_drafts_limit(applicant):
+    source = _decided("a.nghipandulwa@example.na", "FNP-2026-0601", "BL-LIM")
+    for _ in range(3):
+        assert applicant.post(f"/api/assessments/{source.public_id}/continue").status_code == 201
+    response = applicant.post(f"/api/assessments/{source.public_id}/continue")
+    assert response.status_code == 409 and "3 applications" in response.json()["detail"]
+
+
+def test_another_applicants_reference_does_not_change_the_numbering(applicant):
+    _decided("someone.else@example.na", "FNP-2026-0901", "BL-2506-2025", Stage.ACCEPTED)
+    source = _decided("a.nghipandulwa@example.na", "FNP-2026-0902", "BL-2506")
+    assert applicant.post(f"/api/assessments/{source.public_id}/continue").json()["reference"] == "BL-2506-2"
+
+
+def test_a_draft_counts_text_answers_still_to_give(reviewer, applicant):
+    from cases.models import AnswerType, Question
+
+    version = QuestionnaireVersion.objects.get(is_active=True)
+    Question.objects.filter(version=version, qid="T1").update(answer_type=AnswerType.TEXT, allowed_answers=[], evidence_required="never")
+    from django.core.cache import cache
+    cache.clear()
+    aid = reviewer.post("/api/assessments", NEW).json()["id"]
+    draft = next(a for a in applicant.get("/api/assessments").json()["results"] if a["id"] == aid)
+    assert draft["progress"]["answersMissing"] == 1
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {"T1": "Two boards."}})
+    draft = next(a for a in applicant.get("/api/assessments").json()["results"] if a["id"] == aid)
+    assert draft["progress"]["answersMissing"] == 0
+
+
+def test_a_reference_is_only_taken_for_a_continuation_when_it_is_one(applicant):
+    _decided("a.nghipandulwa@example.na", "FNP-2026-0911", "BL")
+    source = _decided("a.nghipandulwa@example.na", "FNP-2026-0912", "BL-2506")
+    assert applicant.post(f"/api/assessments/{source.public_id}/continue").json()["reference"] == "BL-2506-2"
+    new = Assessment.objects.get(parent_reference="BL-2506-2")
+    assert new.continued_from_id == source.pk

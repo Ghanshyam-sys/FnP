@@ -26,7 +26,9 @@ export interface ResponseItem {
   qid: string;
   section: string;
   question: string;
-  answer: Answer;
+  /** Yes, No or N/A; for a text question, the words given ("" until answered). */
+  answer: string;
+  answerType: "choice" | "text";
   evidence_required: boolean;
   evidence: EvidenceRef[];
   /** Named checks the authentication engine runs for this question (v2 test set). */

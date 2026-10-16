@@ -3,7 +3,7 @@
  * engine's evidence options). Helpers here read it; nothing about the questions is hard-coded in
  * the frontend any more.
  */
-import type { Catalogue, CatalogueQuestion } from "../api/types";
+import type { Catalogue, CatalogueQuestion, Form } from "../api/types";
 import type { Answer, EvidenceRef } from "./types";
 
 /** The CV is attached like a question but sits outside the 15. */
@@ -22,6 +22,23 @@ export function question(catalogue: Catalogue, qid: string): CatalogueQuestion |
 
 export function optionsFor(catalogue: Catalogue, qid: string): EvidenceOption[] {
   return (catalogue.evidenceOptions[qid] ?? []).map((o) => ({ code: o.code, label: o.label, docType: o.doc_type }));
+}
+
+/**
+ * The catalogue as one form sees it: a question added here takes the document types its own
+ * version gives it (the catalogue lists the latest version's), so the picker offers what an upload
+ * is checked against.
+ */
+export function withFormOptions(catalogue: Catalogue, form: Form): Catalogue {
+  const own = form.answers.filter((a) => a.evidenceOptions && a.evidenceOptions.length > 0);
+  if (own.length === 0) return catalogue;
+  return {
+    ...catalogue,
+    evidenceOptions: {
+      ...catalogue.evidenceOptions,
+      ...Object.fromEntries(own.map((a) => [a.qid, a.evidenceOptions ?? []])),
+    },
+  };
 }
 
 /** A question with a single real document type pre-selects it; otherwise the filer chooses. */
@@ -49,6 +66,33 @@ export function formatHint(fileTypes: string[]): string {
   const formats = fileTypes.map((f) => f.toUpperCase());
   if (formats.length <= 1) return formats[0] ?? "";
   return `${formats.slice(0, -1).join(", ")} or ${formats[formats.length - 1]}`;
+}
+
+/** The upload limit when the server does not say (it always does; this is its default). */
+export const DEFAULT_MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
+
+const SAME_FORMAT: Record<string, string> = { jpeg: "jpg", tiff: "tif", heif: "heic" };
+
+/**
+ * Why a chosen file cannot be uploaded, before sending it: the same format and size rules the
+ * server applies (and words them the same way), or null if it may be sent. The server still
+ * checks everything, including what the file really contains.
+ */
+export function fileProblem(file: File, fileTypes: string[], maxBytes: number): string | null {
+  const name = file.name.toLowerCase();
+  const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
+  const allowed = new Set(fileTypes.map((f) => SAME_FORMAT[f] ?? f));
+  if (!allowed.has(SAME_FORMAT[extension] ?? extension)) {
+    return `This question accepts ${fileTypes.map((f) => f.toUpperCase()).join(", ")} files.`;
+  }
+  if (file.size > maxBytes) return `Files must be ${Math.floor(maxBytes / (1024 * 1024))} MB or smaller.`;
+  if (file.size === 0) return "The file is empty.";
+  return null;
+}
+
+/** "up to 15 MB" for the picker's hint. */
+export function sizeHint(maxBytes: number): string {
+  return `up to ${Math.floor(maxBytes / (1024 * 1024))} MB`;
 }
 
 /** The file chooser's accept list for the allowed formats. */

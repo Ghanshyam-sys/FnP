@@ -6,6 +6,7 @@ import { AlertTriangleIcon, ArrowLeftIcon, ArrowRightIcon } from "../components/
 import { STAGE_LABELS, queueRank } from "../state/caseLabels";
 import { formatBytes, formatDateTime } from "../utils/format";
 import { routes } from "../routes";
+import { queueUrl } from "../state/queueReturn";
 import type { Stage } from "../api/types";
 
 /** One headline number with what it counts. */
@@ -67,7 +68,7 @@ export default function AdminOverviewPage() {
           <div>
             <strong>{plural(assessments.awaitingReviewer, "assessment")} waiting on the reviewer</strong> (a
             review, a decision or a failed run).{" "}
-            <button type="button" className="link-button" onClick={() => navigate(routes.reviewer())}>
+            <button type="button" className="link-button" onClick={() => navigate(queueUrl())}>
               Open the queue
             </button>
           </div>
@@ -123,7 +124,7 @@ export default function AdminOverviewPage() {
       <p className="admin-asof">As of {formatDateTime(generatedAt)}</p>
 
       <footer className="actionbar">
-        <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+        <button className="btn btn-ghost" onClick={() => navigate(queueUrl())}>
           <ArrowLeftIcon size={15} />
           Back to the queue
         </button>

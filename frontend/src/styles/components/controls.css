@@ -319,3 +319,29 @@ select.input:disabled {
   font-size: var(--fs-sm);
   color: var(--ink-3);
 }
+
+/* An answer given in words (a text question), where a Yes / No tag would be. */
+.answer-text {
+  display: inline-block;
+  max-width: 32rem;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The answer box of a text question on the form. */
+.text-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+}
+
+.text-answer-count {
+  align-self: flex-end;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}

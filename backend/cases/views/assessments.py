@@ -1,5 +1,6 @@
 import base64
 import datetime
+import re
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -14,6 +15,7 @@ from django.db.models import (
     Prefetch,
     Q,
     QuerySet,
+    Subquery,
     Value,
     When,
 )
@@ -26,7 +28,7 @@ from rest_framework.views import APIView
 
 from .. import audit, catalogue, validation, workflow
 from ..models import (
-    Answer,
+    AnswerType,
     AnswerValue,
     ApplicantProfile,
     Assessment,
@@ -88,15 +90,36 @@ def _stages(value: str | None) -> list[str] | None:
     raise ValidationError({"stage": "Unknown stage."})
 
 
-def document_progress(a: Assessment) -> dict:
-    """For a form not submitted yet: how many of the documents it needs are attached, by the rule
-    submitting checks (one per answer that needs evidence, and the CV)."""
-    questions = catalogue.questions(catalogue.version_for(a).pk)
-    saved = dict(a.answers.values_list("qid", "value"))
-    needed = [qid for qid, q in questions.items() if catalogue.evidence_required(q, saved.get(qid, Answer.NO))]
-    needed.append(catalogue.CV_QID)
-    attached = set(a.evidence.filter(superseded_at__isnull=True).values_list("qid", flat=True))
-    return {"documentsNeeded": len(needed), "documentsAttached": sum(1 for qid in needed if qid in attached)}
+def document_progress(drafts: list[Assessment]) -> dict[int, dict]:
+    """For forms not submitted yet (by pk): how many of the documents each needs are attached, by
+    the rule submitting checks (workflow.documents_needed). A fixed number of queries, however many
+    drafts: drafts are all held to the active settings, so those are read once."""
+    if not drafts:
+        return {}
+    questions = catalogue.questions(catalogue.active_version().pk)
+    saved: dict[int, dict[str, str]] = {}
+    for pk, qid, value in AnswerValue.objects.filter(assessment__in=drafts).values_list("assessment_id", "qid", "value"):
+        saved.setdefault(pk, {})[qid] = value
+    attached: dict[int, set[str]] = {}
+    for pk, qid in EvidenceFile.objects.filter(assessment__in=drafts, superseded_at__isnull=True).values_list(
+        "assessment_id", "qid"
+    ):
+        attached.setdefault(pk, set()).add(qid)
+    progress = {}
+    for a in drafts:
+        # An answer not saved yet reads as the form starts it (No, or nothing for a text question).
+        answers = {qid: saved.get(a.pk, {}).get(qid, catalogue.default_answer(q)) for qid, q in questions.items()}
+        needed = workflow.documents_needed(questions, answers)
+        have = attached.get(a.pk, set())
+        progress[a.pk] = {
+            "documentsNeeded": len(needed),
+            "documentsAttached": sum(1 for qid in needed if qid in have),
+            # Questions answered in words still blank: submitting waits for them too.
+            "answersMissing": sum(
+                1 for qid, q in questions.items() if q.answer_type == AnswerType.TEXT and not answers[qid].strip()
+            ),
+        }
+    return progress
 QUEUE_RANK = Case(
     *(When(stage=stage, then=Value(rank)) for rank, stage in enumerate(QUEUE_ORDER)),
     default=Value(len(QUEUE_ORDER)),
@@ -107,7 +130,10 @@ QUEUE_RANK = Case(
 def with_queue_summary(qs):
     """Loads what the queue cards show about each assessment's latest run in a fixed number of
     queries, however many assessments are listed: the runs, their flags, their rulings, and the
-    decision."""
+    decision. Only each assessment's latest run is loaded: that is the one the card describes."""
+    latest_attempt = Subquery(
+        Submission.objects.filter(assessment=OuterRef("assessment")).order_by("-attempt_no").values("attempt_no")[:1]
+    )
     started = (
         Exists(AnswerValue.objects.filter(assessment=OuterRef("pk")))
         | Exists(EvidenceFile.objects.filter(assessment=OuterRef("pk")))
@@ -117,7 +143,9 @@ def with_queue_summary(qs):
         Prefetch(
             "submissions",
             # Only what the queue card needs: never the payload sent to the engine.
-            queryset=Submission.objects.only("id", "assessment_id", "attempt_no").order_by("-attempt_no").prefetch_related(
+            queryset=Submission.objects.only("id", "assessment_id", "attempt_no")
+            .filter(attempt_no=latest_attempt)
+            .prefetch_related(
                 Prefetch("question_results", queryset=QuestionResult.objects.filter(status=ResultStatus.ISSUE),
                          to_attr="issues"),
                 "rulings",
@@ -265,12 +293,12 @@ class AssessmentListView(APIView):
             _follow_running(None if request.user.is_reviewer else visible)
         if not request.user.is_reviewer:
             items = list(with_queue_summary(visible).order_by("-updated_at", "-id"))
+            progress = document_progress([a for a in items if a.stage == Stage.NOT_SUBMITTED])
             results = []
             for a in items:
                 payload = assessment_payload(a, request.user)
-                # An applicant has a handful at most, so this is a few small queries per draft.
-                if a.stage == Stage.NOT_SUBMITTED:
-                    payload["progress"] = document_progress(a)
+                if a.pk in progress:
+                    payload["progress"] = progress[a.pk]
                 results.append(payload)
             return Response({"results": results, "next": None})
 
@@ -290,15 +318,18 @@ class AssessmentListView(APIView):
                 Q(applicant_name__icontains=search) | Q(parent_reference__icontains=search)
                 | Q(public_id__icontains=search) | Q(applicant__email__icontains=search)
             )
+        cursor = request.query_params.get("cursor")
+        # The queue's counts come with its first page only: "Show more" adds rows, not new counts.
         # The count of each stage among what the department and search leave, whatever the status
         # filter: the queue's summary tiles, each a way into that part of the queue.
-        stage_counts = dict(visible.order_by().values_list("stage").annotate(n=Count("pk")))
+        stage_counts = None if cursor else dict(visible.order_by().values_list("stage").annotate(n=Count("pk")))
         if stages is None or Stage.NOT_SUBMITTED not in stages:
             visible = visible.exclude(stage=Stage.NOT_SUBMITTED)
         if stages:
             visible = visible.filter(stage__in=stages)
+        # The stages listed, as the two filters above leave them.
+        shown_stages = {str(s) for s in stages} if stages else set(Stage.values) - {Stage.NOT_SUBMITTED.value}
         qs = with_queue_summary(visible).annotate(queue_rank=QUEUE_RANK).order_by("queue_rank", "-updated_at", "-id")
-        cursor = request.query_params.get("cursor")
         if cursor:
             rank, stamp, pk = _decode_cursor(cursor)
             # Within the cursor's stage group, a row comparison, so the database starts reading at
@@ -310,17 +341,17 @@ class AssessmentListView(APIView):
         page = list(qs[: PAGE_SIZE + 1])
         more = len(page) > PAGE_SIZE
         page = page[:PAGE_SIZE]
-        # The header's counts cover the whole queue, not just the pages the reviewer has loaded.
-        totals = visible.aggregate(
-            total=Count("pk"), actionable=Count("pk", filter=Q(stage__in=NEEDS_REVIEWER))
-        )
-        return Response({
+        body = {
             "results": [assessment_payload(a, request.user) for a in page],
             "next": _encode_cursor(page[-1]) if more else None,
-            "total": totals["total"],
-            "actionable": totals["actionable"],
-            "stageCounts": stage_counts,
-        })
+        }
+        if stage_counts is not None:
+            # The header's counts cover the whole queue, not just the pages the reviewer has loaded:
+            # the cases the status filter leaves, counted from the stage counts already read.
+            listed = {st: n for st, n in stage_counts.items() if st in shown_stages}
+            actionable = sum(n for st, n in listed.items() if st in NEEDS_REVIEWER)
+            body.update(total=sum(listed.values()), actionable=actionable, stageCounts=stage_counts)
+        return Response(body)
 
     def post(self, request):
         by_reviewer = request.user.is_reviewer
@@ -338,29 +369,12 @@ class AssessmentListView(APIView):
             if by_reviewer:
                 applicant = applicant or User.objects.get_or_create_for_email(v["email"], Role.APPLICANT)
             else:
-                # The applicant's row is locked so two requests at once cannot both pass the count.
-                User.objects.select_for_update().get(pk=applicant.pk)
-                started = Assessment.objects.filter(applicant=applicant, created_by=applicant, stage=Stage.NOT_SUBMITTED)
-                if started.count() >= MAX_OPEN_DRAFTS:
-                    raise Conflict(
-                        f"You already have {MAX_OPEN_DRAFTS} applications not yet submitted. "
-                        "Submit or remove one to start another."
-                    )
-            with connection.cursor() as cur:
-                cur.execute("SELECT nextval('assessment_serial')")
-                serial = cur.fetchone()[0]
+                _check_draft_limit(applicant)
             try:
-                assessment = Assessment.objects.create(
-                    public_id=f"FNP-{initiated_on.year}-{serial:04d}",
-                    applicant=applicant,
-                    applicant_name=v["applicantName"],
-                    department=v["department"],
-                    entity=v["entity"],
-                    position=v["position"],
-                    parent_reference=v["reference"],
-                    initiated_on=initiated_on,
-                    version=catalogue.active_version(),
-                    created_by=request.user,
+                assessment = _open_assessment(
+                    applicant, request.user, initiated_on,
+                    applicant_name=v["applicantName"], department=v["department"], entity=v["entity"],
+                    position=v["position"], parent_reference=v["reference"],
                 )
             except IntegrityError:
                 # Two people submitting the same reference at once: the unique index decides.
@@ -368,6 +382,113 @@ class AssessmentListView(APIView):
                     {"reference": ["An assessment already exists for this application reference."]}
                 ) from None
             audit.record(request.user, "assessment.create", assessment_ref=assessment.public_id)
+        assessment.has_draft = False  # just opened: nothing saved yet
+        return Response(assessment_payload(assessment, request.user), status=status.HTTP_201_CREATED)
+
+
+def _check_draft_limit(applicant: User) -> None:
+    """Refuses a new application from an applicant who already has MAX_OPEN_DRAFTS of their own not
+    submitted. Inside a transaction: the applicant's row is locked so two requests at once cannot
+    both pass the count."""
+    User.objects.select_for_update().get(pk=applicant.pk)
+    started = Assessment.objects.filter(applicant=applicant, created_by=applicant, stage=Stage.NOT_SUBMITTED)
+    if started.count() >= MAX_OPEN_DRAFTS:
+        raise Conflict(
+            f"You already have {MAX_OPEN_DRAFTS} applications not yet submitted. "
+            "Submit or remove one to start another."
+        )
+
+
+def _open_assessment(applicant: User, created_by: User, initiated_on, **fields) -> Assessment:
+    """A new assessment, numbered from the case sequence and held to the questions in force now."""
+    with connection.cursor() as cur:
+        cur.execute("SELECT nextval('assessment_serial')")
+        serial = cur.fetchone()[0]
+    return Assessment.objects.create(
+        public_id=f"FNP-{initiated_on.year}-{serial:04d}",
+        applicant=applicant,
+        initiated_on=initiated_on,
+        version=catalogue.active_version(),
+        created_by=created_by,
+        **fields,
+    )
+
+
+# The applications that can be continued from: decided ones, whose details are settled.
+CONTINUABLE = (Stage.ACCEPTED, Stage.REJECTED)
+REFERENCE_MAX = Assessment._meta.get_field("parent_reference").max_length
+
+
+def line_start(source: Assessment) -> Assessment:
+    """The first application of a line of continued ones (the source itself if it was not one)."""
+    seen = {source.pk}
+    while source.continued_from_id is not None and source.continued_from_id not in seen:
+        seen.add(source.continued_from_id)
+        source = Assessment.objects.get(pk=source.continued_from_id)
+    return source
+
+
+def next_reference(applicant: User, source: Assessment) -> str:
+    """A reference for an application continued from `source`: the first of its line's reference
+    with a number added, the first one free ("BL-2506" gives "BL-2506-2", then "BL-2506-3", and
+    continuing from "BL-2506-2" gives "BL-2506-3"). Which application came from which is stored, so
+    a reference that merely ends in a number is never taken for a continued one."""
+    base = line_start(source).parent_reference
+    pattern = re.compile(rf"{re.escape(base)}-(\d+)", re.IGNORECASE)
+    # Numbered on from the applicant's own continued applications only: another applicant's
+    # reference that happens to start the same way ("BL-2506-2025") says nothing about these. A
+    # reference taken by anyone is still skipped below, since references are unique.
+    taken = Assessment.objects.filter(
+        applicant=applicant, parent_reference__istartswith=f"{base}-"
+    ).values_list("parent_reference", flat=True)
+    used = [int(m[1]) for ref in taken if (m := pattern.fullmatch(ref))]
+    number = max([1, *used]) + 1
+    while True:
+        suffix = f"-{number}"
+        candidate = base[: REFERENCE_MAX - len(suffix)] + suffix
+        if not Assessment.objects.filter(parent_reference__iexact=candidate).exists():
+            return candidate
+        number += 1
+
+
+class ContinueView(APIView):
+    """An applicant starts a new application from a decided one of theirs: the same applicant name,
+    department, entity and position, with a reference of its own (next_reference). Only the details
+    are carried over; the questions start afresh, under the settings in force now."""
+
+    def get_throttles(self):
+        # Opening an application is rate limited, as for POST /assessments.
+        self.throttle_scope = "create"
+        return super().get_throttles()
+
+    def post(self, request, public_id):
+        source = assessment_for(request.user, public_id)
+        if request.user.is_reviewer or source.applicant_id != request.user.id:
+            raise PermissionDenied("Only the applicant can continue from their own application.")
+        if source.stage not in CONTINUABLE:
+            raise Conflict("An application can be continued from once a decision has been made on it.")
+        with transaction.atomic():
+            _check_draft_limit(request.user)
+            for _ in range(5):
+                reference = next_reference(request.user, source)
+                try:
+                    with transaction.atomic():
+                        assessment = _open_assessment(
+                            request.user, request.user, timezone.localdate(),
+                            applicant_name=source.applicant_name, department=source.department,
+                            entity=source.entity, position=source.position, parent_reference=reference,
+                            continued_from=source,
+                        )
+                    break
+                except IntegrityError:
+                    # Another application took that reference at the same moment: take the next one.
+                    continue
+            else:
+                raise Conflict("A reference could not be given to the new application. Try again.")
+            audit.record(
+                request.user, "assessment.continue", assessment_ref=assessment.public_id,
+                metadata={"from": source.public_id},
+            )
         assessment.has_draft = False  # just opened: nothing saved yet
         return Response(assessment_payload(assessment, request.user), status=status.HTTP_201_CREATED)
 

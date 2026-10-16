@@ -27,7 +27,7 @@
   z-index: 1;
 }
 
-/* The iRIS RegAI lockup (styles/pages/login-flow.css draws it). */
+/* The iRIS lockup (styles/pages/login-flow.css draws it). */
 .login-lockup {
   --lockup-h: 96px;
 }

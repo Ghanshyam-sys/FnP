@@ -9,6 +9,7 @@ import { ArrowLeftIcon, SearchIcon, UsersIcon } from "../components/icons";
 import { STAGE_LABELS } from "../state/caseLabels";
 import { formatDateTime } from "../utils/format";
 import { routes } from "../routes";
+import { queueUrl } from "../state/queueReturn";
 import type { AdminUser } from "../api/types";
 
 export function RoleChip({ user }: { user: Pick<AdminUser, "role" | "isStaff"> }) {
@@ -160,7 +161,7 @@ export default function AdminUsersPage() {
       )}
 
       <footer className="actionbar">
-        <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+        <button className="btn btn-ghost" onClick={() => navigate(queueUrl())}>
           <ArrowLeftIcon size={15} />
           Back to the queue
         </button>

@@ -17,14 +17,14 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import BooleanField, ExpressionWrapper, F, Q
 from django.utils import timezone
 
 from engine import client as engine
 
 from . import adapt, audit, catalogue, validation
 from .models import (
-    Answer,
+    AnswerType,
     AnswerValue,
     ApplicantProfile,
     Assessment,
@@ -66,12 +66,15 @@ def flagged_qids(submission: Submission) -> list[str]:
     return list(submission.question_results.filter(status=ResultStatus.ISSUE).values_list("qid", flat=True))
 
 
-def rejected_qids(assessment: Assessment) -> set[str]:
-    """Questions whose evidence the reviewer sent back on the latest run."""
-    sub = latest_submission(assessment)
-    if sub is None or assessment.stage != Stage.AWAITING_APPLICANT:
+def rejected_qids(assessment: Assessment, latest: Submission | None = None) -> set[str]:
+    """Questions whose evidence the reviewer sent back on the latest run (pass it as `latest` if
+    already loaded)."""
+    if assessment.stage != Stage.AWAITING_APPLICANT:
         return set()
-    return set(sub.rulings.filter(verdict=Verdict.REJECTED).values_list("qid", flat=True))
+    sub = latest or latest_submission(assessment)
+    if sub is None:
+        return set()
+    return {r.qid for r in sub.rulings.all() if r.verdict == Verdict.REJECTED}
 
 
 # ---- Starting a run ---------------------------------------------------------------------------
@@ -84,17 +87,22 @@ UNCONFIRMED_SEND = (
     "check with the engine team before sending it again, or a second run will start."
 )
 
+def documents_needed(questions: dict, answers: dict[str, str]) -> list[str]:
+    """The questions a form must have a document for before it can be submitted: every answer that
+    needs evidence, and the CV. The one rule for submitting and for the progress a draft shows."""
+    return [qid for qid, q in questions.items() if catalogue.evidence_required(q, answers[qid])] + [catalogue.CV_QID]
+
+
 def incomplete_for_submission(questions: dict, answers: dict[str, str], evidence: list[EvidenceFile]) -> list[str]:
     """What a form still lacks before it can be submitted: the document for every answer that
     needs one, the CV included. (Personal details are not collected from the applicant.) The data
     collection and review pages apply the same rule, and keep Submit disabled until it is met."""
     missing: list[str] = []
+    unanswered = [qid for qid, q in questions.items() if q.answer_type == AnswerType.TEXT and not answers[qid].strip()]
+    if unanswered:
+        missing.append(f"answers for {', '.join(unanswered)}")
     attached = {e.qid for e in evidence}
-    documents = [
-        qid for qid, q in questions.items() if catalogue.evidence_required(q, answers[qid]) and qid not in attached
-    ]
-    if catalogue.CV_QID not in attached:
-        documents.append(catalogue.CV_QID)
+    documents = [qid for qid in documents_needed(questions, answers) if qid not in attached]
     if documents:
         missing.append(f"documents for {', '.join(documents)}")
     return missing
@@ -123,14 +131,16 @@ def evidence_rule_breaks(questions: dict, evidence: list[EvidenceFile]) -> list[
     return breaks
 
 
-def unreplaced_rejections(row: Assessment, evidence: list[EvidenceFile]) -> list[str]:
+def unreplaced_rejections(row: Assessment, evidence: list[EvidenceFile], latest: Submission | None = None) -> list[str]:
     """Answers the reviewer sent back that have no new document since the run they were rejected
-    in: resubmitting them unchanged would only send the engine the same documents again."""
-    last = latest_submission(row)
+    in: resubmitting them unchanged would only send the engine the same documents again. (Pass
+    the latest run as `latest` if already loaded.)"""
+    last = latest or latest_submission(row)
     if last is None:
         return []
-    sent = set(last.evidence_files.values_list("pk", flat=True))
-    return sorted(qid for qid in rejected_qids(row) if not any(e.qid == qid and e.pk not in sent for e in evidence))
+    sent = {e.pk for e in last.evidence_files.all()}
+    rejected = rejected_qids(row, last)
+    return sorted(qid for qid in rejected if not any(e.qid == qid and e.pk not in sent for e in evidence))
 
 
 def _start_run(assessment: Assessment, actor: User, action: str, *from_stages: Stage) -> Submission:
@@ -142,15 +152,27 @@ def _start_run(assessment: Assessment, actor: User, action: str, *from_stages: S
         questions = catalogue.questions(version.pk)
         saved = dict(AnswerValue.objects.filter(assessment=row).values_list("qid", "value"))
         # Every question is sent: one never answered goes as No, exactly as the form shows it.
-        answers = {qid: saved.get(qid, Answer.NO) for qid in questions}
+        answers = {qid: saved.get(qid, catalogue.default_answer(q)) for qid, q in questions.items()}
         # A draft can predate a settings change that withdrew an answer it holds, or the No it
-        # defaults to.
-        withdrawn = [qid for qid, value in answers.items() if value not in questions[qid].allowed_answers]
+        # defaults to. (A text question has no list of answers.)
+        withdrawn = [
+            qid for qid, value in answers.items()
+            if questions[qid].answer_type == AnswerType.CHOICE and value not in questions[qid].allowed_answers
+        ]
         if withdrawn:
             raise TransitionError(
                 f"The answer to {', '.join(withdrawn)} is no longer offered. Choose another answer, then submit."
             )
         evidence = list(EvidenceFile.objects.filter(assessment=row, superseded_at__isnull=True).order_by("pk"))
+        # Only what answers this version's questions (and the CV) is sent: a document left under a
+        # question since deleted would reach the engine with nothing to answer.
+        evidence = [e for e in evidence if e.qid in questions or e.qid == catalogue.CV_QID]
+        # And only what an answer needs: a document left under a question that no longer asks for
+        # one (its settings changed) is not sent as if it did.
+        evidence = [
+            e for e in evidence
+            if e.qid == catalogue.CV_QID or catalogue.evidence_required(questions[e.qid], answers[e.qid])
+        ]
         profile = ApplicantProfile.objects.filter(pk=row.pk).first()
         # A first submission and a resubmission send what the applicant has now, so both must be
         # complete and within the question settings in force. A retry resends the failed run as it was.
@@ -282,7 +304,9 @@ def follow_due_runs(limit: int, assessments=None) -> int:
     if assessments is not None:
         due = due.filter(assessment__in=assessments)
     followed = 0
-    for submission in due.select_related("assessment").order_by(F("last_polled_at").asc(nulls_first=True))[:limit]:
+    # Never the payload sent to the engine: following a run does not read it.
+    due = due.select_related("assessment").defer("payload")
+    for submission in due.order_by(F("last_polled_at").asc(nulls_first=True))[:limit]:
         try:
             if not sync(submission.assessment):
                 break
@@ -292,6 +316,10 @@ def follow_due_runs(limit: int, assessments=None) -> int:
     return followed
 
 
+# The stages in which a run is with the engine, and sync follows it.
+FOLLOWED_STAGES = (Stage.AUTH_RUNNING, Stage.SCORING)
+
+
 def sync(assessment: Assessment) -> bool:
     """Brings an in-flight case up to date with the engine. Cheap to call on every page view: it
     asks the engine at most once per poll interval per run, and only one request follows a run at
@@ -299,7 +327,7 @@ def sync(assessment: Assessment) -> bool:
 
     Three steps, so no transaction or row lock is held while the engine answers (a slow engine
     holds up nothing else): claim the run, fetch what the engine has ready, then save it."""
-    if assessment.stage not in (Stage.AUTH_RUNNING, Stage.SCORING):
+    if assessment.stage not in FOLLOWED_STAGES:
         return True
     claimed = _claim(assessment)
     if claimed is None:
@@ -322,6 +350,7 @@ def sync(assessment: Assessment) -> bool:
             # Still the run that was claimed, and still in progress (not failed or retried meanwhile).
             current = (
                 Submission.objects.select_for_update()
+                .defer("payload")
                 .filter(pk=submission.pk, status__in=[RunStatus.QUEUED, RunStatus.RUNNING],
                         engine_request_id=submission.engine_request_id)
                 .first()
@@ -343,6 +372,7 @@ def _claim(assessment: Assessment) -> tuple[Submission, dict] | None:
     with transaction.atomic():
         submission = (
             Submission.objects.select_for_update(skip_locked=True)
+            .defer("payload")
             .filter(assessment=assessment, status__in=[RunStatus.QUEUED, RunStatus.RUNNING])
             .order_by("-attempt_no")
             .first()
@@ -367,14 +397,24 @@ def _claim(assessment: Assessment) -> tuple[Submission, dict] | None:
             return None
         submission.last_polled_at = timezone.now()
         submission.save(update_fields=["last_polled_at"])
-        docs = SubmissionDocument.objects.filter(submission=submission).first()
+        docs = _saved_documents().filter(submission=submission).first()
         have = {
-            "authentication": bool(docs and docs.authentication is not None),
-            "assessment": bool(docs and docs.assessment is not None),
+            "authentication": bool(docs and docs.has_authentication),
+            "assessment": bool(docs and docs.has_assessment),
             "score": Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists(),
             "outcome": submission.outcome,
         }
     return submission, have
+
+
+def _saved_documents():
+    """The run's engine documents row, telling which documents are saved without reading them
+    (they are large): has_authentication and has_assessment. The documents themselves are read
+    only if used, and written with update_fields."""
+    saved = lambda field: ExpressionWrapper(Q(**{f"{field}__isnull": False}), output_field=BooleanField())
+    return SubmissionDocument.objects.defer("authentication", "score", "assessment").annotate(
+        has_authentication=saved("authentication"), has_assessment=saved("assessment")
+    )
 
 
 def _fetch(submission: Submission, have: dict) -> dict:
@@ -415,9 +455,11 @@ def _advance(submission: Submission, fetched: dict) -> None:
         transaction.on_commit(lambda: _fail(submission, status.get("error") or "The engine reported a failure."))
         return
 
-    docs, _ = SubmissionDocument.objects.get_or_create(submission=submission)
+    docs, created = _saved_documents().get_or_create(submission=submission)
+    has_authentication = not created and docs.has_authentication
+    has_assessment = not created and docs.has_assessment
 
-    if docs.authentication is None and stages.get("authentication") == "READY":
+    if not has_authentication and stages.get("authentication") == "READY":
         result = fetched.get("result")
         if result is None:
             return
@@ -463,8 +505,8 @@ def _advance(submission: Submission, fetched: dict) -> None:
         return
     settled = _forced_settled(submission, status)
     score_stage, assessment_stage = stages.get("score"), stages.get("assessment")
-    engine_score = Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists()
-    if not engine_score:
+    scored = Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists()
+    if not scored:
         if score_stage == "READY":
             document = fetched.get("score")
             if document is None:
@@ -474,11 +516,12 @@ def _advance(submission: Submission, fetched: dict) -> None:
             # A score this app once calculated itself gives way to the engine's.
             Score.objects.filter(submission=submission).exclude(source=ScoreSource.ENGINE).delete()
             Score.objects.create(submission=submission, source=ScoreSource.ENGINE, **_rounded(adapt.score_from_engine(document)))
+            scored = True
         elif score_stage not in ("NOT_PRODUCED", "FAILED") or not settled:
             return
         # NOT_PRODUCED or FAILED: CLEAR but unscored by the engine. Only the engine scores, so the
         # case goes on to the decision without one.
-    if assessment_stage == "READY" and docs.assessment is None:
+    if assessment_stage == "READY" and not has_assessment:
         document = fetched.get("assessment")
         if document is None:
             return  # reported ready but not served yet: the next poll fetches it
@@ -487,7 +530,6 @@ def _advance(submission: Submission, fetched: dict) -> None:
     elif assessment_stage not in ("READY", "NOT_PRODUCED", "FAILED") or (assessment_stage != "READY" and not settled):
         return
     _finish_run(submission)
-    scored = Score.objects.filter(submission=submission, source=ScoreSource.ENGINE).exists()
     if submission.score_forced_at and not scored:
         Submission.objects.filter(pk=submission.pk).update(force_error="The AI engine did not produce a score.")
     _move_run(submission, Stage.DECISION_PENDING, "case.scored" if scored else "case.ready_for_decision")
@@ -537,14 +579,15 @@ def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer:
                      metadata={"verdict": verdict})
 
 
-def review_outcome(submission: Submission | None) -> str | None:
+def review_outcome(submission: Submission | None, flags: list[str] | None = None) -> str | None:
     """Where the reviewer's rulings send the case once every flagged answer has one: "accept" (all
     accepted: on to scoring) or "return" (any rejected: back to the applicant). None while a flag
-    still waits for a ruling."""
+    still waits for a ruling. (Pass the run's flags as `flags` if already known.)"""
     if submission is None:
         return None
-    flags = flagged_qids(submission)
-    verdicts = dict(submission.rulings.values_list("qid", "verdict"))
+    if flags is None:
+        flags = flagged_qids(submission)
+    verdicts = {r.qid: r.verdict for r in submission.rulings.all()}
     if not flags or not set(flags) <= set(verdicts):
         return None
     return "return" if Verdict.REJECTED in verdicts.values() else "accept"

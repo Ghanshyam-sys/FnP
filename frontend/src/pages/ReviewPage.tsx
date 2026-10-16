@@ -1,5 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
-import { useSubmit } from "../api/queries";
+import { useFormBusy, useSubmit } from "../api/queries";
 import { ApiError } from "../api/client";
 import { useApplication } from "../api/useApplication";
 import { Loading, LoadError } from "../components/LoadState";
@@ -20,6 +20,9 @@ export default function ReviewPage() {
   const navigate = useNavigate();
   const data = useApplication(id);
   const submit = useSubmit(id);
+  // A change from the form (a text answer saved on leaving it, say) may still be on its way:
+  // submitting waits for it, so what is submitted is what the applicant last entered.
+  const saving = useFormBusy(id);
 
   if (data.status === "loading") return <Loading />;
   if (data.status === "error") return <LoadError error={data.error} onRetry={data.retry} />;
@@ -33,7 +36,9 @@ export default function ReviewPage() {
   const ruleBreaks = documentRuleBreaks(raw, catalogue.cvFileTypes);
   // Submitting needs every required detail and document, each within the question's settings; the
   // backend refuses it otherwise.
-  const blockers = missingTotal + ruleBreaks.length;
+  // A text question must be answered (the others start from an answer).
+  const unanswered = form.responses.filter((r) => r.answerType === "text" && !r.answer.trim()).map((r) => r.qid);
+  const blockers = missingTotal + ruleBreaks.length + unanswered.length;
 
   return (
     <div className="page">
@@ -68,6 +73,19 @@ export default function ReviewPage() {
           <div>
             <strong>All mandatory evidence is attached.</strong> Your submission is ready for
             authentication.
+          </div>
+        </div>
+      )}
+
+      {unanswered.length > 0 && (
+        <div className="notice notice-warning">
+          <AlertTriangleIcon size={17} />
+          <div>
+            <strong>
+              {unanswered.length} question{unanswered.length > 1 ? "s" : ""} not answered
+            </strong>{" "}
+            ({unanswered.join(", ")}). Go back to edit and answer{" "}
+            {unanswered.length > 1 ? "them" : "it"} before submitting.
           </div>
         </div>
       )}
@@ -111,7 +129,7 @@ export default function ReviewPage() {
         </button>
         <button
           className="btn btn-primary"
-          disabled={submit.isPending || blockers > 0}
+          disabled={submit.isPending || blockers > 0 || saving}
           aria-describedby={blockers > 0 ? "submit-blocked" : undefined}
           // Replaces this page in the history: once submitted, Back should not return to it.
           onClick={() => submit.mutate(undefined, { onSuccess: () => navigate(routes.applyStatus(assignment.id), { replace: true }) })}

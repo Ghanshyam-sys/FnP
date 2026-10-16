@@ -1,6 +1,7 @@
 import datetime
 
 import pytest
+from django.conf import settings
 from django.http import Http404
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -49,6 +50,19 @@ def test_a_session_lasts_from_its_last_use_not_from_sign_in(client):
     assert client.get("/api/session").json()["user"]["email"] == "a@example.na"
     # The request renewed it to a full 8 hours from now.
     assert Session.objects.get().expire_date > timezone.now() + datetime.timedelta(hours=7, minutes=55)
+
+
+def test_a_session_in_use_is_not_rewritten_on_every_request(client):
+    from django.contrib.sessions.models import Session
+
+    _sign_in(client, "a@example.na")
+    expires = Session.objects.get().expire_date
+    # Polling straight after signing in: the session is read, not written again.
+    for _ in range(3):
+        response = client.get("/api/session")
+        assert response.json()["user"]["email"] == "a@example.na"
+        assert settings.SESSION_COOKIE_NAME not in response.cookies
+    assert Session.objects.get().expire_date == expires
 
 
 def test_an_email_signs_in_as_an_applicant_and_admin_as_the_reviewer(client):

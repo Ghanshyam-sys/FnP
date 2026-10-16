@@ -296,3 +296,15 @@
     min-width: 0;
   }
 }
+
+/* While a changed filter's list is on the way: the old counts and cards fade a little (only if it
+   takes a moment, so a quick answer doesn't flicker) and can't be opened. */
+.queue-kpis.is-stale,
+.queue-results.is-stale {
+  opacity: 0.55;
+  transition: opacity 0.15s ease 0.15s;
+}
+
+.queue-results.is-stale {
+  pointer-events: none;
+}

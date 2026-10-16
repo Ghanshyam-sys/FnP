@@ -1,5 +1,5 @@
 /* ============================================================
-   Sign-in page: the iRIS RegAI lockup, and how the app works in motion
+   Sign-in page: the iRIS lockup, and how the app works in motion
    ============================================================ */
 
 /* ---- The lockup (components/BrandLockup.tsx) ---- */
@@ -8,14 +8,6 @@
   height: var(--lockup-h, 84px);
   width: calc(var(--lockup-h, 84px) * 740 / 205);
   overflow: visible;
-}
-
-.lockup-regai {
-  font-family: "Montserrat", var(--sans);
-  font-weight: 500;
-  font-size: 84px;
-  letter-spacing: -0.5px;
-  fill: var(--brand-copper);
 }
 
 .lockup-tagline {

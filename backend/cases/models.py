@@ -43,6 +43,19 @@ class Polarity(models.TextChoices):
 class EvidenceRule(models.TextChoices):
     ALWAYS = "always"
     IF_YES = "if_yes"
+    # No document is asked for, whatever the answer (a text question that needs none, say).
+    NEVER = "never"
+
+
+class AnswerType(models.TextChoices):
+    """How a question is answered: one of its allowed answers (Yes, No, N/A), or in words."""
+
+    CHOICE = "choice"
+    TEXT = "text"
+
+
+# The longest answer in words accepted for a text question.
+TEXT_ANSWER_MAX = 2000
 
 
 class EvidenceRole(models.TextChoices):
@@ -227,6 +240,13 @@ class Question(models.Model):
     weight = models.DecimalField(max_digits=5, decimal_places=2)
     is_knockout = models.BooleanField(default=False)
     evidence_required = models.CharField(max_length=8, choices=EvidenceRule.choices)
+    answer_type = models.CharField(max_length=8, choices=AnswerType.choices, default=AnswerType.CHOICE)
+    # For a question the engine has no document types of its own for (one added here), the codes of
+    # the engine's document types the reviewer chose for it. Empty: the engine's own list applies.
+    evidence_options = ArrayField(models.CharField(max_length=60), default=list, blank=True)
+    # Added in this app's question configuration (not one the engine's questionnaire has): the
+    # reviewer names its document types, since the engine has no list of its own for it.
+    added_here = models.BooleanField(default=False)
     allows_na = models.BooleanField(default=False)
     accepts_supporting = models.BooleanField(default=False)
     checks = ArrayField(models.CharField(max_length=60), default=list)
@@ -242,6 +262,7 @@ class Question(models.Model):
             models.UniqueConstraint(fields=["version", "qid"], name="question_unique_qid"),
             _in_choices("polarity", Polarity, "question_polarity_valid"),
             _in_choices("evidence_required", EvidenceRule, "question_evidence_rule_valid"),
+            _in_choices("answer_type", AnswerType, "question_answer_type_valid"),
             models.CheckConstraint(condition=Q(max_files__in=[1, 2]), name="question_max_files_valid"),
             models.CheckConstraint(condition=Q(weight__gte=0), name="question_weight_non_negative"),
         ]
@@ -270,6 +291,11 @@ class Assessment(models.Model):
     # Null for the built-in demo assessments loaded by the seed command.
     created_by = models.ForeignKey(
         User, null=True, blank=True, on_delete=models.PROTECT, related_name="created_assessments"
+    )
+    # The decided application this one was continued from ("Continue with previous"), if any: its
+    # reference is numbered on from the first application of the line.
+    continued_from = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="continuations"
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -318,14 +344,15 @@ class AnswerValue(models.Model):
     # assessment's version in code. A foreign key to one version's row would orphan a draft when the
     # question settings change.
     qid = models.CharField(max_length=10)
-    value = models.CharField(max_length=3, choices=Answer.choices)
+    # Yes, No or N/A for a choice question; the words given for a text question. Checked against
+    # the question in code (views/form.py), since which one applies depends on the question.
+    value = models.CharField(max_length=TEXT_ANSWER_MAX)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "answer"
         constraints = [
             models.UniqueConstraint(fields=["assessment", "qid"], name="answer_one_per_question"),
-            _in_choices("value", Answer, "answer_value_valid"),
         ]
 
 

@@ -105,3 +105,195 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* ---- Editing sections and questions ---- */
+
+/* A section: its name, weight, the percentages' check and delete, above its questions. */
+.qsection-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 9rem auto auto;
+  gap: 0.9rem;
+  align-items: end;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.qsection-head .weight-check {
+  align-self: center;
+  margin-top: 1.2rem;
+}
+
+.qsection-delete {
+  align-self: end;
+}
+
+/* A section whose settings need attention, and one locked while the section weights do not add up. */
+.qsection.is-off {
+  border-color: var(--critical);
+  box-shadow: 0 0 0 1px var(--critical);
+}
+
+.qsection.is-frozen .qsection-body {
+  opacity: 0.55;
+}
+
+.qsection-body {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.qsection-foot {
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid var(--hairline);
+}
+
+/* A question still missing something: a red edge, so the rest of the page stays readable. */
+.qconfig.is-off {
+  box-shadow: inset 3px 0 0 var(--critical);
+}
+
+.qconfig-prompt .qconfig-text {
+  flex: 1;
+  min-height: 2.6rem;
+  resize: vertical;
+  /* Grows with the question, so a long one is read in full. */
+  field-sizing: content;
+  font: inherit;
+  font-size: var(--fs-md);
+  line-height: 1.5;
+}
+
+.qconfig-prompt .qid {
+  align-self: flex-start;
+  margin-top: 0.55rem;
+}
+
+.icon-button {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 2rem;
+  height: 2rem;
+  margin-top: 0.2rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.icon-button:hover:not(:disabled) {
+  border-color: var(--critical);
+  color: var(--critical);
+}
+
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Percentage, weight, polarity, answer type and options, document rule, formats and file count. */
+.qconfig-grid-edit {
+  grid-template-columns: 6.5rem 5.5rem 8.5rem minmax(10rem, 1fr) 10rem minmax(0, 1.3fr) 11rem;
+}
+
+.segmented-sm .segment {
+  padding: 0.25rem 0.7rem;
+  font-size: var(--fs-sm);
+}
+
+.qconfig-field .segmented-sm {
+  align-self: flex-start;
+  margin-bottom: 0.35rem;
+}
+
+/* Said under a published question's polarity or answer type once it is changed. */
+.qconfig-note.is-changed {
+  margin-top: 0.1rem;
+  font-size: var(--fs-xs);
+  color: var(--warning-ink, var(--warning));
+}
+
+.input-suffix {
+  position: relative;
+}
+
+.input-suffix input {
+  padding-right: 1.6rem;
+}
+
+.input-suffix span {
+  position: absolute;
+  top: 50%;
+  right: 0.65rem;
+  transform: translateY(-50%);
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  pointer-events: none;
+}
+
+/* The weight is worked out, not typed: shown as a value rather than a box to type in. */
+.input-num[readonly] {
+  background: transparent;
+  border-style: dashed;
+  color: var(--ink-2);
+  cursor: default;
+}
+
+.input-num[readonly]:focus {
+  box-shadow: none;
+}
+
+.polarity-chip {
+  align-self: flex-start;
+  margin-top: 0.35rem;
+}
+
+.qconfig-note {
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+  margin-top: 0.35rem;
+}
+
+.qconfig-doctypes {
+  margin-top: 0.85rem;
+}
+
+.qconfig-problem {
+  margin: 0.6rem 0 0;
+}
+
+.qconfig-add-section {
+  display: flex;
+  justify-content: center;
+  margin: 0 0 1.25rem;
+}
+
+@media (max-width: 1100px) {
+  .qconfig-grid-edit {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .qsection-head {
+    grid-template-columns: minmax(0, 1fr) 8rem;
+  }
+
+  .qsection-head .weight-check,
+  .qsection-delete {
+    grid-column: span 1;
+  }
+}
+
+@media (max-width: 540px) {
+  .qconfig-grid-edit {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .qsection-head {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

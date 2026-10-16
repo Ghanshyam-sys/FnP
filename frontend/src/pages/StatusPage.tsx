@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useRetry } from "../api/queries";
 import { useCaseView } from "../api/useCaseView";
@@ -95,11 +96,22 @@ function scoringStageClass(status: Stage): string {
 /** Authentication and scoring finish on their own; the case refreshes itself while they run. */
 const isRunning = (stage: Stage) => stage === "AUTH_RUNNING" || stage === "SCORING";
 
+/** Redraws the page every second while on, so the estimated progress moves between checks. */
+function useTick(on: boolean) {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!on) return;
+    const timer = window.setInterval(() => setTick((n) => n + 1), 1000);
+    return () => window.clearInterval(timer);
+  }, [on]);
+}
+
 export default function StatusPage() {
   const { id = "" } = useParams();
   const navigate = useNavigate();
   const view = useCaseView(id);
   const retry = useRetry(id);
+  useTick(view.status === "ready" && isRunning(view.data.stage));
 
   if (view.status === "loading") return <Loading />;
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;

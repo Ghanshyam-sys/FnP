@@ -34,7 +34,7 @@ export default function OverrideDialog({
   const canConfirm = comment.trim().length > 0;
 
   return (
-    <Modal labelledBy="override-title" wide onClose={onCancel}>
+    <Modal labelledBy="override-title" wide dismissible={!comment.trim()} onClose={onCancel}>
       <ModalBanner
         tone={isOverride ? "critical" : "info"}
         icon={isOverride ? <AlertTriangleIcon size={17} /> : <InfoIcon size={17} />}

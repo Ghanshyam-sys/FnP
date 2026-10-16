@@ -45,8 +45,8 @@ def test_one_answer_per_question():
     assessment = make.assessment()
     AnswerValue.objects.create(assessment=assessment, qid="A1", value="Yes")
     _violates(lambda: AnswerValue.objects.create(assessment=assessment, qid="A1", value="No"))
-    # Short enough for the column, so it is the check constraint that refuses it.
-    _violates(lambda: AnswerValue.objects.filter(assessment=assessment).update(value="Yo"))
+    # Which values are allowed depends on the question (Yes/No/N/A, or words for a text question), so
+    # that is checked in code: see test_a_choice_question_refuses_anything_else.
 
 
 def test_submission_attempts_are_unique_and_outcomes_valid():

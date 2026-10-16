@@ -10,7 +10,7 @@ import type {
   QuestionAuthResult,
   ScoreResult,
 } from "../domain/types";
-import type { ApplicantInfo, Assessment, Case, Catalogue, EvidenceItem, Form } from "./types";
+import type { AnswerType, ApplicantInfo, Assessment, Case, Catalogue, EvidenceItem, EvidenceRule, Form } from "./types";
 
 /** One uploaded document as the form shows it. */
 export function evidenceRef(item: EvidenceItem): EvidenceRef {
@@ -40,6 +40,13 @@ export function toApplicantDetails(form: Form): ApplicantDetails {
   return Object.fromEntries(entries) as unknown as ApplicantDetails;
 }
 
+/** Whether an answer needs a document, by the question's rule (the backend's evidence_required). */
+export function evidenceNeeded(rule: EvidenceRule, answerType: AnswerType, answer: string): boolean {
+  if (rule === "never") return false;
+  if (answerType === "text") return rule === "always";
+  return answer !== "N/A" && (rule === "always" || answer === "Yes");
+}
+
 /**
  * The form as the screens know it: one response per question, in catalogue order. Only the
  * questions this assessment's form has are included: the catalogue is the active version and may
@@ -57,15 +64,17 @@ export function toApplicationForm(form: Form, catalogue: Catalogue, assessment: 
       const saved = answers.get(q.qid);
       if (saved === undefined) return [];
       const answer = saved.value;
+      const answerType = saved.answerType ?? "choice";
       return [
         {
           qid: q.qid,
           section: q.section,
           question: q.text,
           answer,
+          answerType,
           // The assessment's own rule, which the backend enforces; the catalogue is the active
           // version and may differ. Computed from the answer so a change shows at once.
-          evidence_required: answer !== "N/A" && (saved.evidenceRule === "always" || answer === "Yes"),
+          evidence_required: evidenceNeeded(saved.evidenceRule, answerType, answer),
           evidence: evidenceFor(q.qid),
           checks_to_perform: q.checks,
         },

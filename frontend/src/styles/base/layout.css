@@ -37,6 +37,12 @@
   min-height: 100svh;
 }
 
+/* Focused on moving to a new page (state/pageChange), for screen readers and the Tab order; the
+   page itself takes no focus ring. */
+.app-main:focus {
+  outline: none;
+}
+
 .page {
   max-width: var(--page-max);
   margin: 0 auto;

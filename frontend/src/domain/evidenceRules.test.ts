@@ -25,6 +25,7 @@ const form = (answers: Form["answers"], files: Form["evidence"]): Form => ({
 const answer = (qid: string, fileTypes: string[], maxFiles: 1 | 2) => ({
   qid,
   value: "Yes" as const,
+  answerType: "choice" as const,
   evidenceRequired: true,
   evidenceRule: "always" as const,
   allowedAnswers: ["Yes" as const, "No" as const],

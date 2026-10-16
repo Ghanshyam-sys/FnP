@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useRemoveEvidence, useSaveForm, useUploadEvidence } from "../api/queries";
+import { useFormBusy, useRemoveEvidence, useSaveForm, useUploadEvidence } from "../api/queries";
 import type { SaveRefusal } from "../api/queries";
 import { ApiError } from "../api/client";
 import { useApplication } from "../api/useApplication";
@@ -11,10 +11,10 @@ import PageHeader, { AssignmentMeta } from "../components/PageHeader";
 import { Loading, LoadError } from "../components/LoadState";
 import { ArrowRightIcon, AlertTriangleIcon, ChevronDownIcon } from "../components/icons";
 import { documentRuleBreaks, evidenceGaps, hasMissingMandatoryEvidence } from "../domain/evidenceRules";
-import { CV_QID, defaultOptionCode, documentLabel, optionsFor, question } from "../domain/catalogue";
+import { CV_QID, defaultOptionCode, documentLabel, optionsFor, question, withFormOptions } from "../domain/catalogue";
 import { displaySection } from "../domain/sectionLabels";
 import { routes } from "../routes";
-import type { Answer, EvidenceRole } from "../domain/types";
+import type { EvidenceRole } from "../domain/types";
 
 /** What the banner says about a refused save. */
 function refusalText(refusal: SaveRefusal): string {
@@ -35,13 +35,18 @@ export default function ApplyPage() {
   const { save, refusal } = useSaveForm(id);
   const upload = useUploadEvidence(id);
   const remove = useRemoveEvidence(id);
+  // Whether a change is still being sent, and whether one has been saved on this visit: the action
+  // bar says "Saving…", then "All changes saved".
+  const busy = useFormBusy(id);
+  const [savedOnce, setSavedOnce] = useState(false);
   // Only sections the filer has explicitly toggled appear here; the rest fall back to the
   // default of opening the first section and leaving the others collapsed.
   const [openSections, setOpenSections] = useState<Record<string, boolean>>({});
 
   if (data.status === "loading") return <Loading />;
   if (data.status === "error") return <LoadError error={data.error} onRetry={data.retry} />;
-  const { assessment, catalogue, raw, form } = data;
+  const { assessment, raw, form } = data;
+  const catalogue = withFormOptions(data.catalogue, raw);
 
   // Once submitted, the form is locked: the reviewer's work is against what was submitted, and
   // the browser's Back button must not be a way to edit or resubmit underneath it.
@@ -61,7 +66,10 @@ export default function ApplyPage() {
   };
 
   // The banner reports a refused answer; useSaveForm already reloads the form after it.
-  const saveAnswer = (qid: string, answer: Answer) => save({ answers: { [qid]: answer } }).catch(() => {});
+  const saveAnswer = (qid: string, answer: string) =>
+    save({ answers: { [qid]: answer } })
+      .then(() => setSavedOnce(true))
+      .catch(() => {});
   const cv = form.cv_verification;
   const { cvMissing, requiredTotal, missingTotal, missingIds } = evidenceGaps(form);
   const ruleBreaks = documentRuleBreaks(raw, catalogue.cvFileTypes);
@@ -69,8 +77,22 @@ export default function ApplyPage() {
   const toggleSection = (section: string, isOpen: boolean) =>
     setOpenSections((prev) => ({ ...prev, [section]: !isOpen }));
 
+  // "All changes saved" only while the last change did save: a failed upload or removal (reported
+  // at the document) clears it until the next change that goes through.
+  const settled = <T,>(work: Promise<T>) =>
+    work.then(
+      (result) => {
+        setSavedOnce(true);
+        return result;
+      },
+      (error: unknown) => {
+        setSavedOnce(false);
+        throw error;
+      }
+    );
   const attach = (qid: string) => (optionCode: string, role: EvidenceRole, file: File, description?: string) =>
-    upload.mutateAsync({ qid, optionCode, role, file, description });
+    settled(upload.mutateAsync({ qid, optionCode, role, file, description }));
+  const removeEvidence = (evidenceId: string) => settled(remove.mutateAsync(evidenceId));
 
   return (
     <div className="page">
@@ -142,7 +164,7 @@ export default function ApplyPage() {
                         labelFor={(file) => documentLabel(catalogue, file, r.qid)}
                         onAnswerChange={(answer) => saveAnswer(r.qid, answer)}
                         onAttach={attach(r.qid)}
-                        onRemove={remove.mutateAsync}
+                        onRemove={removeEvidence}
                       />
                     )
                   );
@@ -192,7 +214,7 @@ export default function ApplyPage() {
                 allowSupporting={false}
                 labelFor={(file) => documentLabel(catalogue, file, CV_QID)}
                 onAttach={attach(CV_QID)}
-                onRemove={remove.mutateAsync}
+                onRemove={removeEvidence}
               />
             </article>
           </div>
@@ -226,6 +248,9 @@ export default function ApplyPage() {
       <footer className="actionbar">
         <span className="actionbar-note">
           {requiredTotal - missingTotal} of {requiredTotal} required documents attached
+          <span className="save-state" role="status">
+            {busy ? " · Saving…" : savedOnce && !refusal ? " · All changes saved" : ""}
+          </span>
         </span>
         <button
           className="btn btn-primary"

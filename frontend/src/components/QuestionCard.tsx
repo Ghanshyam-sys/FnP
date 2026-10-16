@@ -1,4 +1,5 @@
 import AnswerToggle from "./AnswerToggle";
+import TextAnswer from "./TextAnswer";
 import EvidenceBlock from "./EvidenceBlock";
 import { answerOptions } from "../domain/catalogue";
 import type { AttachHandler } from "./EvidenceBlock";
@@ -22,7 +23,7 @@ export default function QuestionCard({
   options: EvidenceOption[];
   defaultCode: string;
   labelFor: (file: EvidenceRef) => string;
-  onAnswerChange: (answer: Answer) => void;
+  onAnswerChange: (answer: string) => void;
   onAttach: AttachHandler;
   onRemove: (evidenceId: string) => Promise<unknown>;
 }) {
@@ -40,13 +41,18 @@ export default function QuestionCard({
             </span>
           </p>
         </div>
-        <AnswerToggle
-          value={response.answer}
-          options={answerOptions(question, response.answer)}
-          labelledBy={labelId}
-          onChange={onAnswerChange}
-        />
+        {response.answerType !== "text" && (
+          <AnswerToggle
+            value={response.answer as Answer}
+            options={answerOptions(question, response.answer as Answer)}
+            labelledBy={labelId}
+            onChange={onAnswerChange}
+          />
+        )}
       </div>
+      {response.answerType === "text" && (
+        <TextAnswer value={response.answer} labelledBy={labelId} onSave={onAnswerChange} />
+      )}
 
       {response.evidence_required && (
         <EvidenceBlock

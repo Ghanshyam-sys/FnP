@@ -42,7 +42,12 @@ export interface Assessment {
   /** Whether the person viewing it may remove it (only before submission). */
   removable: boolean;
   /** An applicant's form not submitted yet: documents attached of those it needs. */
-  progress?: { documentsNeeded: number; documentsAttached: number };
+  progress?: {
+    documentsNeeded: number;
+    documentsAttached: number;
+    /** Questions answered in words still blank (submitting waits for them too). */
+    answersMissing?: number;
+  };
   /** The viewer's own application: a reviewer may not rule on or decide it. */
   ownApplication: boolean;
   /** Started by the applicant themselves, rather than opened for them by the reviewer. */
@@ -118,13 +123,17 @@ export interface AdminUserDetail extends AdminUser {
 export interface Page<T> {
   results: T[];
   next: string | null;
-  /** The reviewer queue's totals across every page, not just the ones loaded. */
+  /** The reviewer queue's totals across every page, not just the ones loaded (first page only). */
   total?: number;
   /** How many of those the reviewer has to act on. */
   actionable?: number;
   /** The reviewer queue: how many cases are at each stage (department and search applied). */
   stageCounts?: Partial<Record<Stage, number>>;
 }
+
+/** When a question asks for a document: always, only for a Yes, or never. */
+export type EvidenceRule = "always" | "if_yes" | "never";
+export type AnswerType = "choice" | "text";
 
 export interface CatalogueQuestion {
   qid: string;
@@ -133,7 +142,13 @@ export interface CatalogueQuestion {
   polarity: "Positive" | "Negative";
   weight: number;
   isKnockout: boolean;
-  evidenceRequired: "always" | "if_yes";
+  evidenceRequired: EvidenceRule;
+  /** Answered with one of allowedAnswers ("choice"), or in words ("text"). */
+  answerType: AnswerType;
+  /** For a question added here: the codes of the engine's document types chosen for it. */
+  evidenceOptions: string[];
+  /** Added in this app's question configuration (its document types are chosen here). */
+  addedHere?: boolean;
   allowsNa: boolean;
   acceptsSupporting: boolean;
   checks: string[];
@@ -162,12 +177,16 @@ export interface QuestionnaireVersion {
 export interface Catalogue extends QuestionnaireVersion {
   cvFileTypes: string[];
   evidenceOptions: Record<string, EngineOption[]>;
+  /** The largest document the server accepts, in bytes. */
+  maxUploadBytes?: number;
 }
 
 export interface QuestionnaireSettings {
   current: QuestionnaireVersion;
   published: QuestionnaireVersion;
   configurableFileTypes: string[];
+  /** The engine's document types a question added here can take. */
+  evidenceOptionChoices: { code: string; label: string }[];
 }
 
 export interface EvidenceItem {
@@ -196,13 +215,17 @@ export interface Form {
   /** allowedAnswers, fileTypes and maxFiles are the rules this form is checked against, always current. */
   answers: {
     qid: string;
-    value: Answer;
+    /** Yes, No or N/A; the words given for a text question ("" until answered). */
+    value: string;
+    answerType: AnswerType;
     evidenceRequired: boolean;
-    /** When a document is needed: always, or only for a Yes. From the assessment's own version. */
-    evidenceRule: "always" | "if_yes";
+    /** When a document is needed: always, only for a Yes, or never. From the assessment's own version. */
+    evidenceRule: EvidenceRule;
     allowedAnswers: Answer[];
     fileTypes: string[];
     maxFiles: 1 | 2;
+    /** For a question added here: its document types as this form's version gives them. */
+    evidenceOptions?: EngineOption[] | null;
   }[];
   evidence: EvidenceItem[];
 }

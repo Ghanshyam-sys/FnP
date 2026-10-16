@@ -19,6 +19,7 @@ import {
 } from "../api/adapt";
 import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
+import { queueUrl } from "../state/queueReturn";
 import type { QueueNotice } from "../routes";
 import NotSubmittedPanel from "../components/NotSubmittedPanel";
 import FormAnswers from "../components/FormAnswers";
@@ -51,7 +52,9 @@ export default function ReviewerAuthenticationPage() {
   const navigate = useNavigate();
   const [pending, setPending] = useState<Pending | null>(null);
   const view = useCaseView(id);
-  const form = useForm(id);
+  // The applicant's answers are shown only for a draft not submitted yet, so only read then.
+  const isDraft = view.status === "ready" && view.data.stage === "NOT_SUBMITTED";
+  const form = useForm(id, isDraft);
   // Only for showing an unsubmitted draft; already cached for every other page that needs it.
   const catalogue = useCatalogue();
   const rule = useRule(id);
@@ -63,14 +66,14 @@ export default function ReviewerAuthenticationPage() {
   const [confirmReturn, setConfirmReturn] = useState(false);
 
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
-  if (form.isError && !form.data) return <LoadError error={form.error} onRetry={form.refetch} />;
-  if (view.status === "loading" || !form.data) return <Loading />;
+  if (isDraft && form.isError && !form.data) return <LoadError error={form.error} onRetry={form.refetch} />;
+  if (view.status === "loading" || (isDraft && !form.data)) return <Loading />;
   const { assessment: assignment, data, outcome } = view;
   const stage = data.stage;
 
   const back = (
     <footer className="actionbar">
-      <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+      <button className="btn btn-ghost" onClick={() => navigate(queueUrl())}>
         <ArrowLeftIcon size={15} />
         Back to the queue
       </button>
@@ -83,7 +86,7 @@ export default function ReviewerAuthenticationPage() {
       removal.mutate(undefined, {
         onSuccess: () => {
           const state: QueueNotice = { notice: `Assessment ${id} for ${assignment.applicantName} was removed.` };
-          navigate(routes.reviewer(), { state });
+          navigate(queueUrl(), { state });
         },
       });
     return (
@@ -91,7 +94,7 @@ export default function ReviewerAuthenticationPage() {
         <ReviewerCaseHeader assignment={assignment} stage={stage} />
         <ReviewerTabs assessmentId={id} active="authentication" scoringReady={false} />
         <NotSubmittedPanel assignment={assignment} canRemove={assignment.removable} onRemove={remove} />
-        {assignment.hasDraft && catalogue.data && (
+        {assignment.hasDraft && catalogue.data && form.data && (
           <>
             <div className="notice notice-info">
               <InfoIcon size={17} />
@@ -346,7 +349,7 @@ export default function ReviewerAuthenticationPage() {
       )}
 
       <footer className="actionbar">
-        <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+        <button className="btn btn-ghost" onClick={() => navigate(queueUrl())}>
           <ArrowLeftIcon size={15} />
           Back to the queue
         </button>

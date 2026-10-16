@@ -4,7 +4,7 @@ import { ApiError } from "../api/client";
 import { useCaseView } from "../api/useCaseView";
 import { evidenceRef, questionsWithIssues, reviewStateFor } from "../api/adapt";
 import { isScored } from "../state/caseLabels";
-import { defaultOptionCode, documentLabel, optionsFor } from "../domain/catalogue";
+import { defaultOptionCode, documentLabel, optionsFor, withFormOptions } from "../domain/catalogue";
 import { routes } from "../routes";
 import OutcomeTabs from "../components/OutcomeTabs";
 import AuthenticationReport from "../components/AuthenticationReport";
@@ -78,7 +78,8 @@ export default function AuthenticationPage() {
   // Only a rejection puts the ball back in the applicant's court.
   const mustResubmit = stage === "AWAITING_APPLICANT";
   const rejected = data.rejected;
-  const cat = catalogue.data;
+  // A question added here takes the document types of the version this case was submitted under.
+  const cat = catalogue.data && form.data ? withFormOptions(catalogue.data, form.data) : catalogue.data;
   // Each answer sent back needs a document added since the run it was rejected in; the backend
   // says which still lack one (and refuses a resubmission until none do).
   const unreplaced = mustResubmit ? data.unreplaced : [];

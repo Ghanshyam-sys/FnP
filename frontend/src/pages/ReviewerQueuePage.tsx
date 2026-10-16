@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useAssessments, useDepartments } from "../api/queries";
 import { daysSince, formatDate } from "../utils/format";
 import { QUEUE_ORDER, STAGE_LABELS, needsReviewer } from "../state/caseLabels";
+import { rememberQueueSearch } from "../state/queueReturn";
 import { Loading, LoadError } from "../components/LoadState";
 import EmptyState from "../components/EmptyState";
 import DepartmentIcon from "../components/DepartmentIcon";
@@ -24,14 +25,22 @@ interface QueueRow {
   stage: Stage;
 }
 
-/** Groups of stages the status filter and the summary tiles offer (the API understands them too). */
+/**
+ * Groups of stages the status filter and the summary tiles offer (the API understands them too).
+ * "Needs your action" is the stages needsReviewer() picks, so the tile, the filter and the
+ * "need your attention" count always agree.
+ */
 const GROUPS = {
-  NEEDS_ACTION: { label: "Needs your action", stages: ["REVIEW_PENDING", "DECISION_PENDING", "AUTH_FAILED"] },
+  NEEDS_ACTION: { label: "Needs your action", stages: QUEUE_ORDER.filter(needsReviewer) },
   IN_PROGRESS: { label: "In progress", stages: ["AUTH_RUNNING", "SCORING"] },
   DECIDED: { label: "Decided", stages: ["ACCEPTED", "REJECTED"] },
-} as const satisfies Record<string, { label: string; stages: Stage[] }>;
+} satisfies Record<string, { label: string; stages: Stage[] }>;
 type Group = keyof typeof GROUPS;
 type Status = Stage | Group | "";
+
+/** The status filter in the address, if it is one the queue offers ("" otherwise). */
+const toStatus = (value: string | null): Status =>
+  value && (value in GROUPS || (QUEUE_ORDER as string[]).includes(value)) ? (value as Status) : "";
 
 const statusLabel = (status: Exclude<Status, "">) =>
   status in GROUPS ? GROUPS[status as Group].label : STAGE_LABELS[status as Stage].reviewer;
@@ -46,20 +55,49 @@ const TILES: { status: Group | "AWAITING_APPLICANT"; label: string; tone: string
 
 export default function ReviewerQueuePage() {
   const navigate = useNavigate();
-  const notice = (useLocation().state as QueueNotice | null)?.notice;
+  const location = useLocation();
+  const notice = (location.state as QueueNotice | null)?.notice;
+  // The filters and search live in the address (?status=&department=&q=), so Back from a case,
+  // a reload or a shared link shows the same list.
+  const [params, setParams] = useSearchParams();
   // "" lists every department.
-  const [department, setDepartment] = useState("");
+  const department = params.get("department") ?? "";
   // "" is every submitted case (the queue); a stage narrows it to that stage. NOT_SUBMITTED lists
   // the ones not submitted yet, to find or remove one opened for an applicant.
-  const [status, setStatus] = useState<Status>("");
+  const status = toStatus(params.get("status"));
   const showDrafts = status === "NOT_SUBMITTED";
-  // What is typed, and what is searched for once typing pauses.
-  const [searchText, setSearchText] = useState("");
-  const [search, setSearch] = useState("");
+  const search = (params.get("q") ?? "").trim();
+  // A filter change replaces the address rather than adding to the history (Back leaves the
+  // queue), and keeps any notice on screen.
+  const setFilter = useCallback(
+    (name: "department" | "status" | "q", value: string) =>
+      setParams(
+        (previous) => {
+          const next = new URLSearchParams(previous);
+          if (value) next.set(name, value);
+          else next.delete(name);
+          return next;
+        },
+        { replace: true, state: location.state }
+      ),
+    [setParams, location.state]
+  );
+  // What is typed, searched for once typing pauses.
+  const [searchText, setSearchText] = useState(search);
   useEffect(() => {
-    const timer = window.setTimeout(() => setSearch(searchText.trim()), 300);
+    const timer = window.setTimeout(() => {
+      if (searchText.trim() !== search) setFilter("q", searchText.trim());
+    }, 300);
     return () => window.clearTimeout(timer);
-  }, [searchText]);
+  }, [searchText, search, setFilter]);
+  // The address changed some other way (Back, Forward): the box shows what is searched for.
+  const [searchShown, setSearchShown] = useState(search);
+  if (searchShown !== search) {
+    setSearchShown(search);
+    if (searchText.trim() !== search) setSearchText(search);
+  }
+  // Where "Back to the queue" returns to.
+  useEffect(() => rememberQueueSearch(location.search), [location.search]);
   const departments = useDepartments();
   // Refreshes itself while any listed case is still with the engine.
   const list = useAssessments(department, status, search);
@@ -74,16 +112,20 @@ export default function ReviewerQueuePage() {
     .flatMap((p) => p.results)
     .map((assignment) => ({ assignment, stage: assignment.stage }));
 
-  // The whole queue's counts, not just the pages loaded so far.
-  const latest = list.data.pages[list.data.pages.length - 1];
-  const total = latest?.total ?? rows.length;
-  const actionable = latest?.actionable ?? rows.filter((r) => needsReviewer(r.stage)).length;
+  // The whole queue's counts, not just the pages loaded so far (they come with the first page).
+  const first = list.data.pages[0];
+  const total = first?.total ?? rows.length;
+  const actionable = first?.actionable ?? rows.filter((r) => needsReviewer(r.stage)).length;
   const departmentName = departments.data?.find((d) => d.key === department)?.name;
-  const stageCounts = latest?.stageCounts ?? {};
+  const stageCounts = first?.stageCounts ?? {};
   const tileCount = (tile: (typeof TILES)[number]) =>
     tile.status in GROUPS
       ? GROUPS[tile.status as Group].stages.reduce((n, s) => n + (stageCounts[s] ?? 0), 0)
       : (stageCounts[tile.status as Stage] ?? 0);
+
+  // A filter or search just changed and its list is on the way: what is on screen still belongs to
+  // the one before, so the page says it is updating and the old list can't be opened meanwhile.
+  const stale = list.isPlaceholderData;
 
   const openCase = (row: QueueRow) => {
     const target = row.stage === "DECISION_PENDING" ? "result" : "authentication";
@@ -100,14 +142,20 @@ export default function ReviewerQueuePage() {
         <div className="page-head-text">
           <h1>Assessment queue</h1>
           <p className="page-sub">
-            {total} {showDrafts ? "not yet submitted" : "submitted"} fit and proper assessment
-            {total === 1 ? "" : "s"}
-            {status && !showDrafts ? ` with status ${statusLabel(status)}` : ""}
-            {search ? ` matching “${search}”` : ""}{" "}
-            {departmentName ? `for ${departmentName}` : "across all departments"}.{" "}
-            {actionable > 0
-              ? `${actionable} need${actionable === 1 ? "s" : ""} your attention.`
-              : "Nothing is waiting on you."}
+            {stale ? (
+              "Updating the list…"
+            ) : (
+              <>
+                {total} {showDrafts ? "not yet submitted" : "submitted"} fit and proper assessment
+                {total === 1 ? "" : "s"}
+                {status && !showDrafts ? ` with status ${statusLabel(status)}` : ""}
+                {search ? ` matching “${search}”` : ""}{" "}
+                {departmentName ? `for ${departmentName}` : "across all departments"}.{" "}
+                {actionable > 0
+                  ? `${actionable} need${actionable === 1 ? "s" : ""} your attention.`
+                  : "Nothing is waiting on you."}
+              </>
+            )}
           </p>
         </div>
         <div className="page-head-aside">
@@ -129,7 +177,7 @@ export default function ReviewerQueuePage() {
         </div>
       )}
 
-      <div className="queue-kpis" role="group" aria-label="Queue summary">
+      <div className={`queue-kpis${stale ? " is-stale" : ""}`} role="group" aria-label="Queue summary">
         {TILES.map((tile) => {
           const on = status === tile.status;
           return (
@@ -138,7 +186,7 @@ export default function ReviewerQueuePage() {
               type="button"
               className={`queue-kpi is-${tile.tone}${on ? " is-on" : ""}`}
               aria-pressed={on}
-              onClick={() => setStatus(on ? "" : tile.status)}
+              onClick={() => setFilter("status", on ? "" : tile.status)}
             >
               <span className="queue-kpi-count">{tileCount(tile)}</span>
               <span className="queue-kpi-label">{tile.label}</span>
@@ -166,7 +214,7 @@ export default function ReviewerQueuePage() {
           id="queue-status"
           className="input"
           value={status}
-          onChange={(e) => setStatus(e.target.value as Status)}
+          onChange={(e) => setFilter("status", e.target.value)}
         >
           <option value="">All submitted</option>
           <optgroup label="Groups">
@@ -192,7 +240,7 @@ export default function ReviewerQueuePage() {
           id="queue-department"
           className="input"
           value={department}
-          onChange={(e) => setDepartment(e.target.value)}
+          onChange={(e) => setFilter("department", e.target.value)}
         >
           <option value="">All departments</option>
           {departments.data?.map((d) => (
@@ -203,95 +251,97 @@ export default function ReviewerQueuePage() {
         </select>
       </div>
 
-      {rows.length === 0 ? (
-        <EmptyState
-          icon={<BankIcon size={22} />}
-          title={
-            search
-              ? `No assessments match “${search}”`
+      <div className={`queue-results${stale ? " is-stale" : ""}`} aria-busy={stale || undefined}>
+        {rows.length === 0 ? (
+          <EmptyState
+            icon={<BankIcon size={22} />}
+            title={
+              search
+                ? `No assessments match “${search}”`
+                : showDrafts
+                  ? departmentName
+                    ? `Nothing waiting to be submitted for ${departmentName}`
+                    : "Nothing waiting to be submitted"
+                  : status
+                    ? `No assessments with status ${statusLabel(status)}${departmentName ? ` for ${departmentName}` : ""}`
+                    : departmentName
+                      ? `No submitted assessments for ${departmentName}`
+                      : "No submitted assessments yet"
+            }
+          >
+            {search
+              ? "Check the spelling, or search by another part of the name, the application reference or the case ID."
               : showDrafts
-              ? departmentName
-                ? `Nothing waiting to be submitted for ${departmentName}`
-                : "Nothing waiting to be submitted"
-              : status
-                ? `No assessments with status ${statusLabel(status)}${departmentName ? ` for ${departmentName}` : ""}`
-                : departmentName
-                  ? `No submitted assessments for ${departmentName}`
-                  : "No submitted assessments yet"
-          }
-        >
-          {search
-            ? "Check the spelling, or search by another part of the name, the application reference or the case ID."
-            : showDrafts
-            ? "Applications opened or started but not submitted yet appear here. Open one to see it or remove it."
-            : status
-              ? "Choose another status, or All submitted, to see the rest of the queue."
-              : "Assessments appear here once the applicant submits them."}
-        </EmptyState>
-      ) : (
-        <div className="case-grid">
-          {rows.map((row) => {
-            const { assignment, stage } = row;
-            const label = STAGE_LABELS[stage];
-            return (
-              <button className="case-card" key={assignment.id} onClick={() => openCase(row)}>
-                <div className="case-card-head">
-                  <span className="case-avatar">
-                    <DepartmentIcon departmentKey={assignment.department.key} size={16} />
-                  </span>
-                  <span className={`chip chip-${label.tone}`}>
-                    {needsReviewer(stage) && <AlertTriangleIcon size={12} />}
-                    {stage === "ACCEPTED" && <CheckCircleIcon size={12} />}
-                    {label.reviewer}
-                  </span>
-                </div>
+                ? "Applications opened or started but not submitted yet appear here. Open one to see it or remove it."
+                : status
+                  ? "Choose another status, or All submitted, to see the rest of the queue."
+                  : "Assessments appear here once the applicant submits them."}
+          </EmptyState>
+        ) : (
+          <div className="case-grid">
+            {rows.map((row) => {
+              const { assignment, stage } = row;
+              const label = STAGE_LABELS[stage];
+              return (
+                <button className="case-card" key={assignment.id} onClick={() => openCase(row)}>
+                  <div className="case-card-head">
+                    <span className="case-avatar">
+                      <DepartmentIcon departmentKey={assignment.department.key} size={16} />
+                    </span>
+                    <span className={`chip chip-${label.tone}`}>
+                      {needsReviewer(stage) && <AlertTriangleIcon size={12} />}
+                      {stage === "ACCEPTED" && <CheckCircleIcon size={12} />}
+                      {label.reviewer}
+                    </span>
+                  </div>
 
-                <h2 className="case-name">{assignment.applicantName}</h2>
-                <p className="case-role">
-                  {assignment.position} · {assignment.entity}
-                </p>
-
-                {needsReviewer(stage) && daysSince(assignment.updatedAt) >= 1 && (
-                  <p className={`case-age${daysSince(assignment.updatedAt) >= 3 ? " is-late" : ""}`}>
-                    Waiting {daysSince(assignment.updatedAt)} day{daysSince(assignment.updatedAt) === 1 ? "" : "s"}
+                  <h2 className="case-name">{assignment.applicantName}</h2>
+                  <p className="case-role">
+                    {assignment.position} · {assignment.entity}
                   </p>
-                )}
 
-                <dl className="case-meta">
-                  <div>
-                    <dt>Reference</dt>
-                    <dd>{assignment.reference}</dd>
-                  </div>
-                  <div>
-                    <dt>Initiated</dt>
-                    <dd>{formatDate(assignment.initiatedOn)}</dd>
-                  </div>
-                  <div>
-                    <dt>Department</dt>
-                    <dd>{assignment.department.name}</dd>
-                  </div>
-                </dl>
+                  {needsReviewer(stage) && daysSince(assignment.updatedAt) >= 1 && (
+                    <p className={`case-age${daysSince(assignment.updatedAt) >= 3 ? " is-late" : ""}`}>
+                      Waiting {daysSince(assignment.updatedAt)} day{daysSince(assignment.updatedAt) === 1 ? "" : "s"}
+                    </p>
+                  )}
 
-                <footer className="case-foot">
-                  <CaseFootNote row={row} />
-                  <span className="case-open">
-                    {stage === "DECISION_PENDING" ? "Decide" : "Open"}
-                    <ArrowRightIcon size={14} />
-                  </span>
-                </footer>
-              </button>
-            );
-          })}
-        </div>
-      )}
+                  <dl className="case-meta">
+                    <div>
+                      <dt>Reference</dt>
+                      <dd>{assignment.reference}</dd>
+                    </div>
+                    <div>
+                      <dt>Initiated</dt>
+                      <dd>{formatDate(assignment.initiatedOn)}</dd>
+                    </div>
+                    <div>
+                      <dt>Department</dt>
+                      <dd>{assignment.department.name}</dd>
+                    </div>
+                  </dl>
 
-      {list.hasNextPage && (
-        <div className="queue-more">
-          <button className="btn btn-ghost" disabled={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
-            {list.isFetchingNextPage ? "Loading…" : "Show more"}
-          </button>
-        </div>
-      )}
+                  <footer className="case-foot">
+                    <CaseFootNote row={row} />
+                    <span className="case-open">
+                      {stage === "DECISION_PENDING" ? "Decide" : "Open"}
+                      <ArrowRightIcon size={14} />
+                    </span>
+                  </footer>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {list.hasNextPage && (
+          <div className="queue-more">
+            <button className="btn btn-ghost" disabled={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
+              {list.isFetchingNextPage ? "Loading…" : "Show more"}
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

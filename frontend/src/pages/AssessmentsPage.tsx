@@ -4,7 +4,8 @@ import { routes } from "../routes";
 import type { ApplyStep } from "../routes";
 import EmptyState from "../components/EmptyState";
 import Modal from "../components/Modal";
-import { useAssessments, useRemoveAssessment, useResetForm, useSession } from "../api/queries";
+import { useAssessments, useContinueApplication, useRemoveAssessment, useResetForm, useSession } from "../api/queries";
+import { ApiError } from "../api/client";
 import { STAGE_LABELS } from "../state/caseLabels";
 import { Loading, LoadError } from "../components/LoadState";
 import { formatDate, formatShortDay } from "../utils/format";
@@ -58,6 +59,8 @@ export default function AssessmentsPage() {
   const [startStep, setStartStep] = useState<"choose" | "pick" | "remove">("choose");
   const [toRemove, setToRemove] = useState<Assessment | null>(null);
   const draftRemoval = useRemoveAssessment(toRemove?.id ?? "");
+  // "Continue with previous": a new application from the details of a decided one.
+  const continueFrom = useContinueApplication();
 
   if (!user) return <Navigate to={routes.login()} replace />;
   // The reviewer's list of assessments is the queue.
@@ -112,16 +115,28 @@ export default function AssessmentsPage() {
 
   // Only an application the applicant started themselves can be removed (the server's rule).
   const removableDrafts = drafts.filter((a) => a.removable);
+  // The application a new one can start from: their most recent decided one (the list is newest
+  // first). With none decided yet, their most recent submitted one is shown, but cannot be taken
+  // until it is decided.
+  const previous =
+    assignments.find((a) => decided(a.stage)) ?? assignments.find((a) => a.stage !== "NOT_SUBMITTED");
+  const previousDecided = previous !== undefined && decided(previous.stage);
 
   const startNew = () => {
-    if (drafts.length === 0) {
+    if (drafts.length === 0 && !previous) {
       navigate(routes.newApplication());
       return;
     }
     setStartStep("choose");
     setToRemove(null);
     draftRemoval.reset();
+    continueFrom.reset();
     setChoosingStart(true);
+  };
+
+  const continuePrevious = () => {
+    if (!previous || !previousDecided || atLimit) return;
+    continueFrom.mutate(previous.id, { onSuccess: (created) => navigate(routes.apply(created.id)) });
   };
 
   const closeStart = () => setChoosingStart(false);
@@ -220,6 +235,9 @@ export default function AssessmentsPage() {
                   <span className="tile-progress">
                     <span className="tile-progress-label">
                       {assignment.progress.documentsAttached} of {assignment.progress.documentsNeeded} documents attached
+                      {assignment.progress.answersMissing
+                        ? ` · ${assignment.progress.answersMissing} answer${assignment.progress.answersMissing === 1 ? "" : "s"} to write`
+                        : ""}
                     </span>
                     <span
                       className="tile-progress-track"
@@ -310,9 +328,11 @@ export default function AssessmentsPage() {
             <>
               <h2 id="start-modal-title">Start a new application</h2>
               <p className="modal-sub">
-                {drafts.length === 1
-                  ? "You have an application that is not submitted yet. Continue it, or start another."
-                  : `You have ${drafts.length} applications that are not submitted yet. Continue one, or start another.`}
+                {drafts.length === 0
+                  ? "Continue from your previous application with its details filled in, or start another."
+                  : drafts.length === 1
+                    ? "You have an application that is not submitted yet. Continue it, or start another."
+                    : `You have ${drafts.length} applications that are not submitted yet. Continue one, or start another.`}
               </p>
 
               {drafts.length === 1 && (
@@ -350,6 +370,38 @@ export default function AssessmentsPage() {
                   <ArrowRightIcon size={15} className="choice-arrow" />
                 </button>
               ))}
+
+              {previous && (
+                <button
+                  className={`choice${!previousDecided || atLimit ? " is-disabled" : ""}`}
+                  disabled={!previousDecided || atLimit || continueFrom.isPending}
+                  onClick={continuePrevious}
+                >
+                  <span className="choice-icon">
+                    <PencilIcon size={17} />
+                  </span>
+                  <span className="choice-text">
+                    <span className="choice-title">
+                      {continueFrom.isPending ? "Starting…" : "Continue with previous"}
+                    </span>
+                    <span className="choice-sub">
+                      {!previousDecided
+                        ? `${previous.reference} is ${STAGE_LABELS[previous.stage].applicant.toLowerCase()}. Available once a decision is made.`
+                        : atLimit
+                          ? `You have ${MAX_OPEN_DRAFTS} applications not submitted yet. Submit or remove one first.`
+                          : `${previous.department.name} · ${previous.entity} · ${previous.reference}: its details filled in, straight to the questions`}
+                    </span>
+                  </span>
+                  <ArrowRightIcon size={15} className="choice-arrow" />
+                </button>
+              )}
+              {continueFrom.isError && (
+                <p className="field-error" role="alert">
+                  {continueFrom.error instanceof ApiError && continueFrom.error.message
+                    ? continueFrom.error.message
+                    : "The application could not be started. Try again."}
+                </p>
+              )}
 
               <button
                 className={`choice${atLimit ? " is-disabled" : ""}`}

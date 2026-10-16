@@ -35,7 +35,7 @@ export default function DecisionDialog({
   const canConfirm = remarks.trim().length > 0;
 
   return (
-    <Modal labelledBy="decision-title" wide onClose={onCancel}>
+    <Modal labelledBy="decision-title" wide dismissible={!remarks.trim()} onClose={onCancel}>
       <ModalBanner
         tone={isAccept ? "good" : "critical"}
         icon={isAccept ? <CheckCircleIcon size={17} /> : <AlertTriangleIcon size={17} />}

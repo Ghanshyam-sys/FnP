@@ -5,6 +5,7 @@ import { refusalMessage } from "../api/client";
 import { useCaseView } from "../api/useCaseView";
 import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
+import { queueUrl } from "../state/queueReturn";
 import { Loading, LoadError } from "../components/LoadState";
 import ReportView from "../components/ReportView";
 import EmptyState from "../components/EmptyState";
@@ -66,7 +67,7 @@ export default function ReviewerResultPage() {
           )}
         </EmptyState>
         <footer className="actionbar">
-          <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+          <button className="btn btn-ghost" onClick={() => navigate(queueUrl())}>
             <ArrowLeftIcon size={15} />
             Back to the queue
           </button>
@@ -235,7 +236,7 @@ export default function ReviewerResultPage() {
 
 
       <footer className="actionbar">
-        <button className="btn btn-ghost" onClick={() => navigate(routes.reviewer())}>
+        <button className="btn btn-ghost" onClick={() => navigate(queueUrl())}>
           <ArrowLeftIcon size={15} />
           Back to the queue
         </button>

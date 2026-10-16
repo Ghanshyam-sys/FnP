@@ -32,6 +32,11 @@
   animation: pop 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
+/* Focused on opening when it has no control to focus first; the box takes no focus ring. */
+.modal:focus {
+  outline: none;
+}
+
 .modal h2 {
   font-size: 1.0625rem;
 }

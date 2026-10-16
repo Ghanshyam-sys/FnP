@@ -10,7 +10,6 @@ from django.utils import timezone
 
 from . import catalogue, validation
 from .models import (
-    Answer,
     ApplicantProfile,
     Assessment,
     EvidenceFile,
@@ -42,7 +41,7 @@ def submission_payload(
     for q in questions.values():
         if not sections or sections[-1]["section"] != q.section.name:
             sections.append({"section": q.section.name, "section_weight": float(q.section.weight), "questions": []})
-        answer = answers.get(q.qid, Answer.NO)
+        answer = answers.get(q.qid, catalogue.default_answer(q))
         sections[-1]["questions"].append({
             "qid": q.qid,
             "question": q.text,
