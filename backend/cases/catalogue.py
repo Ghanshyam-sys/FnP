@@ -88,11 +88,44 @@ def options_by_code() -> dict[str, dict]:
     return {o["code"]: o for o in all_engine_options()}
 
 
+# A document type the reviewer named themselves for a question added here: its code carries the
+# name, and the engine reads it as a document of another kind (its generic "other" type).
+CUSTOM_PREFIX = "CUSTOM:"
+CUSTOM_NAME_MAX = 60 - len(CUSTOM_PREFIX)
+
+
+def custom_name(code: str) -> str | None:
+    """The name in a document type the reviewer named, or None for the engine's own codes."""
+    if not code.startswith(CUSTOM_PREFIX):
+        return None
+    name = code[len(CUSTOM_PREFIX):]
+    return name or None
+
+
+def custom_option(code: str) -> dict | None:
+    name = custom_name(code)
+    if name is None:
+        return None
+    return {
+        "code": code, "label": name, "display": name, "doc_type": "other", "unprofiled": True,
+        "note": "Named in this app's question configuration; the engine reads it as a document of another kind.",
+    }
+
+
 def chosen_options(codes: list[str], by_code: dict[str, dict] | None = None) -> list[dict]:
-    """The engine's document types with these codes, in this order (unknown codes left out).
-    Pass options_by_code() as by_code when looking up several questions' at once."""
-    by_code = options_by_code() if by_code is None else by_code
-    return [by_code[c] for c in codes if c in by_code]
+    """The document types with these codes, in this order: the engine's, and those the reviewer
+    named (unknown codes left out). Pass options_by_code() as by_code when looking up several
+    questions' at once."""
+    if all(custom_name(c) is not None for c in codes):
+        by_code = {}  # nothing to look up from the engine
+    else:
+        by_code = options_by_code() if by_code is None else by_code
+    chosen = []
+    for c in codes:
+        found = custom_option(c) or by_code.get(c)
+        if found is not None:
+            chosen.append(found)
+    return chosen
 
 
 def options_for(qid: str, question: Question | None = None) -> list[dict]:
@@ -121,5 +154,6 @@ def added_question_options() -> dict[str, list[dict]]:
         ):
             chosen[qid] = codes
         cache.set(key, chosen, None)
-    by_code = options_by_code()
+    needs_engine = any(custom_name(c) is None for codes in chosen.values() for c in codes)
+    by_code = options_by_code() if needs_engine else {}
     return {qid: chosen_options(codes, by_code) for qid, codes in chosen.items()}

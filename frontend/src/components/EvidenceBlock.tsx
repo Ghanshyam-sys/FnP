@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { ApiError } from "../api/client";
-import { acceptAttribute, DEFAULT_MAX_UPLOAD_BYTES, fileProblem, formatHint, OTHER_CODE, sizeHint } from "../domain/catalogue";
+import { acceptAttribute, customName, DEFAULT_MAX_UPLOAD_BYTES, fileProblem, formatHint, OTHER_CODE, sizeHint } from "../domain/catalogue";
 import { useCatalogue } from "../api/queries";
 import { FileTextIcon, UploadIcon, XIcon } from "./icons";
 import type { EvidenceOption } from "../domain/catalogue";
@@ -268,7 +268,14 @@ export default function EvidenceBlock({
   }
 
   const remaining = allowSupporting
-    ? options.filter((o) => o.code === OTHER_CODE || !evidence.some((e) => e.doc_type === o.docType))
+    ? options.filter((o) =>
+        o.code === OTHER_CODE
+          ? true
+          : // Document types named here share the engine's "other" type: each is told apart by its code.
+            customName(o.code) !== null
+            ? !evidence.some((e) => e.option_code === o.code)
+            : !evidence.some((e) => e.doc_type === o.docType)
+      )
     : [];
 
   return (

@@ -10,6 +10,19 @@ import type { Answer, EvidenceRef } from "./types";
 export const CV_QID = "CV";
 export const OTHER_CODE = "OTHER";
 
+/** A document type the reviewer named for a question added here: its code carries the name. */
+const CUSTOM_PREFIX = "CUSTOM:";
+export const CUSTOM_NAME_MAX = 60 - CUSTOM_PREFIX.length;
+
+export function customCode(name: string): string {
+  return CUSTOM_PREFIX + name;
+}
+
+/** The name in a document type the reviewer named, or null for the engine's own. */
+export function customName(code: string): string | null {
+  return code.startsWith(CUSTOM_PREFIX) && code.length > CUSTOM_PREFIX.length ? code.slice(CUSTOM_PREFIX.length) : null;
+}
+
 export interface EvidenceOption {
   code: string;
   label: string;
@@ -116,5 +129,8 @@ export function documentLabel(catalogue: Catalogue, file: EvidenceRef, qid: stri
   if (file.option_code === OTHER_CODE) {
     return file.description ? `Other — ${file.description}` : "Other — please specify";
   }
+  // Named in the question configuration: the name says what it is (its type is the engine's "other").
+  const named = customName(file.option_code);
+  if (named) return named;
   return labelForDocType(catalogue, file.doc_type, qid);
 }

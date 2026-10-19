@@ -5,7 +5,7 @@ from .views.assessments import AssessmentDetailView, AssessmentListView, Continu
 from .views.case import (
     CaseView, CompleteReviewView, DecisionView, ForceScoreView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView,
 )
-from .views.catalogue import CatalogueView, DepartmentListView, QuestionnaireView
+from .views.catalogue import CatalogueView, DepartmentListView, QuestionnaireImpactView, QuestionnaireView
 from .views.evidence import EvidenceDetailView, EvidenceFileView, EvidenceUploadView
 from .views.form import FormResetView, FormView
 from .views.session import SessionView
@@ -21,6 +21,7 @@ urlpatterns = [
     path("catalogue", CatalogueView.as_view(), name="catalogue"),
     path("departments", DepartmentListView.as_view(), name="departments"),
     path("questionnaire", QuestionnaireView.as_view(), name="questionnaire"),
+    path("questionnaire/impact", QuestionnaireImpactView.as_view(), name="questionnaire-impact"),
     path("assessments", AssessmentListView.as_view(), name="assessments"),
     path(A, AssessmentDetailView.as_view(), name="assessment"),
     path(f"{A}/continue", ContinueView.as_view(), name="continue"),

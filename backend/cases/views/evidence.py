@@ -114,6 +114,9 @@ class EvidenceUploadView(APIView):
             raise ValidationError({"optionCode": "Choose a document type from the list."})
         if option["code"] == "OTHER" and not description:
             raise ValidationError({"description": "Describe the document you are attaching."})
+        if catalogue.custom_name(option["code"]) and not description:
+            # A document type the reviewer named: its name says what the document is.
+            description = option["label"][:200]
 
         current = EvidenceFile.objects.filter(assessment=assessment, qid=qid, superseded_at__isnull=True)
         if role == EvidenceRole.SUPPORTING:

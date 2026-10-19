@@ -20,6 +20,7 @@ const openDialogs: symbol[] = [];
 export default function Modal({
   labelledBy,
   wide = false,
+  panel = false,
   portal = true,
   dismissible = true,
   onClose,
@@ -27,6 +28,8 @@ export default function Modal({
 }: {
   labelledBy: string;
   wide?: boolean;
+  /** A side panel along the right edge (full screen on a phone) rather than a box in the middle. */
+  panel?: boolean;
   portal?: boolean;
   dismissible?: boolean;
   onClose: () => void;
@@ -86,11 +89,15 @@ export default function Modal({
   }, [opener]);
 
   const dialog = (
-    <div className="modal-overlay" role="presentation" onClick={() => dismissible && onClose()}>
+    <div
+      className={`modal-overlay${panel ? " is-panel" : ""}`}
+      role="presentation"
+      onClick={() => dismissible && onClose()}
+    >
       <div
         ref={box}
         tabIndex={-1}
-        className={`modal${wide ? " modal-wide" : ""}`}
+        className={`modal${wide ? " modal-wide" : ""}${panel ? " modal-panel" : ""}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={labelledBy}

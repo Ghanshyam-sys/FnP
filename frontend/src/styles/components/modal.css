@@ -96,3 +96,64 @@
   text-align: center;
   line-height: 1.45;
 }
+
+/* ---- A side panel (Modal panel): along the right edge, full height; full screen on a phone ---- */
+.modal-overlay.is-panel {
+  padding: 0;
+  justify-content: flex-end;
+  overflow: hidden;
+}
+
+.modal.modal-panel {
+  margin: 0;
+  width: 100%;
+  max-width: 36rem;
+  height: 100%;
+  padding: 1.5rem 1.5rem 0;
+  border-width: 0 0 0 1px;
+  border-radius: 0;
+  overflow-y: auto;
+  gap: 1.1rem;
+  animation: panel-in 0.24s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* The panel's actions stay in view at its foot while its content scrolls. */
+.panel-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin: auto -1.5rem 0;
+  padding: 0.9rem 1.5rem;
+  background: var(--surface);
+  border-top: 1px solid var(--hairline);
+}
+
+/* Asking before Cancel throws away a question's changes. */
+.panel-foot-ask {
+  margin-right: auto;
+  align-self: center;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+@media (max-width: 640px) {
+  .modal.modal-panel {
+    max-width: none;
+    border-left: 0;
+  }
+}

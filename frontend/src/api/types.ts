@@ -189,6 +189,15 @@ export interface QuestionnaireSettings {
   evidenceOptionChoices: { code: string; label: string }[];
 }
 
+/** What changing the questions reaches on the applications not yet submitted (read on applying). */
+export interface QuestionnaireImpact {
+  drafts: number;
+  /** For each question, how many of them have an answer saved. */
+  answered: Record<string, number>;
+  /** For each question, how many of them have a document attached. */
+  documents: Record<string, number>;
+}
+
 export interface EvidenceItem {
   id: string;
   qid: string;

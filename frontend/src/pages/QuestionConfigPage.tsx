@@ -1,13 +1,34 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useQuestionnaire, useSaveQuestionnaire } from "../api/queries";
+import { useQuestionnaire, useQuestionnaireImpact, useSaveQuestionnaire } from "../api/queries";
 import { ApiError } from "../api/client";
-import type { SectionEdit } from "../api/queries";
-import type { AnswerType, CatalogueQuestion, EvidenceRule, QuestionnaireVersion } from "../api/types";
+import type { QuestionnaireSettings } from "../api/types";
 import { displaySection } from "../domain/sectionLabels";
+import {
+  TOTAL,
+  blankQuestion,
+  changeSummary,
+  evenSplit,
+  fromVersion,
+  hundredths,
+  newKey,
+  pctTotal,
+  questionProblem,
+  remainder,
+  shareStatus,
+  show,
+  toBody,
+  undoEdits,
+  weightsOf,
+} from "../domain/questionWeights";
+import type { EditQuestion, EditSection, QuestionSettingsDraft } from "../domain/questionWeights";
 import { queueUrl } from "../state/queueReturn";
 import { Loading, LoadError } from "../components/LoadState";
 import Modal from "../components/Modal";
+import WeightBar from "../components/questionConfig/WeightBar";
+import QuestionRow from "../components/questionConfig/QuestionRow";
+import QuestionEditPanel from "../components/questionConfig/QuestionEditPanel";
+import ChangeSummaryDialog from "../components/questionConfig/ChangeSummaryDialog";
 import {
   AlertTriangleIcon,
   ArrowLeftIcon,
@@ -17,205 +38,6 @@ import {
   SlidersIcon,
   XIcon,
 } from "../components/icons";
-import type { Answer } from "../domain/types";
-
-const ANSWERS: Answer[] = ["Yes", "No", "N/A"];
-// Weights are kept in hundredths, so 0.1 + 0.2 adds up to exactly 0.3; percentages likewise.
-const TOTAL = 10000; // 100.00, the section weights' total, and each section's percentages' total.
-
-/** A question as the editor holds it. */
-interface EditQuestion {
-  key: string;
-  /** Its code; null for a question added in this edit (the server gives it one). */
-  qid: string | null;
-  text: string;
-  polarity: "Positive" | "Negative";
-  answerType: AnswerType;
-  /** Its share of the section's weight, as typed. */
-  pct: string;
-  allowedAnswers: Answer[];
-  fileTypes: string[];
-  maxFiles: 1 | 2;
-  evidenceRequired: EvidenceRule;
-  evidenceOptions: string[];
-  /** Whether the reviewer chooses its document types (one added here); otherwise the engine's apply. */
-  ownOptions: boolean;
-  /** As published (null for one added now): its weight is kept exactly while nothing it depends on changes. */
-  baseWeight: number | null;
-  basePct: string;
-  /** As published (null for one added now), to say what changing them does. */
-  basePolarity: EditQuestion["polarity"] | null;
-  baseAnswerType: AnswerType | null;
-}
-
-interface EditSection {
-  key: string;
-  /** The name as shown and edited (the display name of a published section). */
-  name: string;
-  /** As published: the stored name, sent back unless it is renamed. */
-  baseName: string | null;
-  weight: string;
-  baseWeight: number | null;
-  baseCount: number;
-  questions: EditQuestion[];
-}
-
-let nextKey = 1;
-const newKey = () => `k${nextKey++}`;
-
-/** A number from 0 to 100 with at most two decimals, in hundredths; null otherwise. */
-function hundredths(text: string): number | null {
-  const trimmed = text.trim();
-  if (!/^\d{1,3}(\.\d{1,2})?$/.test(trimmed)) return null;
-  const value = Math.round(Number(trimmed) * 100);
-  return value <= TOTAL ? value : null;
-}
-
-const show = (h: number) => String(h / 100);
-
-function fromVersion(version: QuestionnaireVersion): EditSection[] {
-  return version.sections.map((s) => {
-    const questions = version.questions.filter((q) => q.section === s.name);
-    return {
-      key: newKey(),
-      name: displaySection(s.name),
-      baseName: s.name,
-      weight: String(s.weight),
-      baseWeight: s.weight,
-      baseCount: questions.length,
-      questions: withWholePercentages(questions.map((q) => fromQuestion(q, s.weight))),
-    };
-  });
-}
-
-/**
- * Percentages rounded one by one need not add up to 100 (6, 6 and 6 of 18 read 33.33 each, 99.99
- * in all): the last question takes what is left, so a published section always reads 100%.
- */
-function withWholePercentages(questions: EditQuestion[]): EditQuestion[] {
-  if (questions.length === 0) return questions;
-  const others = questions.slice(0, -1).reduce((sum, q) => sum + (hundredths(q.pct) ?? 0), 0);
-  const rest = TOTAL - others;
-  if (rest < 0) return questions;
-  const last = { ...questions[questions.length - 1], pct: show(rest), basePct: show(rest) };
-  return [...questions.slice(0, -1), last];
-}
-
-function fromQuestion(q: CatalogueQuestion, sectionWeight: number): EditQuestion {
-  const pct = sectionWeight > 0 ? String(Math.round((q.weight / sectionWeight) * 10000) / 100) : "0";
-  return {
-    key: newKey(),
-    qid: q.qid,
-    text: q.text,
-    polarity: q.polarity,
-    answerType: q.answerType ?? "choice",
-    pct,
-    allowedAnswers: q.allowedAnswers,
-    fileTypes: q.fileTypes,
-    maxFiles: q.maxFiles,
-    evidenceRequired: q.evidenceRequired,
-    evidenceOptions: q.evidenceOptions ?? [],
-    // A question added here names its document types (the engine has no list of its own for it).
-    ownOptions: q.addedHere ?? false,
-    baseWeight: q.weight,
-    basePct: pct,
-    basePolarity: q.polarity,
-    baseAnswerType: q.answerType ?? "choice",
-  };
-}
-
-function blankQuestion(pct = "0"): EditQuestion {
-  return {
-    key: newKey(),
-    qid: null,
-    text: "",
-    polarity: "Positive",
-    answerType: "choice",
-    pct,
-    allowedAnswers: ["Yes", "No"],
-    fileTypes: ["pdf"],
-    maxFiles: 1,
-    evidenceRequired: "if_yes",
-    evidenceOptions: [],
-    ownOptions: true,
-    baseWeight: null,
-    basePct: pct,
-    basePolarity: null,
-    baseAnswerType: null,
-  };
-}
-
-/**
- * Each question's weight, in hundredths, from the section's weight and the percentages: the last
- * question takes what is left, so they add up to the section's weight exactly. While nothing they
- * depend on has changed, the published weights stand as they are. Null while a number is not valid.
- */
-function weightsOf(section: EditSection): number[] | null {
-  const sw = hundredths(section.weight);
-  const pcts = section.questions.map((q) => hundredths(q.pct));
-  if (sw === null || pcts.some((p) => p === null)) return null;
-  const untouched =
-    section.baseWeight !== null &&
-    sw === Math.round(section.baseWeight * 100) &&
-    section.questions.length === section.baseCount &&
-    section.questions.every((q) => q.baseWeight !== null && q.pct === q.basePct);
-  if (untouched) return section.questions.map((q) => Math.round((q.baseWeight ?? 0) * 100));
-  if (pctTotal(section) !== TOTAL) return pcts.map((p) => Math.round((sw * (p ?? 0)) / TOTAL));
-  // Shared out exactly (largest remainder): each gets its share rounded down, and the hundredths
-  // left go to those with the biggest fractions, so they add up to the section weight and none is
-  // ever below 0.
-  const exact = pcts.map((p) => (sw * (p ?? 0)) / TOTAL);
-  const weights = exact.map(Math.floor);
-  let left = sw - weights.reduce((a, b) => a + b, 0);
-  const order = exact.map((x, i) => [x - Math.floor(x), i] as const).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
-  for (const [, i] of order) {
-    if (left <= 0) break;
-    weights[i] += 1;
-    left -= 1;
-  }
-  return weights;
-}
-
-function pctTotal(section: EditSection): number | null {
-  const pcts = section.questions.map((q) => hundredths(q.pct));
-  return pcts.some((p) => p === null) ? null : pcts.reduce<number>((a, b) => a + (b ?? 0), 0);
-}
-
-/** What is wrong with a question's settings, if anything. */
-function questionProblem(q: EditQuestion): string | null {
-  if (!q.text.trim()) return "Enter the question.";
-  if (hundredths(q.pct) === null) return "Enter a percentage from 0 to 100, with at most two decimals.";
-  if (q.answerType === "choice" && q.allowedAnswers.length === 0) return "Choose at least one answer option.";
-  if (q.evidenceRequired !== "never" && q.fileTypes.length === 0) return "Choose at least one accepted file type.";
-  if (q.ownOptions && q.evidenceRequired !== "never" && q.evidenceOptions.length === 0) {
-    return "Choose the document types this question takes.";
-  }
-  return null;
-}
-
-/** The questionnaire in the shape the server takes it. */
-function toBody(sections: EditSection[]): SectionEdit[] {
-  return sections.map((s) => {
-    const weights = weightsOf(s) ?? s.questions.map(() => 0);
-    const takesDocs = (q: EditQuestion) => q.evidenceRequired !== "never";
-    return {
-      name: s.baseName !== null && s.name.trim() === displaySection(s.baseName) ? s.baseName : s.name.trim(),
-      weight: (hundredths(s.weight) ?? 0) / 100,
-      questions: s.questions.map((q, i) => ({
-        qid: q.qid,
-        text: q.text.trim(),
-        polarity: q.polarity,
-        answerType: q.answerType,
-        weight: weights[i] / 100,
-        allowedAnswers: q.answerType === "text" ? [] : ANSWERS.filter((a) => q.allowedAnswers.includes(a)),
-        fileTypes: takesDocs(q) ? q.fileTypes : [],
-        maxFiles: takesDocs(q) ? q.maxFiles : 1,
-        evidenceRequired: q.evidenceRequired,
-        evidenceOptions: q.ownOptions && takesDocs(q) ? q.evidenceOptions : [],
-      })),
-    };
-  });
-}
 
 /** The messages from a refused save, or the general one. */
 function saveErrorText(error: unknown): string {
@@ -259,30 +81,31 @@ type Confirm =
   | { kind: "deleteSection"; sectionKey: string }
   | { kind: "deleteQuestion"; sectionKey: string; questionKey: string };
 
+/** The question open in the edit panel; `isNew` while it was just added and never confirmed. */
+interface Editing {
+  sectionKey: string;
+  questionKey: string;
+  isNew: boolean;
+}
+
 function QuestionConfigEditor({
   current,
   published,
   configurableFileTypes,
   evidenceOptionChoices = [],
   save,
-}: {
-  current: QuestionnaireVersion;
-  published: QuestionnaireVersion;
-  configurableFileTypes: string[];
-  evidenceOptionChoices?: { code: string; label: string }[];
-  save: ReturnType<typeof useSaveQuestionnaire>;
-}) {
+}: QuestionnaireSettings & { save: ReturnType<typeof useSaveQuestionnaire> }) {
   const navigate = useNavigate();
   const [sections, setSections] = useState<EditSection[]>(() => fromVersion(current));
   // The questionnaire as published, in the shape it is sent, to tell whether anything changed.
   const [saved] = useState(() => JSON.stringify(toBody(fromVersion(current))));
   const [confirm, setConfirm] = useState<Confirm | null>(null);
-  // Shown once a section was added: every section weight went back to 0 to be shared out again.
-  const [reweighing, setReweighing] = useState(false);
-  // The section weights as they were before a section was added, to put back if every section
-  // added is cancelled again.
-  const [beforeAdd, setBeforeAdd] = useState<Record<string, string> | null>(null);
-  // The field a section or question just added starts in (its name, or its question text).
+  const [editing, setEditing] = useState<Editing | null>(null);
+  // The summary of what applying changes, shown before it is published, with what it reaches on
+  // the applications not yet submitted, read as it opens (so the numbers are current).
+  const [reviewing, setReviewing] = useState(false);
+  const impact = useQuestionnaireImpact(reviewing);
+  // The field a section just added starts in (its name).
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
   const body = toBody(sections);
@@ -299,10 +122,14 @@ function QuestionConfigEditor({
   const sectionWeights = sections.map((s) => hundredths(s.weight));
   const sectionsValid = sectionWeights.every((w) => w !== null);
   const sectionTotal = sectionWeights.reduce<number>((a, b) => a + (b ?? 0), 0);
+  const sectionLeft = remainder(sections.map((s) => s.weight));
   const names = sections.map((s) => s.name.trim().toLowerCase());
   const nameProblem = (s: EditSection, i: number) =>
     !s.name.trim() ? "Name the section." : names.indexOf(names[i]) !== i ? "Another section has this name." : null;
-  const sectionsOk = sectionsValid && sectionTotal === TOTAL && sections.every((s, i) => !nameProblem(s, i));
+  // A section added in this edit starts at 0, the others keeping theirs: it waits for its share.
+  const unweighted = sections.filter((s) => s.baseName === null && hundredths(s.weight) === 0);
+  const sectionsOk =
+    sectionsValid && sectionTotal === TOTAL && unweighted.length === 0 && sections.every((s, i) => !nameProblem(s, i));
   const frozen = !(sectionsValid && sectionTotal === TOTAL);
   const sectionOff = (s: EditSection) => pctTotal(s) !== TOTAL || s.questions.some((q) => questionProblem(q));
   const allOk = sectionsOk && sections.every((s) => !sectionOff(s));
@@ -321,16 +148,35 @@ function QuestionConfigEditor({
     );
     save.reset();
   };
-  const toggle = <T,>(list: T[], item: T, order: T[]) =>
-    list.includes(item) ? list.filter((x) => x !== item) : order.filter((x) => list.includes(x) || x === item);
 
+  // ---- Sharing out 100 ----
+  const splitSections = () => {
+    const shares = evenSplit(sections.length);
+    setSections((prev) => prev.map((s, i) => ({ ...s, weight: show(shares[i]) })));
+    save.reset();
+  };
+  const fillLastSection = () => {
+    if (sectionLeft === null || sectionLeft <= 0 || sections.length === 0) return;
+    const last = sections[sections.length - 1];
+    updateSection(last.key, { weight: show((hundredths(last.weight) ?? 0) + sectionLeft) });
+  };
+  const splitQuestions = (section: EditSection) => {
+    const shares = evenSplit(section.questions.length);
+    updateSection(section.key, { questions: section.questions.map((q, i) => ({ ...q, pct: show(shares[i]) })) });
+  };
+  const fillLastQuestion = (section: EditSection, left: number) => {
+    const last = section.questions[section.questions.length - 1];
+    if (!last || left <= 0) return;
+    updateQuestion(section.key, last.key, { pct: show((hundredths(last.pct) ?? 0) + left) });
+  };
+
+  // ---- Adding and removing ----
   const addSection = () => {
-    // Every section weight goes back to 0, to be shared out again with the new section in; what
-    // they were is kept, in case the new section is cancelled.
-    setBeforeAdd((kept) => kept ?? Object.fromEntries(sections.map((s) => [s.key, s.weight])));
+    // The other sections keep their weights; the new one starts at 0, and the reviewer gives it
+    // its share by lowering the others (told so above), so the weights still add up to 100.
     const key = newKey();
     setSections((prev) => [
-      ...prev.map((s) => ({ ...s, weight: "0" })),
+      ...prev,
       {
         key,
         name: `New section ${prev.length + 1}`,
@@ -342,7 +188,6 @@ function QuestionConfigEditor({
       },
     ]);
     setFocusKey(`section:${key}`);
-    setReweighing(true);
     save.reset();
   };
   const addQuestion = (sectionKey: string) => {
@@ -350,22 +195,13 @@ function QuestionConfigEditor({
     setSections((prev) =>
       prev.map((s) => (s.key === sectionKey ? { ...s, questions: [...s.questions, question] } : s))
     );
-    setFocusKey(question.key);
+    // Its settings are filled in in the panel; cancelling there takes it away again.
+    setEditing({ sectionKey, questionKey: question.key, isNew: true });
     save.reset();
   };
-  /**
-   * Removes a section. Once every section added in this edit is gone again, the section weights
-   * that were set to 0 for it go back to what they were (any changed since stay as changed).
-   */
+  /** Removes a section; any weight it had is then left to share between the others. */
   const removeSection = (sectionKey: string) => {
-    const rest = sections.filter((s) => s.key !== sectionKey);
-    if (beforeAdd && !rest.some((s) => s.baseName === null)) {
-      setSections(rest.map((s) => (s.weight === "0" && beforeAdd[s.key] !== undefined ? { ...s, weight: beforeAdd[s.key] } : s)));
-      setBeforeAdd(null);
-      setReweighing(false);
-    } else {
-      setSections(rest);
-    }
+    setSections((prev) => prev.filter((s) => s.key !== sectionKey));
     save.reset();
   };
   const removeQuestion = (sectionKey: string, questionKey: string) => {
@@ -380,16 +216,34 @@ function QuestionConfigEditor({
     setConfirm(null);
   };
 
+  // ---- The edit panel ----
+  const editingSection = editing ? sections.find((s) => s.key === editing.sectionKey) : undefined;
+  const editingQuestion = editingSection?.questions.find((q) => q.key === editing?.questionKey);
+  const closePanel = (settings?: QuestionSettingsDraft) => {
+    if (!editing) return;
+    if (settings) {
+      updateQuestion(editing.sectionKey, editing.questionKey, settings);
+    } else if (editing.isNew) {
+      // Cancelled straight after adding it: the question goes again.
+      removeQuestion(editing.sectionKey, editing.questionKey);
+    }
+    setEditing(null);
+  };
+
+  // ---- Applying ----
   const apply = () => {
     if (!allOk) return;
-    save.mutate({ version: current.version, sections: body });
+    // A change is shown first, to be confirmed; with none, applying publishes nothing.
+    if (dirty) setReviewing(true);
+    else save.mutate({ version: current.version, sections: body });
+  };
+  const confirmApply = () => {
+    save.mutate({ version: current.version, sections: body }, { onSettled: () => setReviewing(false) });
   };
   const restore = () => {
     setConfirm(null);
     const restored = fromVersion(published);
     setSections(restored);
-    setReweighing(false);
-    setBeforeAdd(null);
     save.mutate({ version: current.version, sections: toBody(restored) });
   };
   const leave = () => (dirty ? setConfirm({ kind: "leave" }) : navigate(queueUrl()));
@@ -401,6 +255,7 @@ function QuestionConfigEditor({
       : confirm?.kind === "deleteQuestion"
         ? sections.find((s) => s.key === confirm.sectionKey)?.questions.find((q) => q.key === confirm.questionKey)
         : undefined;
+  const sectionStatus = shareStatus(sectionLeft, "");
 
   return (
     <div className="page">
@@ -444,34 +299,90 @@ function QuestionConfigEditor({
         <div>
           Weight drives the risk score. The section weights add up to 100. Within a section, give
           each question a percentage of the section's weight — its weight follows from that, and the
-          percentages add up to 100%. The weights go to the AI engine with each submission. Answer
-          options and attachment rules drive the data collection form: a question set to a single
-          file shows one picker, two allows a supporting document alongside the primary.
+          percentages add up to 100%. The weights go to the AI engine with each submission. Choose
+          Edit on a question to change its text, how it is answered, what counts as a risk and the
+          evidence it takes.
         </div>
       </div>
 
-      {frozen && (
+      {/* The questionnaire at a glance: each section's share of 100. */}
+      <section className="card qoverview" aria-label="Section weights">
+        <div className="qoverview-head">
+          <span className="section-title">Section weights</span>
+          <span className={`qstatus is-${sectionStatus.tone}`} role="status">
+            {sectionStatus.tone === "ok" && <CheckCircleIcon size={13} />}
+            {sectionStatus.tone !== "ok" && <AlertTriangleIcon size={13} />}
+            {sectionsValid ? `${show(sectionTotal)} of 100 · ` : ""}
+            {sectionStatus.text}
+          </span>
+          <span className="qoverview-actions">
+            {sectionLeft !== null && sectionLeft > 0 && sections.length > 0 && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={fillLastSection}>
+                Give the remaining {show(sectionLeft)} to {sections[sections.length - 1].name || "the last section"}
+              </button>
+            )}
+            {sections.length > 1 && (
+              <button type="button" className="btn btn-ghost btn-sm" onClick={splitSections}>
+                Split equally
+              </button>
+            )}
+          </span>
+        </div>
+        <WeightBar
+          legend
+          unit="%"
+          label="How the 100 is shared between the sections"
+          parts={sections.map((s) => ({
+            key: s.key,
+            label: s.name || "New section",
+            value: hundredths(s.weight) ?? 0,
+            onSelect: () => document.getElementById(`section-${s.key}`)?.scrollIntoView({ behavior: "smooth", block: "start" }),
+          }))}
+        />
+      </section>
+
+      {frozen ? (
         <div className="notice notice-warning" role="status">
           <AlertTriangleIcon size={17} />
           <div>
-            <strong>
-              {reweighing ? "A section was added, so every section weight is back to 0." : "The section weights do not add up to 100."}
-            </strong>{" "}
-            They add up to {sectionsValid ? show(sectionTotal) : "—"}; share 100 between the sections.
+            <strong>The section weights must add up to 100.</strong> They add up to{" "}
+            {sectionsValid ? show(sectionTotal) : "—"} now; change them so they come to 100.
             The questions are locked until the section weights add up to 100.
           </div>
         </div>
+      ) : (
+        unweighted.length > 0 && (
+          <div className="notice notice-warning" role="status">
+            <AlertTriangleIcon size={17} />
+            <div>
+              <strong>
+                {unweighted.map((s) => `"${s.name || "New section"}"`).join(", ")}{" "}
+                {unweighted.length === 1 ? "has" : "have"} no weight yet.
+              </strong>{" "}
+              The other sections keep their weights, and all section weights must add up to 100.
+              Lower the other sections' weights and give the new section its share — type the
+              numbers yourself, or use Split equally above.
+            </div>
+          </div>
+        )
       )}
 
       {sections.map((section, si) => {
         const weights = weightsOf(section);
         const pctSum = pctTotal(section);
+        const left = remainder(section.questions.map((q) => q.pct));
+        const status = shareStatus(left, "%");
         const off = !frozen && sectionOff(section);
-        const sectionWeightInvalid = hundredths(section.weight) === null;
+        const sectionWeight = hundredths(section.weight);
+        const sectionWeightInvalid = sectionWeight === null;
+        const needsWeight = unweighted.includes(section);
+        // How much of the section's weight its questions take between them.
+        const used = sectionWeight !== null && pctSum !== null ? Math.round((sectionWeight * pctSum) / TOTAL) : null;
         const nameError = nameProblem(section, si);
         const checkId = `pcheck-${section.key}`;
         return (
           <section
+            id={`section-${section.key}`}
             className={`card section qsection${frozen ? " is-frozen" : ""}${off || nameError ? " is-off" : ""}`}
             key={section.key}
             aria-label={section.name || "Section"}
@@ -505,22 +416,16 @@ function QuestionConfigEditor({
                   max={100}
                   step="any"
                   value={section.weight}
-                  aria-invalid={sectionWeightInvalid || frozen || undefined}
-                  onChange={(e) => {
-                    updateSection(section.key, { weight: e.target.value });
-                  }}
+                  aria-invalid={sectionWeightInvalid || frozen || needsWeight || undefined}
+                  aria-describedby={needsWeight ? `sneed-${section.key}` : undefined}
+                  onChange={(e) => updateSection(section.key, { weight: e.target.value })}
                 />
+                {needsWeight && (
+                  <span className="field-error" id={`sneed-${section.key}`}>
+                    Give this section a weight
+                  </span>
+                )}
               </div>
-              <span
-                id={checkId}
-                // While the questions are locked their check waits, neither passed nor failed.
-                className={`section-count weight-check${frozen ? "" : pctSum === TOTAL ? " is-ok" : " is-off"}`}
-              >
-                {!frozen && (pctSum === TOTAL ? <CheckCircleIcon size={13} /> : <AlertTriangleIcon size={13} />)}
-                <span>
-                  Questions {pctSum === null ? "—" : show(pctSum)}% of 100%
-                </span>
-              </span>
               {section.baseName === null ? (
                 // Added in this edit: cancelling it takes it away again (asked first only if
                 // something was typed in it).
@@ -552,272 +457,73 @@ function QuestionConfigEditor({
 
             <fieldset className="qsection-body" disabled={frozen}>
               <legend className="sr-only">Questions in {section.name}</legend>
-              {section.questions.map((q, qi) => {
-                const problem = questionProblem(q);
-                const pctInvalid = hundredths(q.pct) === null || (!frozen && pctSum !== TOTAL);
-                const takesDocs = q.evidenceRequired !== "never";
-                const isNew = q.qid === null;
-                return (
-                  <article className={`qconfig${!frozen && problem ? " is-off" : ""}`} key={q.key}>
-                    <div className="qconfig-prompt">
-                      <span className="qid">{q.qid ?? "New"}</span>
-                      <textarea
-                        className="input qconfig-text"
-                        rows={1}
-                        value={q.text}
-                        aria-label={`Question ${q.qid ?? "text"}`}
-                        placeholder="Type the question"
-                        maxLength={2000}
-                        autoFocus={focusKey === q.key}
-                        aria-invalid={!q.text.trim() || undefined}
-                        onChange={(e) => updateQuestion(section.key, q.key, { text: e.target.value })}
-                      />
+              <div className="qsection-share">
+                <span className="qsection-uses">
+                  Section weight <strong>{sectionWeightInvalid ? "—" : show(sectionWeight)}</strong> of 100 · its
+                  questions use <strong>{used === null ? "—" : show(used)}</strong> of it
+                </span>
+                <WeightBar
+                  unit="%"
+                  label={`How ${section.name || "the section"} is shared between its questions`}
+                  parts={section.questions.map((q) => ({ key: q.key, label: q.qid ?? "New", value: hundredths(q.pct) ?? 0 }))}
+                />
+                {/* How much of the section is shared out (the percentage fields are described by it).
+                    While the questions are locked it waits, neither passed nor failed. */}
+                {frozen ? (
+                  <span id={checkId} className="qstatus is-waiting">
+                    Questions {pctSum === null ? "—" : show(pctSum)}% assigned · waiting for the section weights to add up to 100
+                  </span>
+                ) : (
+                  <span id={checkId} className={`qstatus is-${status.tone}`}>
+                    {status.tone === "ok" ? <CheckCircleIcon size={13} /> : <AlertTriangleIcon size={13} />}
+                    {status.text}
+                    {left !== null && left > 0 && section.questions.length > 0 && (
                       <button
                         type="button"
-                        className="icon-button qconfig-delete"
-                        aria-label={`Delete question ${q.qid ?? ""}`.trim()}
-                        title={
-                          section.questions.length === 1
-                            ? "A section needs at least one question; delete the section instead"
-                            : "Delete question"
-                        }
-                        disabled={section.questions.length === 1}
-                        onClick={() =>
-                          // A question just added and still blank goes at once; others are asked about first.
-                          isNew && !q.text.trim()
-                            ? removeQuestion(section.key, q.key)
-                            : setConfirm({ kind: "deleteQuestion", sectionKey: section.key, questionKey: q.key })
-                        }
+                        className="link-button"
+                        onClick={() => fillLastQuestion(section, left)}
                       >
-                        <XIcon size={14} />
+                        Give it to {section.questions[section.questions.length - 1].qid ?? "the new question"}
                       </button>
-                    </div>
-
-                    <div className="qconfig-grid qconfig-grid-edit">
-                      <div className="qconfig-field">
-                        <label className="field-label" htmlFor={`p-${q.key}`}>
-                          Percentage
-                        </label>
-                        <div className="input-suffix">
-                          <input
-                            id={`p-${q.key}`}
-                            className="input input-num"
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            max={100}
-                            step="any"
-                            value={q.pct}
-                            aria-invalid={pctInvalid || undefined}
-                            aria-describedby={checkId}
-                            onChange={(e) => updateQuestion(section.key, q.key, { pct: e.target.value })}
-                          />
-                          <span aria-hidden="true">%</span>
-                        </div>
-                      </div>
-
-                      <div className="qconfig-field">
-                        <label className="field-label" htmlFor={`w-${q.key}`}>
-                          Weight
-                        </label>
-                        <input
-                          id={`w-${q.key}`}
-                          className="input input-num"
-                          value={weights ? show(weights[qi]) : "—"}
-                          readOnly
-                          tabIndex={-1}
-                          title="Section weight × percentage"
-                        />
-                      </div>
-
-                      <div className="qconfig-field">
-                        <label className="field-label" htmlFor={`pol-${q.key}`}>
-                          Polarity
-                        </label>
-                        <select
-                          id={`pol-${q.key}`}
-                          className="input"
-                          value={q.polarity}
-                          title="Decides which answer counts as a risk"
-                          onChange={(e) =>
-                            updateQuestion(section.key, q.key, { polarity: e.target.value as EditQuestion["polarity"] })
-                          }
-                        >
-                          <option value="Positive">Positive</option>
-                          <option value="Negative">Negative</option>
-                        </select>
-                        {q.basePolarity !== null && q.polarity !== q.basePolarity && (
-                          <span className="qconfig-note is-changed">Changes which answer counts as a risk.</span>
-                        )}
-                      </div>
-
-                      <div className="qconfig-field">
-                        <span className="field-label" id={`at-${q.key}`}>
-                          Answer type
-                        </span>
-                        <div className="segmented segmented-sm" role="radiogroup" aria-labelledby={`at-${q.key}`}>
-                          {(
-                            [
-                              ["choice", "Yes / No"],
-                              ["text", "Text"],
-                            ] as const
-                          ).map(([type, label]) => (
-                            <button
-                              key={type}
-                              type="button"
-                              role="radio"
-                              aria-checked={q.answerType === type}
-                              className={`segment${q.answerType === type ? " is-selected" : ""}`}
-                              onClick={() =>
-                                updateQuestion(section.key, q.key, {
-                                  answerType: type,
-                                  allowedAnswers:
-                                    type === "choice" && q.allowedAnswers.length === 0 ? ["Yes", "No"] : q.allowedAnswers,
-                                  // Words are not Yes or No: a document is then always or never asked for.
-                                  evidenceRequired:
-                                    type === "text" && q.evidenceRequired === "if_yes" ? "never" : q.evidenceRequired,
-                                })
-                              }
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                        {q.baseAnswerType !== null && q.answerType !== q.baseAnswerType && (
-                          <span className="qconfig-note is-changed">
-                            Answers already saved for it on applications not yet submitted are cleared.
-                          </span>
-                        )}
-                        {q.answerType === "text" ? (
-                          <span className="qconfig-note">Answered in words</span>
-                        ) : (
-                          <div className="chipset">
-                            {ANSWERS.map((a) => (
-                              <button
-                                key={a}
-                                type="button"
-                                className={`toggle-chip${q.allowedAnswers.includes(a) ? " is-on" : ""}`}
-                                aria-pressed={q.allowedAnswers.includes(a)}
-                                onClick={() => {
-                                  const next = toggle(q.allowedAnswers, a, ANSWERS);
-                                  // A question with no answer options could not be filled in at all.
-                                  if (next.length > 0) updateQuestion(section.key, q.key, { allowedAnswers: next });
-                                }}
-                              >
-                                {a}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="qconfig-field">
-                        <label className="field-label" htmlFor={`e-${q.key}`}>
-                          Document
-                        </label>
-                        <select
-                          id={`e-${q.key}`}
-                          className="input"
-                          value={q.evidenceRequired}
-                          onChange={(e) => {
-                            const evidenceRequired = e.target.value as EvidenceRule;
-                            updateQuestion(section.key, q.key, {
-                              evidenceRequired,
-                              // Asked for a document again: it takes PDF unless other formats are chosen.
-                              fileTypes: evidenceRequired !== "never" && q.fileTypes.length === 0 ? ["pdf"] : q.fileTypes,
-                            });
-                          }}
-                        >
-                          <option value="always">Always required</option>
-                          {q.answerType === "choice" && <option value="if_yes">Required if Yes</option>}
-                          <option value="never">Not required</option>
-                        </select>
-                      </div>
-
-                      {takesDocs && (
-                        <div className="qconfig-field">
-                          <span className="field-label">Accepted file types</span>
-                          <div className="chipset">
-                            {configurableFileTypes.map((t) => (
-                              <button
-                                key={t}
-                                type="button"
-                                className={`toggle-chip${q.fileTypes.includes(t) ? " is-on" : ""}`}
-                                aria-pressed={q.fileTypes.includes(t)}
-                                onClick={() => {
-                                  const next = toggle(q.fileTypes, t, configurableFileTypes);
-                                  if (next.length > 0) updateQuestion(section.key, q.key, { fileTypes: next });
-                                }}
-                              >
-                                {t.toUpperCase()}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {takesDocs && (
-                        <div className="qconfig-field">
-                          <label className="field-label" htmlFor={`f-${q.key}`}>
-                            Files allowed
-                          </label>
-                          <select
-                            id={`f-${q.key}`}
-                            className="input"
-                            value={q.maxFiles}
-                            onChange={(e) =>
-                              updateQuestion(section.key, q.key, { maxFiles: Number(e.target.value) as 1 | 2 })
-                            }
-                          >
-                            <option value={1}>1 — primary only</option>
-                            <option value={2}>2 — primary and supporting</option>
-                          </select>
-                        </div>
-                      )}
-                    </div>
-
-                    {q.ownOptions && takesDocs && (
-                      <div className="qconfig-field qconfig-doctypes">
-                        <span className="field-label">Document types this question takes</span>
-                        {evidenceOptionChoices.length === 0 ? (
-                          <span className="qconfig-note">
-                            The AI engine's document types could not be loaded. Reload the page to try again.
-                          </span>
-                        ) : (
-                          <div className="chipset">
-                            {evidenceOptionChoices.map((o) => (
-                              <button
-                                key={o.code}
-                                type="button"
-                                className={`toggle-chip${q.evidenceOptions.includes(o.code) ? " is-on" : ""}`}
-                                aria-pressed={q.evidenceOptions.includes(o.code)}
-                                onClick={() =>
-                                  updateQuestion(section.key, q.key, {
-                                    evidenceOptions: toggle(
-                                      q.evidenceOptions,
-                                      o.code,
-                                      evidenceOptionChoices.map((c) => c.code)
-                                    ),
-                                  })
-                                }
-                              >
-                                {o.label}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
                     )}
+                  </span>
+                )}
+              </div>
 
-                    {!frozen && problem && <p className="field-error qconfig-problem">{problem}</p>}
-                  </article>
-                );
-              })}
+              {section.questions.map((q, qi) => (
+                <QuestionRow
+                  key={q.key}
+                  question={q}
+                  weight={weights ? weights[qi] : null}
+                  sectionWeight={sectionWeight}
+                  problem={frozen ? null : questionProblem(q)}
+                  checkId={checkId}
+                  pctInvalid={!frozen && pctSum !== TOTAL}
+                  deleteDisabledReason={
+                    section.questions.length === 1 ? "A section needs at least one question; delete the section instead" : null
+                  }
+                  onPct={(pct) => updateQuestion(section.key, q.key, { pct })}
+                  onEdit={() => setEditing({ sectionKey: section.key, questionKey: q.key, isNew: false })}
+                  onUndo={() => updateQuestion(section.key, q.key, undoEdits(q))}
+                  onDelete={() =>
+                    // A question just added and still blank goes at once; others are asked about first.
+                    q.qid === null && !q.text.trim()
+                      ? removeQuestion(section.key, q.key)
+                      : setConfirm({ kind: "deleteQuestion", sectionKey: section.key, questionKey: q.key })
+                  }
+                />
+              ))}
+
               <div className="qsection-foot">
                 <button type="button" className="btn btn-ghost btn-sm" onClick={() => addQuestion(section.key)}>
                   <PlusIcon size={14} />
                   Add question
                 </button>
+                {section.questions.length > 1 && (
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => splitQuestions(section)}>
+                    Split equally
+                  </button>
+                )}
               </div>
             </fieldset>
           </section>
@@ -831,7 +537,7 @@ function QuestionConfigEditor({
         </button>
       </div>
 
-      {!frozen && !allOk && (
+      {!frozen && !allOk && unweighted.length === 0 && (
         <div className="notice notice-warning" role="status">
           <AlertTriangleIcon size={17} />
           <div>
@@ -856,13 +562,37 @@ function QuestionConfigEditor({
         <button
           className="btn btn-primary"
           disabled={save.isPending || !allOk}
-          title={allOk ? undefined : "Section weights must add up to 100, and each section's percentages to 100%"}
+          title={allOk ? undefined : "Section weights must add up to 100 (each with a weight), and each section's percentages to 100%"}
           onClick={apply}
         >
           <SlidersIcon size={15} />
           {save.isPending ? "Applying…" : "Apply configuration"}
         </button>
       </footer>
+
+      {editing && editingSection && editingQuestion && (
+        <QuestionEditPanel
+          key={editing.questionKey}
+          question={editingQuestion}
+          section={editingSection}
+          isNew={editing.isNew}
+          configurableFileTypes={configurableFileTypes}
+          evidenceOptionChoices={evidenceOptionChoices}
+          onDone={(settings) => closePanel(settings)}
+          onCancel={() => closePanel()}
+        />
+      )}
+
+      {reviewing && (
+        <ChangeSummaryDialog
+          lines={changeSummary(current, body, impact.data ?? null)}
+          drafts={impact.data?.drafts ?? null}
+          checking={impact.isPending}
+          pending={save.isPending}
+          onApply={confirmApply}
+          onBack={() => setReviewing(false)}
+        />
+      )}
 
       {confirm?.kind === "leave" && (
         <Modal labelledBy="leave-title" onClose={() => setConfirm(null)}>
@@ -936,3 +666,4 @@ function QuestionConfigEditor({
     </div>
   );
 }
+

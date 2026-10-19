@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import Count, Max
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -160,6 +160,7 @@ class QuestionnaireView(APIView):
             "evidenceOptionChoices": choices,
         })
 
+
     def put(self, request):
         body = request.data if isinstance(request.data, dict) else {}
         if "sections" in body:
@@ -236,6 +237,31 @@ class QuestionnaireView(APIView):
         return Response(_version_payload(new))
 
 
+class QuestionnaireImpactView(APIView):
+    """Reviewer: what changing the questions would reach on the forms not yet submitted, read when
+    the reviewer is about to apply a change (so the numbers are current): how many such forms there
+    are, and for each question how many have an answer saved and how many a document attached. A
+    publish clears these where a question is deleted, retyped or no longer takes a document."""
+
+    permission_classes = [IsReviewer]
+
+    def get(self, request):
+        drafts = Assessment.objects.filter(stage=Stage.NOT_SUBMITTED)
+        return Response({
+            "drafts": drafts.count(),
+            # One answer per question per form (a unique rule), so rows are forms.
+            "answered": dict(
+                AnswerValue.objects.filter(assessment__stage=Stage.NOT_SUBMITTED)
+                .values_list("qid").annotate(n=Count("pk")).order_by()
+            ),
+            # Forms with a current document under each question.
+            "documents": dict(
+                EvidenceFile.objects.filter(assessment__stage=Stage.NOT_SUBMITTED, superseded_at__isnull=True)
+                .values_list("qid").annotate(n=Count("assessment", distinct=True)).order_by()
+            ),
+        })
+
+
 # ---- Editing the whole questionnaire: sections and questions added, changed or deleted --------
 
 class QuestionEditSerializer(serializers.Serializer):
@@ -277,6 +303,33 @@ def _new_qids(count: int) -> list[str]:
         if f"N{n}" not in every:
             codes.append(f"N{n}")
     return codes
+
+
+def _own_options(codes: list[str], engine_codes: set[str] | None) -> tuple[list[str], str | None]:
+    """The document types chosen for a question added here, in order and once each: the engine's
+    codes it knows, and names the reviewer typed in (as CUSTOM:<name>, spaces tidied). Unknown
+    engine codes are left out; a name too long or with control characters is refused."""
+    options: list[str] = []
+    seen: set[str] = set()
+    for code in codes:
+        name = catalogue.custom_name(code)
+        if name is None:
+            if engine_codes and code in engine_codes and code not in seen:
+                seen.add(code)
+                options.append(code)
+            continue
+        name = " ".join(name.split())
+        if not name:
+            continue
+        if len(name) > catalogue.CUSTOM_NAME_MAX:
+            return [], f"A document name can be at most {catalogue.CUSTOM_NAME_MAX} characters."
+        if any(ord(ch) < 32 or 0xD800 <= ord(ch) <= 0xDFFF for ch in name):
+            return [], "A document name cannot contain control characters."
+        if name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
+        options.append(catalogue.CUSTOM_PREFIX + name)
+    return options, None
 
 
 def _publish_structure(request, body: dict):
@@ -361,9 +414,13 @@ def _publish_structure(request, body: dict):
                 # A question added here names its document types; one the engine knows uses the engine's.
                 needs_own_options = takes_documents and (before is None or before.added_here)
                 if needs_own_options:
-                    if engine_codes is None:
+                    # Only names the reviewer typed in need nothing from the engine.
+                    if engine_codes is None and any(catalogue.custom_name(c) is None for c in q["evidenceOptions"]):
                         engine_codes = {o["code"] for o in catalogue.all_engine_options()}
-                    options = [c for c in dict.fromkeys(q["evidenceOptions"]) if c in engine_codes]
+                    options, problem = _own_options(q["evidenceOptions"], engine_codes)
+                    if problem:
+                        errors[f"questions.{label}"] = problem
+                        continue
                     if not options:
                         errors[f"questions.{label}"] = "Choose the document types this question takes."
                         continue

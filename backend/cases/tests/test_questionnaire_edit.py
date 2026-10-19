@@ -375,3 +375,65 @@ def test_settings_only_saves_keep_a_text_question_and_added_flag(reviewer):
     a1 = {"allowedAnswers": ["Yes", "No"], "fileTypes": ["pdf", "png"], "maxFiles": 1}
     after = {q["qid"]: q for q in reviewer.put("/api/questionnaire", {"version": version, "questions": {"A1": a1}}).json()["questions"]}
     assert after["N1"]["answerType"] == "text" and after["N1"]["addedHere"] is True and after["N1"]["evidenceOptions"] == ["PASSPORT"]
+
+
+def test_the_editor_is_told_how_many_drafts_each_change_reaches(reviewer, applicant):
+    aid = reviewer.post("/api/assessments", NEW).json()["id"]
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {"A4": "Yes"}})
+    upload = {"file": SimpleUploadedFile("passport.pdf", PDF), "qid": "A1", "optionCode": "PASSPORT"}
+    assert applicant.post(f"/api/assessments/{aid}/evidence", upload, multipart=True).status_code == 201
+    make.assessment(public_id="FNP-2026-0950", reference="BL-USE-1", stage="REVIEW_PENDING").answers.create(qid="A4", value="No")
+    impact = reviewer.get("/api/questionnaire/impact").json()
+    assert impact == {"drafts": 1, "answered": {"A4": 1}, "documents": {"A1": 1}}
+    # Read when needed, not with every load of the editor; reviewers only.
+    assert "draftUse" not in reviewer.get("/api/questionnaire").json()
+    assert applicant.get("/api/questionnaire/impact").status_code == 403
+
+
+def test_a_question_added_here_can_take_document_types_named_here(reviewer, applicant):
+    body = structure(reviewer)
+    body["sections"][-1]["questions"].append(new_question(
+        evidenceOptions=["PASSPORT", "CUSTOM:  Professional   licence ", "CUSTOM:professional licence", "CUSTOM:"],
+    ))
+    response = reviewer.put("/api/questionnaire", body)
+    assert response.status_code == 200, response.json()
+    added = next(q for q in response.json()["questions"] if q["qid"] == "N1")
+    # Spaces tidied, the same name once, an empty one left out.
+    assert added["evidenceOptions"] == ["PASSPORT", "CUSTOM:Professional licence"]
+
+    options = applicant.get("/api/catalogue").json()["evidenceOptions"]["N1"]
+    assert [(o["code"], o["label"], o["doc_type"]) for o in options] == [
+        ("PASSPORT", options[0]["label"], "passport"),
+        ("CUSTOM:Professional licence", "Professional licence", "other"),
+    ]
+    aid = reviewer.post("/api/assessments", NEW).json()["id"]
+    form = applicant.get(f"/api/assessments/{aid}/form").json()
+    entry = next(a for a in form["answers"] if a["qid"] == "N1")
+    assert [o["code"] for o in entry["evidenceOptions"]] == ["PASSPORT", "CUSTOM:Professional licence"]
+
+    # Attached under its name, it needs no description and reaches the engine as "other".
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {"N1": "Yes"}})
+    upload = {"file": SimpleUploadedFile("licence.pdf", PDF), "qid": "N1", "optionCode": "CUSTOM:Professional licence"}
+    created = applicant.post(f"/api/assessments/{aid}/evidence", upload, multipart=True)
+    assert created.status_code == 201, created.json()
+    assert created.json()["docType"] == "other" and created.json()["description"] == "Professional licence"
+    unknown = {"file": SimpleUploadedFile("x.pdf", PDF), "qid": "N1", "optionCode": "CUSTOM:Something else"}
+    assert applicant.post(f"/api/assessments/{aid}/evidence", unknown, multipart=True).status_code == 400
+    assessment = Assessment.objects.get(public_id=aid)
+    questions = catalogue.questions(catalogue.version_for(assessment).pk)
+    payload = adapt.submission_payload(assessment, questions, {"N1": "Yes"}, None, list(assessment.evidence.all()))
+    sent = next(q for s in payload["sections"] for q in s["questions"] if q["qid"] == "N1")
+    assert sent["evidence"] == [{"doc_type": "other", "role": "primary"}]
+
+
+def test_a_document_name_typed_in_is_checked(reviewer):
+    body = structure(reviewer)
+    body["sections"][-1]["questions"].append(new_question(evidenceOptions=["CUSTOM:" + "x" * (catalogue.CUSTOM_NAME_MAX + 1)]))
+    refused = reviewer.put("/api/questionnaire", body)
+    assert refused.status_code == 400
+    body["sections"][-1]["questions"][-1]["evidenceOptions"] = ["CUSTOM:Bad\x01name"]
+    refused = reviewer.put("/api/questionnaire", body)
+    assert refused.status_code == 400 and any("control characters" in str(v) for v in refused.json().values())
+    # Names alone are enough: the engine's list is not needed.
+    body["sections"][-1]["questions"][-1]["evidenceOptions"] = ["CUSTOM:Board minutes"]
+    assert reviewer.put("/api/questionnaire", body).status_code == 200

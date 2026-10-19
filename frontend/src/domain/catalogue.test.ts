@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileProblem, sizeHint, withFormOptions } from "./catalogue";
+import { customCode, customName, documentLabel, fileProblem, sizeHint, withFormOptions } from "./catalogue";
 import type { Catalogue, Form } from "../api/types";
 
 const MB = 1024 * 1024;
@@ -41,5 +41,19 @@ describe("withFormOptions", () => {
   it("leaves the catalogue as it is when no question has its own", () => {
     const form = { answers: [answer("A1", null)] } as unknown as Form;
     expect(withFormOptions(catalogue, form)).toBe(catalogue);
+  });
+});
+
+describe("document types named in the question configuration", () => {
+  it("carry the name in their code, and the engine's codes do not", () => {
+    expect(customName(customCode("Professional licence"))).toBe("Professional licence");
+    expect(customName("PASSPORT")).toBeNull();
+    expect(customName("CUSTOM:")).toBeNull();
+  });
+
+  it("are labelled by their name once attached", () => {
+    const empty = { evidenceOptions: {} } as unknown as Catalogue;
+    const file = { option_code: customCode("Board minutes"), doc_type: "other", description: "Board minutes" };
+    expect(documentLabel(empty, file as never, "N1")).toBe("Board minutes");
   });
 });

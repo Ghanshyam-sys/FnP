@@ -18,10 +18,13 @@ def _own_options(questions: dict) -> dict[str, list[dict]]:
     chosen = {qid: q.evidence_options for qid, q in questions.items() if q.evidence_options}
     if not chosen:
         return {}
-    try:
-        by_code = catalogue.options_by_code()
-    except EngineUnavailable:
-        return {}
+    by_code: dict[str, dict] = {}
+    if any(catalogue.custom_name(c) is None for codes in chosen.values() for c in codes):
+        try:
+            by_code = catalogue.options_by_code()
+        except EngineUnavailable:
+            # Only the names typed in here can be given; the rest come from the catalogue's copy.
+            chosen = {qid: codes for qid, codes in chosen.items() if all(catalogue.custom_name(c) for c in codes)}
     return {qid: catalogue.chosen_options(codes, by_code) for qid, codes in chosen.items()}
 
 

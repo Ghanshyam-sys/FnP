@@ -111,7 +111,7 @@
 /* A section: its name, weight, the percentages' check and delete, above its questions. */
 .qsection-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 9rem auto auto;
+  grid-template-columns: minmax(0, 1fr) 9rem auto;
   gap: 0.9rem;
   align-items: end;
   padding: 1rem 1.25rem;
@@ -295,5 +295,533 @@
 
   .qsection-head {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---- The questionnaire at a glance, and each section's share ---- */
+.qoverview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.25rem;
+}
+
+.qoverview-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+}
+
+/* The title, then the status beside it, with the buttons to the right. */
+.qoverview-head .section-title {
+  margin-right: 0;
+}
+
+.qoverview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-left: auto;
+}
+
+/* How much of 100 is shared out, said in words. */
+.qstatus {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.qstatus svg {
+  flex: none;
+}
+
+.qstatus.is-ok {
+  color: var(--good-ink, var(--good));
+}
+
+.qstatus.is-short {
+  color: var(--warning-ink, var(--warning));
+}
+
+.qstatus.is-over,
+.qstatus.is-invalid {
+  color: var(--critical);
+}
+
+.qstatus.is-waiting {
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.qstatus .link-button {
+  font-weight: 600;
+}
+
+/* A share of 100 as one bar: parts, a grey gap for what is left, red when over. */
+.weight-bar {
+  display: flex;
+  gap: 2px;
+  height: 0.6rem;
+  border-radius: var(--r-pill);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+
+.weight-bar.has-legend {
+  height: 1.5rem;
+  border-radius: var(--r-sm);
+}
+
+.weight-bar.is-over {
+  box-shadow: 0 0 0 1px var(--critical);
+}
+
+.weight-bar-part {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  overflow: hidden;
+}
+
+/* Four tones in turn, so neighbouring parts (and their legend swatches) always differ. */
+.tone-0 {
+  background: var(--accent);
+}
+
+.tone-1 {
+  background: color-mix(in srgb, var(--accent) 72%, var(--surface));
+}
+
+.tone-2 {
+  background: color-mix(in srgb, var(--accent) 50%, var(--surface));
+}
+
+.tone-3 {
+  background: color-mix(in srgb, var(--accent) 80%, var(--ink));
+}
+
+button.weight-bar-part {
+  cursor: pointer;
+}
+
+button.weight-bar-part:hover {
+  filter: brightness(1.1);
+}
+
+.weight-bar.is-over .weight-bar-part {
+  background: var(--critical);
+}
+
+.weight-bar-label {
+  width: 100%;
+  padding: 0 0.3rem;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  font-variant-numeric: tabular-nums;
+}
+
+.weight-bar-value {
+  font-weight: 500;
+}
+
+.weight-bar-part.tone-2 .weight-bar-label {
+  color: var(--ink);
+}
+
+/* ---- The legend under a numbered bar: every part's number, name and share, in full ---- */
+.weight-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+/* The dropdown under the bar that shows or hides the list of parts. */
+.weight-legend-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  align-self: flex-start;
+  padding: 0.3rem 0.55rem 0.3rem 0.4rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+
+.weight-legend-toggle:hover {
+  color: var(--ink);
+  border-color: var(--accent);
+}
+
+.weight-legend-toggle svg {
+  transition: transform 0.18s ease;
+}
+
+.weight-legend-toggle.is-open svg {
+  transform: rotate(180deg);
+}
+
+.weight-legend[hidden] {
+  display: none;
+}
+
+.weight-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(15rem, 100%), 1fr));
+  gap: 0.25rem 1rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weight-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  width: 100%;
+  padding: 0.3rem 0.4rem;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  text-align: left;
+}
+
+button.weight-legend-item {
+  cursor: pointer;
+}
+
+button.weight-legend-item:hover {
+  background: var(--surface-sunken);
+}
+
+.weight-legend-swatch {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 1.35rem;
+  height: 1.35rem;
+  border-radius: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  color: var(--on-accent);
+}
+
+.weight-legend-swatch.tone-2 {
+  color: var(--ink);
+}
+
+.weight-legend-swatch.is-gap {
+  background: repeating-linear-gradient(135deg, var(--surface-sunken) 0 4px, var(--hairline) 4px 6px);
+}
+
+.weight-legend.is-over .weight-legend-swatch {
+  background: var(--critical);
+  color: #ffffff;
+}
+
+.weight-legend-name {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+
+.weight-legend-value {
+  flex: none;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.weight-legend-item.is-gap .weight-legend-name,
+.weight-legend-item.is-gap .weight-legend-value {
+  color: var(--ink-3);
+}
+
+.weight-bar-gap {
+  background: repeating-linear-gradient(135deg, var(--surface-sunken) 0 6px, var(--hairline) 6px 8px);
+}
+
+.qsection-share {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* ---- A question, compact: what it asks and its settings in a line, its share and weight ---- */
+.qrow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.25rem;
+}
+
+.qrow + .qrow {
+  border-top: 1px solid var(--hairline);
+}
+
+.qrow.is-off {
+  box-shadow: inset 3px 0 0 var(--critical);
+}
+
+.qrow-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  min-width: 0;
+  flex: 1;
+}
+
+.qrow-main .qid {
+  margin-top: 0.15rem;
+}
+
+.qrow-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.qrow-question {
+  margin: 0;
+  font-size: var(--fs-md);
+  line-height: 1.45;
+  color: var(--ink);
+}
+
+.qrow-placeholder {
+  color: var(--ink-3);
+  font-style: italic;
+}
+
+.qrow-summary {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.qrow-problem {
+  margin: 0.35rem 0 0;
+}
+
+.qrow-badges {
+  display: flex;
+  gap: 0.3rem;
+  flex: none;
+}
+
+.qrow-side {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex: none;
+}
+
+.qrow-weight {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.qrow-pct {
+  width: 6rem;
+}
+
+.qrow-of {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 9.5rem;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.qrow-of strong {
+  color: var(--ink);
+}
+
+/* How much of its section's weight a question takes. */
+.qrow-meter {
+  display: block;
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.qrow-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+}
+
+.qrow-of-overall {
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.qsection-uses {
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.qsection-uses strong {
+  color: var(--ink);
+}
+
+/* Document types named here, added beside the engine's. */
+.qpanel-custom {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.qpanel-custom .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.toggle-chip.is-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.qrow-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.qrow-actions .icon-button {
+  margin-top: 0;
+}
+
+.qsection-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* ---- The edit panel ---- */
+.qpanel-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.7rem;
+}
+
+.qpanel-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+}
+
+.qpanel-section {
+  width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.qpanel-step {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0.9rem 0 0;
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  min-width: 0;
+}
+
+.qpanel-step legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  float: left;
+  width: 100%;
+}
+
+.qpanel-step legend + * {
+  clear: both;
+}
+
+.qpanel-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+}
+
+.qpanel-text {
+  min-height: 4.5rem;
+}
+
+.qpanel-pct {
+  width: 8rem;
+}
+
+.qpanel-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink-2);
+}
+
+/* ---- What applying changes ---- */
+.change-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 50vh;
+  overflow-y: auto;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+@media (max-width: 720px) {
+  .qrow {
+    flex-direction: column;
+    gap: 0.6rem;
+  }
+
+  .qrow-side {
+    width: 100%;
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .qoverview-actions {
+    margin-left: 0;
   }
 }

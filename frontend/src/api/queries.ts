@@ -20,6 +20,7 @@ import type {
   EvidenceRule,
   Form,
   Page,
+  QuestionnaireImpact,
   QuestionnaireSettings,
   QuestionnaireVersion,
   Role,
@@ -126,6 +127,20 @@ export function useQuestionnaire() {
     queryKey: keys.questionnaire,
     queryFn: () => api<QuestionnaireSettings>("GET", "/questionnaire"),
     refetchOnWindowFocus: false,
+  });
+}
+
+/**
+ * What applying a change would reach on the applications not yet submitted. Read when the
+ * reviewer is about to apply (enabled), never kept: applicants keep filling in forms meanwhile.
+ */
+export function useQuestionnaireImpact(enabled: boolean) {
+  return useQuery({
+    queryKey: [...keys.questionnaire, "impact"],
+    queryFn: () => api<QuestionnaireImpact>("GET", "/questionnaire/impact"),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
   });
 }
 
