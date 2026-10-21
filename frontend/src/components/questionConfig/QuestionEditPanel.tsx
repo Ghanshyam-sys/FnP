@@ -60,10 +60,14 @@ export default function QuestionEditPanel({
   // A document name typed in, added beside the engine's document types.
   const [docName, setDocName] = useState("");
   const [docNameNote, setDocNameNote] = useState<string | null>(null);
-  const engineCodes = evidenceOptionChoices.map((c) => c.code);
   // One of the engine's questions takes the engine's own list for it until other types are chosen
-  // (an empty list means that list); one added here always names its own.
+  // (an empty list means that list), and only from that list: the engine reads no other type under
+  // its question. One added here names its own, from any of the engine's types.
   const engineList = question.qid ? (engineEvidenceOptions[question.qid] ?? []) : [];
+  const typeChoices = question.ownOptions
+    ? evidenceOptionChoices
+    : evidenceOptionChoices.filter((c) => engineList.includes(c.code));
+  const engineCodes = typeChoices.map((c) => c.code);
   const followsEngine = !question.ownOptions && draft.evidenceOptions.length === 0;
   const chosen = followsEngine ? engineList : draft.evidenceOptions;
   const named = chosen.filter((c) => customName(c) !== null);
@@ -78,7 +82,7 @@ export default function QuestionEditPanel({
   const addDocName = () => {
     const name = docName.split(/\s+/).filter(Boolean).join(" ");
     if (!name) return;
-    const sameAsEngine = evidenceOptionChoices.find((o) => o.label.toLowerCase() === name.toLowerCase());
+    const sameAsEngine = typeChoices.find((o) => o.label.toLowerCase() === name.toLowerCase());
     if (sameAsEngine) {
       // Already one of the engine's: that one is chosen instead.
       if (!chosen.includes(sameAsEngine.code)) toggleEngine(sameAsEngine.code);
@@ -273,9 +277,11 @@ export default function QuestionEditPanel({
                 <span className="field-label">Document types this question takes</span>
                 {!question.ownOptions && (
                   <p className="qpanel-hint">
-                    {followsEngine
-                      ? "As the AI engine lists them for this question. Change them to offer other ones."
-                      : "Chosen here in place of the AI engine's list for this question."}
+                    {engineList.length === 0
+                      ? "The AI engine lists no document types of its own for this question: name the documents it takes below."
+                      : followsEngine
+                        ? "As the AI engine lists them for this question. Turn some off, or name other documents below."
+                        : "Chosen here from the AI engine's list for this question."}
                     {!followsEngine && (
                       <>
                         {" "}
@@ -299,12 +305,14 @@ export default function QuestionEditPanel({
                     document names of your own below.
                   </p>
                 ) : (
-                  <ChipChoices
-                    label="Document types"
-                    items={evidenceOptionChoices.map((o) => ({ key: o.code, label: o.label }))}
-                    isOn={(code) => chosen.includes(code)}
-                    onToggle={toggleEngine}
-                  />
+                  typeChoices.length > 0 && (
+                    <ChipChoices
+                      label="Document types"
+                      items={typeChoices.map((o) => ({ key: o.code, label: o.label }))}
+                      isOn={(code) => chosen.includes(code)}
+                      onToggle={toggleEngine}
+                    />
+                  )
                 )}
                 {named.length > 0 && (
                   <div className="chipset" role="group" aria-label="Document names added">

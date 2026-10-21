@@ -458,21 +458,46 @@ def _publish_structure(request, body: dict):
                     continue
                 options: list[str] = []
                 # A question added here names its document types. One the engine knows uses the
-                # engine's list for its code, unless other types are chosen for it (sent empty, or
-                # exactly the engine's list, it keeps following the engine's).
+                # engine's list for its code, unless other types are chosen for it: types from that
+                # list (the engine reads only those under its question), and names typed in (read
+                # as a document of another kind). Sent empty, or exactly the engine's list, it keeps
+                # following the engine's.
                 needs_own_options = takes_documents and (before is None or before.added_here)
-                if takes_documents and (needs_own_options or q["evidenceOptions"]):
+                unchanged = (
+                    before is not None and q["evidenceOptions"] == before.evidence_options
+                    and (bool(before.evidence_options) or not needs_own_options)
+                )
+                if takes_documents and unchanged:
+                    # Unchanged: kept as published, with nothing to look up (the engine may be away).
+                    options = list(before.evidence_options)
+                elif takes_documents and (needs_own_options or q["evidenceOptions"]):
                     # Only names the reviewer typed in need nothing from the engine.
-                    if engine_codes is None and any(catalogue.custom_name(c) is None for c in q["evidenceOptions"]):
-                        engine_codes = {o["code"] for o in catalogue.all_engine_options()}
-                    options, problem = _own_options(q["evidenceOptions"], engine_codes)
+                    needs_engine = any(catalogue.custom_name(c) is None for c in q["evidenceOptions"])
+                    if needs_own_options:
+                        if engine_codes is None and needs_engine:
+                            engine_codes = {o["code"] for o in catalogue.all_engine_options()}
+                        allowed_codes = engine_codes
+                    else:
+                        own_list = _engine_list(qid) if needs_engine else []
+                        foreign = [
+                            c for c in q["evidenceOptions"]
+                            if catalogue.custom_name(c) is None and c not in own_list
+                        ]
+                        if foreign:
+                            errors[f"questions.{label}"] = (
+                                f"{', '.join(foreign)} is not among the AI engine's document types for {qid}. "
+                                "Choose from its list, or name the document."
+                            )
+                            continue
+                        allowed_codes = set(own_list)
+                    options, problem = _own_options(q["evidenceOptions"], allowed_codes)
                     if problem:
                         errors[f"questions.{label}"] = problem
                         continue
                     if not options:
                         errors[f"questions.{label}"] = "Choose the document types this question takes."
                         continue
-                    if not needs_own_options and set(options) == set(_engine_list(qid)):
+                    if not needs_own_options and needs_engine and set(options) == set(own_list):
                         options = []
                 # The checks run on its documents: as sent (none for a question that takes none),
                 # or, left out, the ones it has.

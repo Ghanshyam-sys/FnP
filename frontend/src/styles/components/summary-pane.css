@@ -77,22 +77,80 @@
   padding: 1.35rem;
 }
 
+/* Each part of the summary in its own outline, set apart from the next, its heading in bold. */
+.pane-body {
+  background: var(--surface-sunken);
+}
+
+/* Outlines a step darker than a hairline, so each part reads as its own block (both themes). */
+.pane-body {
+  --pane-outline: color-mix(in srgb, var(--ink-3) 55%, var(--hairline));
+}
+
+.pane-section {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--pane-outline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+}
+
 .pane-section + .pane-section {
-  margin-top: 1.6rem;
-  padding-top: 1.35rem;
-  border-top: 1px solid var(--hairline);
+  margin-top: 1.75rem;
 }
 
 .pane-section h3 {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin: 0 0 0.65rem;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  margin: 0 0 0.85rem;
+  font-size: 0.9375rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--ink-3);
+  color: var(--ink);
+}
+
+/* "Where the risk comes from" holds much: its sections, tables and concerns read a size smaller,
+   so it stays compact under its heading. */
+.pane-risk .pane-risk-row {
+  font-size: var(--fs-xs);
+}
+
+.pane-risk .pane-risk-label {
+  font-size: var(--fs-sm);
+}
+
+.pane-risk .pane-risk-table {
+  font-size: var(--fs-xs);
+}
+
+.pane-risk .pane-risk-table th {
+  font-size: var(--fs-2xs);
+}
+
+.pane-risk .pane-concern {
+  padding: 0.7rem 0.85rem;
+}
+
+.pane-risk .pane-prose,
+.pane-risk .pane-condition p {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.pane-risk .pane-quote {
+  margin: 0.5rem 0;
+  font-size: var(--fs-xs);
+}
+
+.pane-risk .pane-concern-type {
+  font-size: var(--fs-xs);
+}
+
+/* The score card sits in its section's outline rather than a card of its own. */
+.pane-section-verdict .verdict {
+  padding: 0.25rem 0 0;
+  gap: 1.5rem;
 }
 
 .pane-count {
@@ -144,6 +202,15 @@
   color: var(--warning);
 }
 
+/* A knock-out answer refers the case whatever the score: said in red. */
+.pane-override.is-knockout {
+  border-left-color: var(--critical);
+}
+
+.pane-override.is-knockout svg {
+  color: var(--critical);
+}
+
 .pane-override strong {
   color: var(--ink);
 }
@@ -190,8 +257,7 @@
   background: var(--surface);
 }
 
-.pane-concern + .pane-concern,
-.pane-concern-item + .pane-concern-item {
+.pane-concern + .pane-concern {
   margin-top: 0.75rem;
 }
 
@@ -392,16 +458,273 @@
   display: none;
 }
 
-/* "Where the risk comes from" prints with the PDF; on screen the scoring page has it. */
-.pane-print-risk {
-  display: none;
+/* ---- Where the risk comes from: a bar per section, open sections with their questions and the
+   AI engine's concerns under them. The same on screen and in the PDF (print sizes below). ---- */
+/* Each of the questionnaire's sections in its own outline, its name in bold, apart from the next. */
+.pane-risk-section {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--pane-outline);
+  border-radius: var(--r-md);
+  background: var(--surface);
 }
 
-/* What the PDF explains for a reader with no app at hand: on screen the app itself explains. */
-.pane-print-explain,
-.pane-print-inline,
-.pane-print-outcomes {
-  display: none;
+.pane-risk-section + .pane-risk-section {
+  margin-top: 1.25rem;
+}
+
+.pane-risk-section.is-risky {
+  border-left: 3px solid var(--critical);
+}
+
+.pane-risk-label {
+  font-weight: 700;
+}
+
+.pane-risk-section .pane-risk-table {
+  margin-bottom: 0.1rem;
+}
+
+.pane-risk-section .pane-risk-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.pane-risk-row {
+  display: grid;
+  grid-template-columns: minmax(0, 38%) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+
+.pane-risk-track {
+  display: block;
+  height: 0.45rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.pane-risk-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.pane-risk-value {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.pane-risk-value strong {
+  color: var(--ink);
+}
+
+.pane-risk-table,
+.pane-outcome-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--fs-sm);
+}
+
+.pane-risk-table {
+  margin: 0.45rem 0 0.9rem;
+}
+
+/* The same columns in every section, so the tables line up down the summary. */
+.pane-risk-table th:nth-child(1) {
+  width: 33%;
+}
+
+.pane-risk-table th:nth-child(2) {
+  width: 12%;
+}
+
+.pane-risk-table th:nth-child(3) {
+  width: 21%;
+}
+
+.pane-risk-table th:nth-child(4) {
+  width: 17%;
+}
+
+.pane-risk-table th:nth-child(5) {
+  width: 17%;
+}
+
+.pane-risk-table th,
+.pane-outcome-table th {
+  padding: 0.35rem 0.45rem;
+  border-bottom: 1px solid var(--ink-3);
+  text-align: left;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.pane-risk-table td,
+.pane-outcome-table td {
+  padding: 0.45rem;
+  border-bottom: 1px solid var(--hairline);
+  vertical-align: top;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.pane-risk-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.pane-risk-table .strong {
+  font-weight: 700;
+}
+
+/* A question shown in full: what it asks and the concerns about it, across the row under it. */
+.pane-risk-table tr.is-risk td {
+  border-bottom: 0;
+}
+
+.pane-risk-why td {
+  padding-top: 0;
+  padding-left: 0.9rem;
+}
+
+.pane-risk-question {
+  margin: 0;
+  color: var(--ink);
+}
+
+.pane-risk-note {
+  margin: 0.25rem 0 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+}
+
+.pane-risk-note.is-knockout {
+  font-weight: 600;
+  color: var(--critical-ink);
+}
+
+.pane-risk-concerns {
+  margin-top: 0.55rem;
+}
+
+.pane-risk-concerns .pane-concern + .pane-concern {
+  margin-top: 0.55rem;
+}
+
+/* ---- Plain-language explanations of the figures and sections ---- */
+.pane-explain {
+  display: block;
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.pane-stats .pane-explain {
+  margin-top: 0.2rem;
+  font-weight: 400;
+}
+
+.pane-section-explain {
+  margin: -0.3rem 0 0.75rem;
+}
+
+/* ---- Question outcomes, explained, with what each question asked ---- */
+.pane-outcome-group + .pane-outcome-group {
+  margin-top: 1.1rem;
+}
+
+.pane-outcome-group h4 {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: inherit;
+}
+
+.pane-outcome-count {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink-2);
+}
+
+.pane-outcome-explain {
+  margin: 0.3rem 0 0.45rem;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.pane-outcome-none {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-3);
+}
+
+.pane-outcome-table th:nth-child(1) {
+  width: 5.5rem;
+}
+
+.pane-outcome-table th:nth-child(3) {
+  width: 5.5rem;
+}
+
+.pane-outcome-above {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0.45rem 0 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* A phone: the breakdown drops "Points possible" (the bar above gives the section's) so the rest
+   keeps its room. */
+@media (max-width: 540px) {
+  .pane-risk-table th:nth-child(3),
+  .pane-risk-table tr:not(.pane-risk-why) td:nth-child(3) {
+    display: none;
+  }
+
+  .pane-risk-table th:nth-child(1) {
+    width: 22%;
+  }
+
+  .pane-risk-table th:nth-child(2) {
+    width: 22%;
+  }
+
+  .pane-risk-table th:nth-child(4) {
+    width: 30%;
+  }
+
+  .pane-risk-table th:nth-child(5) {
+    width: 26%;
+  }
+
+  .pane-risk-table th,
+  .pane-outcome-table th {
+    letter-spacing: 0.02em;
+  }
+
+  .pane-risk-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .pane-risk-track {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 /* Paper margins, and a running footer: the case on the left (written by the pane, which knows
@@ -500,6 +823,7 @@
   .pane-body {
     overflow: visible;
     padding: 0;
+    background: none;
   }
 
   .pane-print-head {
@@ -615,30 +939,59 @@
     widows: 3;
   }
 
-  /* ---- Where the risk comes from: a bar per section, risky sections with their questions ---- */
-  .pane-print-risk {
-    display: block;
+  /* Each section in its outline, set apart, on paper too. */
+  .pane-section {
+    padding: 9pt 11pt;
+    border-width: 0.75pt;
+    border-radius: 6pt;
   }
 
-  .pane-print-risk-sub {
-    margin: 0 0 8pt;
-    font-size: 8.5pt;
-    color: var(--ink-2);
+  .pane-section + .pane-section {
+    margin-top: 16pt;
   }
 
-  /* A section may continue on the next page (no half-empty pages); its bar stays with the
-     start of its table, and the heading and intro with the first section. */
-  .pane-print-risk-sub,
-  .pane-risk-row {
+  .pane-section h3 {
+    margin-bottom: 7pt;
+    font-size: 11pt;
+  }
+
+  /* The score card: gauge and meter beside the band and figures, kept whole on one page. */
+  .pane-section-verdict .verdict {
+    flex-wrap: nowrap;
+    gap: 18pt;
+  }
+
+  .pane-section-verdict .gauge,
+  .pane-section-verdict .riskmeter,
+  .pane-section-verdict .verdict * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* ---- Where the risk comes from, explanations and question outcomes: print sizes ---- */
+  /* An open section may continue on the next page (no half-empty pages); its bar stays with the
+     start of its table. Only there: on a closed section the bar is all there is, and holding it
+     to what follows would chain every closed section into one block, pushed whole to the next
+     page. A closed section stays whole, and the next page may start between any two. */
+  .pane-risk-section.is-risky .pane-risk-row {
     break-after: avoid;
+  }
+
+  .pane-risk-section:not(.is-risky) {
+    break-inside: avoid;
   }
 
   .pane-risk-table thead {
     display: table-header-group;
   }
 
+  .pane-risk-section {
+    padding: 6pt 8pt;
+    border-width: 0.75pt;
+  }
+
   .pane-risk-section + .pane-risk-section {
-    margin-top: 5pt;
+    margin-top: 11pt;
   }
 
   .pane-risk-row {
@@ -798,45 +1151,20 @@
     break-after: avoid;
   }
 
-  /* A concern's type says what its section would ("Conflict of interest" · "Conflict of
-     Interest — Entity"); the breakdown above places each question in its section. */
-  .pane-concern-section {
-    display: none;
-  }
-
-  /* What the screen shows but the PDF already says elsewhere. */
-  .pane-screen-only {
-    display: none !important;
-  }
-
-  /* ---- Plain-language explanations ---- */
-  .pane-print-explain {
+  .pane-explain {
     display: block;
     font-size: 8pt;
     line-height: 1.4;
     color: var(--ink-3);
   }
 
-  .pane-print-inline {
-    display: inline;
-  }
-
-  .pane-stats .pane-print-explain {
+  .pane-stats .pane-explain {
     margin-top: 2pt;
     font-weight: 400;
   }
 
   .pane-section-explain {
     margin: -2pt 0 7pt;
-  }
-
-  .pane-verdict-who {
-    margin: 0 0 5pt;
-  }
-
-  /* ---- Question outcomes, explained, with what each question asked ---- */
-  .pane-print-outcomes {
-    display: block;
   }
 
   .pane-outcome-group + .pane-outcome-group {

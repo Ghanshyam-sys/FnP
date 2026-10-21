@@ -56,6 +56,12 @@ describe("where the risk comes from", () => {
     expect([...detailedQids(result, [])]).toEqual(["CoI2"]);
   });
 
+  it("rounds a section's sums to the weights' two decimals", () => {
+    const [total] = sectionTotals(score([line("A1", "Basic Details", 0.1, 0), line("A4", "Basic Details", 0.2, 0)]));
+    expect(total.weight).toBe(0.3);
+    expect(String(total.weight)).toBe("0.3");
+  });
+
   it("fills a section's bar by its share, and never past the ends", () => {
     const [coi] = sectionTotals(score([line("CoI2", "Conflict of interest", 7, 5), line("CoI6", "Conflict of interest", 7, 0)]));
     expect(riskShare(coi)).toBeCloseTo(35.71, 1);

@@ -193,10 +193,9 @@ def option(qid: str, code: str, question: Question | None = None) -> dict | None
     return next((o for o in options_for(qid, question) if o["code"] == code), None)
 
 
-def added_question_options() -> dict[str, list[dict]]:
-    """The document types chosen here for questions, by code, from the latest version that has each
-    question: an assessment held to an older version still finds them after a later change. A
-    question of the engine's whose latest version has none chosen follows the engine's list again."""
+def chosen_codes() -> dict[str, list[str]]:
+    """The document type codes chosen here for each question, from the latest version that has the
+    question (none listed for one that follows the engine's list there)."""
     # Published versions never change, so what they hold is read again only once a newer one is.
     latest = QuestionnaireVersion.objects.order_by("-pk").values_list("pk", flat=True).first()
     key = f"catalogue:chosen-options:{latest}"
@@ -207,6 +206,14 @@ def added_question_options() -> dict[str, list[dict]]:
             chosen[qid] = codes
         chosen = {qid: codes for qid, codes in chosen.items() if codes}
         cache.set(key, chosen, None)
+    return chosen
+
+
+def added_question_options() -> dict[str, list[dict]]:
+    """The document types chosen here for questions, by code, from the latest version that has each
+    question: an assessment held to an older version still finds them after a later change. A
+    question of the engine's whose latest version has none chosen follows the engine's list again."""
+    chosen = chosen_codes()
     needs_engine = any(custom_name(c) is None for codes in chosen.values() for c in codes)
     by_code = options_by_code() if needs_engine else {}
     return {qid: chosen_options(codes, by_code) for qid, codes in chosen.items()}

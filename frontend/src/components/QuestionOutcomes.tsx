@@ -23,8 +23,7 @@ const GROUPS: { key: keyof Outcomes; title: string; tone: string; explain: strin
     key: "conditional",
     title: "Conditional",
     tone: "warning",
-    explain:
-      "Acceptable with a condition. Why, and the condition proposed, are printed with the question under Where the risk comes from.",
+    explain: "Acceptable with a condition.",
   },
   {
     key: "not_applicable",
@@ -35,12 +34,12 @@ const GROUPS: { key: keyof Outcomes; title: string; tone: string; explain: strin
 ];
 
 /**
- * "Question outcomes" for the printed summary: each outcome explained, with what every question
- * asked and how it was answered, rather than codes alone (the panel on screen keeps its codes). A
- * question whose text "Where the risk comes from" already prints (`detailed`: one carrying risk
- * or with a concern) is listed by its code only, pointing there, so nothing is printed twice.
+ * "Question outcomes" in the assessment summary, the same on screen and in its PDF: each outcome
+ * explained, with what every question asked and how it was answered, rather than codes alone. A
+ * question whose text "Where the risk comes from" already shows (`detailed`: one carrying risk or
+ * with a concern) is listed by its code only, pointing there, so nothing shows twice.
  */
-export default function PrintQuestionOutcomes({
+export default function QuestionOutcomes({
   outcomes,
   lines,
   detailed,
@@ -51,7 +50,7 @@ export default function PrintQuestionOutcomes({
 }) {
   const byQid = new Map(lines.map((l) => [l.qid, l]));
   return (
-    <div className="pane-print-outcomes">
+    <div className="pane-outcomes">
       {GROUPS.map((g) => {
         const ids = codes(outcomes[g.key] as string | string[] | undefined);
         // Printed in full above (carrying risk, or with a concern): only its code here.

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
+  AlertOctagonIcon,
   AlertTriangleIcon,
   CheckCircleIcon,
   DownloadIcon,
@@ -8,8 +9,9 @@ import {
   XIcon,
 } from "./icons";
 import ConcernCard from "./ConcernCard";
-import PrintRiskBreakdown from "./PrintRiskBreakdown";
-import PrintQuestionOutcomes from "./PrintQuestionOutcomes";
+import RiskBreakdown from "./RiskBreakdown";
+import ScoreVerdict from "./ScoreVerdict";
+import QuestionOutcomes from "./QuestionOutcomes";
 import { concernKey } from "../domain/concerns";
 import { detailedQids } from "../domain/riskSections";
 import type { Assessment, Case, FinalAssessment } from "../api/types";
@@ -206,13 +208,10 @@ export default function AssessmentSummaryPane({
   const evidence = assessment?.evidence;
   const meta = assessment?.assessment;
   const override = determination?.authentication_override;
-  // The concerns the PDF prints in their own section: every one until the reviewer decides; after
-  // that only those with no question in the breakdown (where the rest print, under their question).
+  // Each concern shows once, under its question in "Where the risk comes from". Only one with no
+  // question there (or every one, when there is no score to break down) is listed on its own.
   const lineQids = new Set(scoreResult?.lines.map((l) => l.qid) ?? []);
-  const concernsMoved = Boolean(decision && scoreResult);
-  const concernsPrintHere = concernsMoved ? concerns.filter((c) => !lineQids.has(c.qid)) : concerns;
-  // Decided, and every concern is under its question: the section is left out of the PDF.
-  const concernsLeftOut = concernsMoved && concernsPrintHere.length === 0;
+  const unplacedConcerns = concerns.filter((c) => !lineQids.has(c.qid));
   // The running footer on every printed page. CSS cannot read the case from the page, so the
   // rule is written with it.
   const pageFooter = `@page { @bottom-left { content: ${cssString(`${assignment.id} · ${applicantName}`)}; } }`;
@@ -262,45 +261,62 @@ export default function AssessmentSummaryPane({
           ) : (
             <>
               <section className="pane-section pane-section-verdict">
-                <p className="pane-print-explain pane-verdict-who">
-                  The AI engine's assessment{decision ? "; the reviewer's decision is above" : ""}.
-                </p>
-                <div className="pane-verdict">
-                  <span className={`chip chip-${VERDICT_TONE[determination.verdict] ?? "neutral"}`}>
-                    {determination.verdict}
-                  </span>
-                  <span className="pane-verdict-reco">{determination.recommendation}</span>
-                </div>
-                <dl className="pane-stats">
-                  <div>
-                    <dt>Risk score</dt>
-                    <dd>
-                      {determination.risk_score}
-                      <span className="pane-print-explain">Out of 100: the higher, the more risk.</span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Band</dt>
-                    <dd>
-                      {determination.risk_band}
-                      <span className="pane-print-explain">Low, Moderate, Elevated or High.</span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Weighted risk</dt>
-                    <dd>
-                      {determination.weighted_risk}
-                      <span className="pane-print-explain">Risk points from the answers, of the most possible.</span>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>Knock-out</dt>
-                    <dd>
-                      {determination.knock_out_triggered ? "Triggered" : "None"}
-                      <span className="pane-print-explain">An answer that refers the case on its own.</span>
-                    </dd>
-                  </div>
-                </dl>
+                <h3>AI review score</h3>
+                {scoreResult ? (
+                  <>
+                    {/* The score as the scoring page shows it. */}
+                    <ScoreVerdict scoreResult={scoreResult} framed={false} />
+                    {scoreResult.knockOutTriggered && (
+                      <p className="pane-override is-knockout" role="note">
+                        <AlertOctagonIcon size={14} />
+                        <span>
+                          <strong>Knock-out triggered.</strong> {scoreResult.knockOutReason} The case is referred
+                          regardless of the weighted score.
+                        </span>
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  // No score to hand: the AI engine's own figures.
+                  <>
+                    <div className="pane-verdict">
+                      <span className={`chip chip-${VERDICT_TONE[determination.verdict] ?? "neutral"}`}>
+                        {determination.verdict}
+                      </span>
+                      <span className="pane-verdict-reco">{determination.recommendation}</span>
+                    </div>
+                    <dl className="pane-stats">
+                      <div>
+                        <dt>Risk score</dt>
+                        <dd>
+                          {determination.risk_score}
+                          <span className="pane-explain">Out of 100: the higher, the more risk.</span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Band</dt>
+                        <dd>
+                          {determination.risk_band}
+                          <span className="pane-explain">Low, Moderate, Elevated or High.</span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Weighted risk</dt>
+                        <dd>
+                          {determination.weighted_risk}
+                          <span className="pane-explain">Risk points from the answers, of the most possible.</span>
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Knock-out</dt>
+                        <dd>
+                          {determination.knock_out_triggered ? "Triggered" : "None"}
+                          <span className="pane-explain">An answer that refers the case on its own.</span>
+                        </dd>
+                      </div>
+                    </dl>
+                  </>
+                )}
                 {override?.note && (
                   <p className="pane-override" role="note">
                     <AlertTriangleIcon size={14} />
@@ -318,36 +334,33 @@ export default function AssessmentSummaryPane({
                 </section>
               )}
 
-              {/* In the PDF only: where the risk comes from, risky sections open. */}
-              {scoreResult && <PrintRiskBreakdown scoreResult={scoreResult} concerns={concerns} />}
+              {/* Where the risk comes from: risky sections open, each concern under its question. */}
+              {scoreResult && <RiskBreakdown scoreResult={scoreResult} concerns={concerns} />}
 
-              {/* In the PDF the concerns print under their questions in the breakdown above; this
-                  section prints as well until the reviewer decides, then only for a concern with
-                  no question there. On screen it always shows. */}
-              <section className={`pane-section${concernsLeftOut ? " pane-screen-only" : ""}`}>
-                <h3>
-                  Concerns and proposed conditions
-                  <span className="pane-count">{concerns.length}</span>
-                </h3>
-                <p className="pane-print-explain pane-section-explain">
-                  What the AI engine found that needs attention: how serious it judges it, the passage
-                  in the evidence it rests on, and the condition proposed against it (COND-…).
-                </p>
-                {concerns.map((c, i) => (
-                  <div
-                    className={`pane-concern-item${concernsPrintHere.includes(c) ? "" : " pane-screen-only"}`}
-                    key={concernKey(c, i)}
-                  >
-                    <ConcernCard concern={c} />
-                  </div>
-                ))}
-              </section>
+              {unplacedConcerns.length > 0 && (
+                <section className="pane-section">
+                  <h3>
+                    {scoreResult ? "Other concerns and proposed conditions" : "Concerns and proposed conditions"}
+                    <span className="pane-count">{unplacedConcerns.length}</span>
+                  </h3>
+                  <p className="pane-explain pane-section-explain">
+                    {scoreResult
+                      ? "Concerns about something outside the scored questions above: "
+                      : "What the AI engine found that needs attention: "}
+                    how serious it judges it, the passage in the evidence it rests on, and the condition
+                    proposed against it (COND-…).
+                  </p>
+                  {unplacedConcerns.map((c, i) => (
+                    <ConcernCard concern={c} key={concernKey(c, i)} />
+                  ))}
+                </section>
+              )}
 
               <section className="pane-section">
                 <h3>
                   Strengths<span className="pane-count">{strengths.length}</span>
                 </h3>
-                <p className="pane-print-explain pane-section-explain">
+                <p className="pane-explain pane-section-explain">
                   What the evidence shows in the applicant's favour, by question.
                 </p>
                 <ul className="pane-list">
@@ -364,7 +377,7 @@ export default function AssessmentSummaryPane({
 
               <section className="pane-section">
                 <h3>For the supervisor</h3>
-                <p className="pane-print-explain pane-section-explain">
+                <p className="pane-explain pane-section-explain">
                   Points the AI engine suggests the supervisor looks into further.
                 </p>
                 <ul className="pane-list pane-list-questions">
@@ -379,24 +392,10 @@ export default function AssessmentSummaryPane({
 
               <section className="pane-section">
                 <h3>Question outcomes</h3>
-                {/* On screen, the codes; in the PDF, each outcome explained with what every
-                    question asked (when the score's questions are to hand). */}
-                <dl className={`pane-qsplit${scoreResult ? " pane-screen-only" : ""}`}>
-                  <div>
-                    <dt>Passed</dt>
-                    <QuestionIds list={outcomes.passed} />
-                  </div>
-                  <div>
-                    <dt>Conditional</dt>
-                    <QuestionIds list={outcomes.conditional} />
-                  </div>
-                  <div>
-                    <dt>Not applicable</dt>
-                    <QuestionIds list={outcomes.not_applicable} />
-                  </div>
-                </dl>
-                {scoreResult && (
-                  <PrintQuestionOutcomes
+                {/* Each outcome explained, with what every question asked; the codes alone when
+                    the score's questions are not to hand. */}
+                {scoreResult ? (
+                  <QuestionOutcomes
                     outcomes={outcomes}
                     lines={scoreResult.lines}
                     detailed={detailedQids(
@@ -404,6 +403,21 @@ export default function AssessmentSummaryPane({
                       concerns.map((c) => c.qid)
                     )}
                   />
+                ) : (
+                  <dl className="pane-qsplit">
+                    <div>
+                      <dt>Passed</dt>
+                      <QuestionIds list={outcomes.passed} />
+                    </div>
+                    <div>
+                      <dt>Conditional</dt>
+                      <QuestionIds list={outcomes.conditional} />
+                    </div>
+                    <div>
+                      <dt>Not applicable</dt>
+                      <QuestionIds list={outcomes.not_applicable} />
+                    </div>
+                  </dl>
                 )}
               </section>
 
@@ -411,9 +425,9 @@ export default function AssessmentSummaryPane({
                 {evidence && (
                   <span>
                     {evidence.documents_read ?? 0} documents read · {evidence.questions_verified ?? 0} questions
-                    verified<span className="pane-print-inline"> (checked against a document)</span> ·{" "}
+                    verified<span className="pane-explain-inline"> (checked against a document)</span> ·{" "}
                     {evidence.questions_self_declared ?? 0} self-declared
-                    <span className="pane-print-inline"> (taken as answered, with no document)</span>
+                    <span className="pane-explain-inline"> (taken as answered, with no document)</span>
                   </span>
                 )}
                 {meta && (

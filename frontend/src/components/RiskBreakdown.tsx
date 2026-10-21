@@ -12,15 +12,15 @@ function outcome(line: SectionScoreLine): { text: string; tone: string } {
 }
 
 /**
- * "Where the risk comes from", for the printed assessment summary only (the panel on screen is
- * unchanged; the scoring page has the interactive version). Every section prints as its bar; a
- * section carrying risk, or holding a question the AI engine wrote a concern about, prints open
- * with all its questions. Under each such question come what it asks and the engine's concerns
+ * "Where the risk comes from", in the assessment summary, the same on screen and in its PDF (the
+ * scoring page has the interactive version). Every section shows as its bar; a section carrying
+ * risk, or holding a question the AI engine wrote a concern about, shows open with all its
+ * questions. Under each such question come what it asks and the engine's concerns
  * about it (what it found, the passage in the evidence, the condition proposed), as the scoring
  * page shows them when the question is opened. The sections' total is the weighted risk the score
  * block already gives.
  */
-export default function PrintRiskBreakdown({ scoreResult, concerns }: { scoreResult: ScoreResult; concerns: Concern[] }) {
+export default function RiskBreakdown({ scoreResult, concerns }: { scoreResult: ScoreResult; concerns: Concern[] }) {
   const sections = sectionTotals(scoreResult);
   if (sections.length === 0) return null;
   const detailed = detailedQids(
@@ -29,14 +29,8 @@ export default function PrintRiskBreakdown({ scoreResult, concerns }: { scoreRes
   );
 
   return (
-    <section className="pane-section pane-print-risk">
+    <section className="pane-section pane-risk">
       <h3>Where the risk comes from</h3>
-      <p className="pane-print-risk-sub">
-        Each bar shows the risk points a section's answers carry, of the most it could carry (for
-        example 5.0 / 14). Together they make the weighted risk above. Sections with risk are opened
-        to show their questions, with the AI engine's concerns and proposed conditions under the
-        question they are about.
-      </p>
 
       {sections.map((s) => {
         const open = s.risk > 0 || s.lines.some((l) => detailed.has(l.qid));

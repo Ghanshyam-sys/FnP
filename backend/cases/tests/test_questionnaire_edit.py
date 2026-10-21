@@ -482,30 +482,33 @@ def test_the_editor_gets_the_engines_own_list_for_each_question(reviewer):
     assert lists["A4"] == ["NATURALISATION"] and "OTHER" not in lists["A1"] and "CV" not in lists
 
 
+def _q(body: dict, qid: str) -> dict:
+    return next(q for s in body["sections"] for q in s["questions"] if q["qid"] == qid)
+
+
 def test_an_existing_question_can_take_other_document_types_and_go_back_to_the_engines(reviewer, applicant):
+    engine_a1 = reviewer.get("/api/questionnaire").json()["engineEvidenceOptions"]["A1"]
     body = structure(reviewer)
-    _a4(body)["evidenceOptions"] = ["NATURALISATION", "PASSPORT", "CUSTOM:Residence card"]
+    _q(body, "A1")["evidenceOptions"] = ["PASSPORT", "NATIONAL_ID", "CUSTOM:Residence card"]
     response = reviewer.put("/api/questionnaire", body)
     assert response.status_code == 200, response.json()
-    a4 = next(q for q in response.json()["questions"] if q["qid"] == "A4")
-    assert a4["evidenceOptions"] == ["NATURALISATION", "PASSPORT", "CUSTOM:Residence card"] and a4["addedHere"] is False
+    a1 = next(q for q in response.json()["questions"] if q["qid"] == "A1")
+    assert a1["evidenceOptions"] == ["PASSPORT", "NATIONAL_ID", "CUSTOM:Residence card"] and a1["addedHere"] is False
 
     # The applicant is offered them, "Other — please specify" last as always.
-    codes = [o["code"] for o in applicant.get("/api/catalogue").json()["evidenceOptions"]["A4"]]
-    assert codes == ["NATURALISATION", "PASSPORT", "CUSTOM:Residence card", "OTHER"]
+    codes = [o["code"] for o in applicant.get("/api/catalogue").json()["evidenceOptions"]["A1"]]
+    assert codes == ["PASSPORT", "NATIONAL_ID", "CUSTOM:Residence card", "OTHER"]
     aid = reviewer.post("/api/assessments", NEW).json()["id"]
     form = applicant.get(f"/api/assessments/{aid}/form").json()
-    assert [o["code"] for o in next(a for a in form["answers"] if a["qid"] == "A4")["evidenceOptions"]][:2] == [
-        "NATURALISATION", "PASSPORT",
-    ]
+    assert [o["code"] for o in next(a for a in form["answers"] if a["qid"] == "A1")["evidenceOptions"]] == codes
 
     # Chosen exactly as the engine lists them again: it follows the engine's list once more.
     body = structure(reviewer)
-    _a4(body)["evidenceOptions"] = ["NATURALISATION"]
+    _q(body, "A1")["evidenceOptions"] = list(reversed(engine_a1))
     response = reviewer.put("/api/questionnaire", body)
-    assert next(q for q in response.json()["questions"] if q["qid"] == "A4")["evidenceOptions"] == []
-    codes = [o["code"] for o in applicant.get("/api/catalogue").json()["evidenceOptions"]["A4"]]
-    assert codes == ["NATURALISATION", "OTHER"]
+    assert next(q for q in response.json()["questions"] if q["qid"] == "A1")["evidenceOptions"] == []
+    codes = [o["code"] for o in applicant.get("/api/catalogue").json()["evidenceOptions"]["A1"]]
+    assert codes == [*engine_a1, "OTHER"]
 
 
 def test_an_existing_question_sent_with_no_types_keeps_the_engines(reviewer):
@@ -515,4 +518,53 @@ def test_an_existing_question_sent_with_no_types_keeps_the_engines(reviewer):
     body = structure(reviewer)
     _a4(body)["evidenceOptions"] = ["NOT_A_TYPE"]
     refused = reviewer.put("/api/questionnaire", body)
-    assert refused.status_code == 400 and "Choose the document types" in str(refused.json())
+    assert refused.status_code == 400 and "not among the AI engine's document types for A4" in str(refused.json())
+
+
+def test_an_existing_question_takes_only_the_engines_types_for_it(reviewer):
+    # PASSPORT is the engine's for A1, not for A4: the engine would not read it under A4.
+    body = structure(reviewer)
+    _a4(body)["evidenceOptions"] = ["NATURALISATION", "PASSPORT"]
+    refused = reviewer.put("/api/questionnaire", body)
+    assert refused.status_code == 400 and "PASSPORT is not among" in str(refused.json())
+    assert QuestionnaireVersion.objects.count() == 1
+
+
+def test_document_types_left_as_they_are_need_nothing_from_the_engine(reviewer, monkeypatch):
+    body = structure(reviewer)
+    _a4(body)["evidenceOptions"] = ["CUSTOM:Residence card", "NATURALISATION"]
+    body["sections"][-1]["questions"].append(new_question(evidenceOptions=["PASSPORT"]))
+    body["sections"][-1]["weight"] = body["sections"][-1]["weight"]
+    assert reviewer.put("/api/questionnaire", body).status_code == 200
+
+    # The engine is away: a change to anything else still publishes.
+    from engine import client
+    from django.core.cache import cache
+
+    def away():
+        raise client.EngineUnavailable("down")
+
+    monkeypatch.setattr(client, "evidence_options", away)
+    cache.clear()
+    body = structure(reviewer)
+    _a4(body)["text"] = "Is the applicant a naturalised citizen, or a resident?"
+    response = reviewer.put("/api/questionnaire", body)
+    assert response.status_code == 200, response.json()
+    a4 = next(q for q in response.json()["questions"] if q["qid"] == "A4")
+    assert a4["evidenceOptions"] == ["CUSTOM:Residence card", "NATURALISATION"]
+
+
+def test_a_form_on_an_older_version_keeps_the_engines_types_it_was_given(reviewer, applicant):
+    aid = reviewer.post("/api/assessments", NEW).json()["id"]
+    Assessment.objects.filter(public_id=aid).update(stage="AWAITING_APPLICANT")  # held to v1
+    body = structure(reviewer)
+    _a4(body)["evidenceOptions"] = ["CUSTOM:Residence card"]
+    assert reviewer.put("/api/questionnaire", body).status_code == 200
+    # The catalogue lists the latest version's types; this form still gets the engine's for A4.
+    latest = [o["code"] for o in applicant.get("/api/catalogue").json()["evidenceOptions"]["A4"]]
+    assert latest == ["CUSTOM:Residence card", "OTHER"]
+    form = applicant.get(f"/api/assessments/{aid}/form").json()
+    a4 = next(a for a in form["answers"] if a["qid"] == "A4")
+    assert [o["code"] for o in a4["evidenceOptions"]] == ["NATURALISATION", "OTHER"]
+    # A question with nothing chosen in any version still leaves it to the catalogue.
+    assert next(a for a in form["answers"] if a["qid"] == "A1")["evidenceOptions"] is None

@@ -259,7 +259,13 @@ def test_a_decided_assessment_is_removed_with_its_runs_rulings_score_and_decisio
     for model in (Submission, SubmissionDocument, QuestionResult, Ruling, Score, Decision):
         assert not model.objects.exists(), model.__name__
     removed = AuditEvent.objects.get(action="assessment.remove", assessment_ref=opened)
-    assert removed.metadata == {"stage": "ACCEPTED"}
+    # The audit trail keeps what was removed: whose it was, the run and its score, and the decision.
+    assert removed.metadata["stage"] == "ACCEPTED" and removed.metadata["reference"] == case.parent_reference
+    assert removed.metadata["latestRun"] == {
+        "attempt": 1, "requestId": "r-1", "status": "queued", "outcome": None,
+        "score": {"riskScore": "10.000", "band": "Low"},
+    }
+    assert removed.metadata["decision"]["verdict"] == "accepted" and removed.metadata["decision"]["remarks"] == "Fine."
 
 
 def test_an_applicant_still_removes_only_their_own_unsubmitted_one(applicant):

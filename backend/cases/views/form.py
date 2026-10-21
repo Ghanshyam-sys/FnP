@@ -7,25 +7,40 @@ from rest_framework.views import APIView
 from engine.client import EngineUnavailable
 
 from .. import audit, catalogue
-from ..models import AnswerType, AnswerValue, ApplicantProfile, Assessment, EvidenceFile, Stage, TEXT_ANSWER_MAX
+from ..models import (
+    AnswerType, AnswerValue, ApplicantProfile, Assessment, EvidenceFile, EvidenceRule, Stage, TEXT_ANSWER_MAX,
+)
 from ..permissions import assessment_for
 from .common import lock, require_editable, require_owner
 from .evidence import evidence_payload, remove_files
 
 def _own_options(questions: dict) -> dict[str, list[dict]]:
-    """The document types chosen for the questions added here, by code (the engine's list applies
-    to the others). Empty if the engine cannot be reached: the catalogue's copy is then used."""
+    """The document types this form's version gives its questions, where the catalogue (which lists
+    the latest version's) may differ: those chosen here for a question, and the engine's own list
+    for one that follows it in this version but has others chosen in a later one. Left out if the
+    engine cannot be reached: the catalogue's copy is then used."""
     chosen = {qid: q.evidence_options for qid, q in questions.items() if q.evidence_options}
-    if not chosen:
+    later = catalogue.chosen_codes()
+    following = [
+        qid for qid, q in questions.items()
+        if not q.evidence_options and q.evidence_required != EvidenceRule.NEVER and qid in later
+    ]
+    if not chosen and not following:
         return {}
     by_code: dict[str, dict] = {}
-    if any(catalogue.custom_name(c) is None for codes in chosen.values() for c in codes):
-        try:
+    engine_lists: dict[str, list[dict]] = {}
+    try:
+        if following:
+            engine_lists = {qid: catalogue.evidence_options().get(qid, []) for qid in following}
+        if any(catalogue.custom_name(c) is None for codes in chosen.values() for c in codes):
             by_code = catalogue.options_by_code()
-        except EngineUnavailable:
-            # Only the names typed in here can be given; the rest come from the catalogue's copy.
-            chosen = {qid: codes for qid, codes in chosen.items() if all(catalogue.custom_name(c) for c in codes)}
-    return {qid: catalogue.chosen_options(codes, by_code) for qid, codes in chosen.items()}
+    except EngineUnavailable:
+        # Only the names typed in here can be given; the rest come from the catalogue's copy.
+        chosen = {qid: codes for qid, codes in chosen.items() if all(catalogue.custom_name(c) for c in codes)}
+    return {
+        **engine_lists,
+        **{qid: catalogue.chosen_options(codes, by_code) for qid, codes in chosen.items()},
+    }
 
 
 def form_payload(assessment: Assessment) -> dict:

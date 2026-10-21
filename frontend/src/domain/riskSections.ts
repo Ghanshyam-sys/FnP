@@ -29,7 +29,11 @@ export function sectionTotals(scoreResult: ScoreResult): SectionTotal[] {
     entry.lines.push(line);
     totals.set(line.section, entry);
   }
-  return [...totals.values()].sort((a, b) => b.risk - a.risk || b.weight - a.weight);
+  // Weights have up to two decimals: the sums are rounded to them, so 0.1 + 0.2 reads 0.3.
+  const hundredths = (n: number) => Math.round(n * 100) / 100;
+  return [...totals.values()]
+    .map((t) => ({ ...t, weight: hundredths(t.weight), risk: hundredths(t.risk) }))
+    .sort((a, b) => b.risk - a.risk || b.weight - a.weight);
 }
 
 /**

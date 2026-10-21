@@ -17,6 +17,7 @@ import {
   toApplicationForm,
   unresolvedFlags,
 } from "../api/adapt";
+import { withFormOptions } from "../domain/catalogue";
 import { isScored } from "../state/caseLabels";
 import { routes } from "../routes";
 import { queueUrl } from "../state/queueReturn";
@@ -103,7 +104,8 @@ export default function ReviewerAuthenticationPage() {
                 entered so far. It can still change, and nothing is authenticated until they submit.
               </div>
             </div>
-            <FormAnswers form={toApplicationForm(form.data, catalogue.data, assignment)} />
+            {/* Document types as this form's questionnaire version gives them. */}
+            <FormAnswers form={toApplicationForm(form.data, withFormOptions(catalogue.data, form.data), assignment)} />
           </>
         )}
         {back}

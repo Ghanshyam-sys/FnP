@@ -1,6 +1,5 @@
 import { useState } from "react";
-import ScoreGauge from "./ScoreGauge";
-import RiskMeter from "./RiskMeter";
+import ScoreVerdict from "./ScoreVerdict";
 import {
   AlertOctagonIcon,
   AlertTriangleIcon,
@@ -16,21 +15,9 @@ import { concernKey, type Concern } from "../domain/concerns";
 import { sectionTotals, type SectionTotal } from "../domain/riskSections";
 import type {
   AuthenticationOutcome,
-  Band,
   ScoreResult,
   SectionScoreLine,
 } from "../domain/types";
-
-const BAND_ICON = {
-  Low: CheckCircleIcon,
-  Moderate: InfoIcon,
-  Elevated: AlertTriangleIcon,
-  High: AlertOctagonIcon,
-} as const;
-
-function bandTone(band: Band): string {
-  return band.toLowerCase();
-}
 
 /** Outcome cell, shared by every question row. */
 function OutcomeTag({ line }: { line: SectionScoreLine }) {
@@ -189,38 +176,10 @@ export default function ReportView({
 }) {
   const cautions = reportQuestions(authentication).filter((q) => q.checks.some((c) => c.status === "caution"));
   const sections = sectionTotals(scoreResult);
-  const BandIcon = BAND_ICON[scoreResult.band];
 
   return (
     <div className="report">
-      <section className="verdict card">
-        <div className="verdict-score">
-          <ScoreGauge score={scoreResult.riskScore100} band={scoreResult.band} />
-          <RiskMeter score={scoreResult.riskScore100} band={scoreResult.band} />
-        </div>
-
-        <div className="verdict-body">
-          <span className={`chip chip-${bandTone(scoreResult.band)}`}>
-            <BandIcon size={14} />
-            {scoreResult.band} risk
-          </span>
-          <h2 className="verdict-reco">{scoreResult.recommendation}</h2>
-          <dl className="verdict-stats">
-            <div>
-              <dt>Weighted risk</dt>
-              <dd>{scoreResult.totalWeightedRisk.toFixed(1)}</dd>
-            </div>
-            <div>
-              <dt>Applicable weight</dt>
-              <dd>{scoreResult.totalApplicableWeight}</dd>
-            </div>
-            <div>
-              <dt>Normalised</dt>
-              <dd>{scoreResult.normalisedRiskScore.toFixed(3)}</dd>
-            </div>
-          </dl>
-        </div>
-      </section>
+      <ScoreVerdict scoreResult={scoreResult} />
 
       {scoreResult.knockOutTriggered && (
         <div className="notice notice-critical">

@@ -50,18 +50,20 @@ function RequestId({ assessment: a }: { assessment: AdminUserDetail["assessments
     return (
       <>
         <span className="admin-muted">—</span>
-        <span className="admin-muted admin-sub">{a.runCount === 0 ? "Not submitted" : "Waiting for the engine"}</span>
+        <span className="admin-muted admin-sub">
+          {a.runCount === 0
+            ? "Not submitted"
+            : a.runStatus === "failed"
+              ? "Not sent: the run failed"
+              : "Waiting for the engine"}
+        </span>
       </>
     );
   }
   return (
     <>
       <code className="admin-request-id">{a.requestId}</code>
-      {a.runCount > 1 && (
-        <span className="admin-muted admin-sub">
-          Run {a.runCount} of {a.runCount}
-        </span>
-      )}
+      {a.runCount > 1 && <span className="admin-muted admin-sub">Latest of {a.runCount} runs</span>}
     </>
   );
 }

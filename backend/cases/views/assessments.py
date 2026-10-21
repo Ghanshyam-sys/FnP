@@ -180,7 +180,7 @@ def removable_by(user: User, a: Assessment) -> bool:
     started themselves, before submission, and never a built-in demo one."""
     if user.is_reviewer:
         return a.stage not in workflow.FOLLOWED_STAGES
-    return a.stage == Stage.NOT_SUBMITTED and a.created_by_id is not None and a.created_by_id == user.id
+    return a.stage == Stage.NOT_SUBMITTED and a.created_by_id == user.id
 
 
 def assessment_payload(a: Assessment, viewer: User) -> dict:
@@ -529,6 +529,33 @@ class ContinueView(APIView):
         return Response(assessment_payload(assessment, request.user), status=status.HTTP_201_CREATED)
 
 
+def _removal_record(assessment: Assessment) -> dict:
+    """What the audit trail keeps of an assessment removed with its history: whose it was, where it
+    stood, the latest engine run and its score, and the decision with the reviewer's remarks, so the
+    outcome can still be told once the case is gone."""
+    record = {
+        "stage": assessment.stage,
+        "applicantName": assessment.applicant_name,
+        "reference": assessment.parent_reference,
+        "department": assessment.department.key,
+    }
+    run = Submission.objects.filter(assessment=assessment).select_related("score").order_by("-attempt_no").first()
+    if run is not None:
+        record["latestRun"] = {
+            "attempt": run.attempt_no, "requestId": run.engine_request_id, "status": run.status, "outcome": run.outcome,
+        }
+        score = getattr(run, "score", None)
+        if score is not None:
+            record["latestRun"]["score"] = {"riskScore": str(score.risk_score), "band": score.band}
+    decision = Decision.objects.filter(assessment=assessment).select_related("reviewer").first()
+    if decision is not None:
+        record["decision"] = {
+            "verdict": decision.verdict, "remarks": decision.remarks,
+            "decidedAt": decision.decided_at.isoformat(), "reviewer": decision.reviewer.email,
+        }
+    return record
+
+
 def _delete_with_history(assessment: Assessment) -> None:
     """Deletes an assessment and everything kept for it: its engine runs (with their documents and
     results), the reviewer's rulings, the score and the decision. These are protected from being
@@ -564,9 +591,9 @@ class AssessmentDetailView(APIView):
             row = lock(assessment)
             if not removable_by(request.user, row):
                 raise Conflict(refused)
-            stage = row.stage
+            record = _removal_record(row)
             files = [e.file.name for e in row.evidence.all()]
             _delete_with_history(row)
-            audit.record(request.user, "assessment.remove", assessment_ref=public_id, metadata={"stage": stage})
+            audit.record(request.user, "assessment.remove", assessment_ref=public_id, metadata=record)
             transaction.on_commit(lambda: delete_files(files))
         return Response(status=status.HTTP_204_NO_CONTENT)
