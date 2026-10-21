@@ -37,7 +37,7 @@ export interface EditQuestion extends QuestionSettingsDraft {
   key: string;
   /** Its code; null for a question added in this edit (the server gives it one). */
   qid: string | null;
-  /** Whether the reviewer chooses its document types (one added here); otherwise the engine's apply. */
+  /** Whether it names its own document types (one added here); otherwise the engine's list applies until others are chosen. */
   ownOptions: boolean;
   /** As published (null for one added now): its weight is kept exactly while nothing it depends on changes. */
   baseWeight: number | null;
@@ -316,7 +316,8 @@ export function toBody(sections: EditSection[]): SectionEdit[] {
         fileTypes: takesDocs(q) ? q.fileTypes : [],
         maxFiles: takesDocs(q) ? q.maxFiles : 1,
         evidenceRequired: q.evidenceRequired,
-        evidenceOptions: q.ownOptions && takesDocs(q) ? q.evidenceOptions : [],
+        // None chosen for one of the engine's questions: it takes the engine's own list.
+        evidenceOptions: takesDocs(q) ? q.evidenceOptions : [],
         // Checks are run on its documents: none for a question that takes none.
         checks: takesDocs(q) ? q.checks : [],
       })),

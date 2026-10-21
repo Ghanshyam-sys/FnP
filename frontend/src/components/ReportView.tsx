@@ -13,6 +13,7 @@ import { reportQuestions } from "../api/adapt";
 import AnswerTag from "./AnswerTag";
 import ConcernCard from "./ConcernCard";
 import { concernKey, type Concern } from "../domain/concerns";
+import { sectionTotals, type SectionTotal } from "../domain/riskSections";
 import type {
   AuthenticationOutcome,
   Band,
@@ -29,30 +30,6 @@ const BAND_ICON = {
 
 function bandTone(band: Band): string {
   return band.toLowerCase();
-}
-
-interface SectionTotal {
-  section: string;
-  weight: number;
-  risk: number;
-  lines: SectionScoreLine[];
-}
-
-function sectionTotals(scoreResult: ScoreResult): SectionTotal[] {
-  const totals = new Map<string, SectionTotal>();
-  for (const line of scoreResult.lines) {
-    const entry = totals.get(line.section) ?? {
-      section: line.section,
-      weight: 0,
-      risk: 0,
-      lines: [],
-    };
-    entry.weight += line.questionWeight;
-    entry.risk += line.weightedRisk;
-    entry.lines.push(line);
-    totals.set(line.section, entry);
-  }
-  return [...totals.values()].sort((a, b) => b.risk - a.risk || b.weight - a.weight);
 }
 
 /** Outcome cell, shared by every question row. */

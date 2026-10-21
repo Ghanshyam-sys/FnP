@@ -210,6 +210,13 @@ select.input:disabled {
   color: var(--critical-ink);
 }
 
+/* Ready for the reviewer's decision: its own hue, apart from the red of review pending and the
+   orange of a serious finding. */
+.chip-decision {
+  background: var(--decision-wash);
+  color: var(--decision-ink);
+}
+
 .chip-info {
   background: var(--accent-wash);
   color: var(--accent-ink);

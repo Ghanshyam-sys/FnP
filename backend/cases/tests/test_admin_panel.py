@@ -9,7 +9,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from cases import audit
-from cases.models import ApplicantProfile, Decision, Stage, User
+from cases.models import ApplicantProfile, Assessment, Decision, Stage, Submission, User
 from cases.tests import factories as make
 
 pytestmark = pytest.mark.django_db
@@ -101,3 +101,37 @@ def test_a_users_detail_lists_their_assessments_and_activity_but_no_personal_det
     text = str(body)
     assert "72012700462" not in text and "+264" not in text and "dateOfBirth" not in text
     assert reviewer.get("/api/admin/users/999999").status_code == 404
+
+
+def test_a_users_detail_gives_each_assessments_latest_request_id(reviewer, population):
+    anna = population["anna"]
+    resubmitted = Assessment.objects.get(public_id="FNP-2026-0002")
+    for n, request_id in ((1, "req-first"), (2, "req-second")):
+        Submission.objects.create(
+            assessment=resubmitted, attempt_no=n, version=resubmitted.version, payload={}, engine_request_id=request_id
+        )
+    rows = {a["id"]: a for a in reviewer.get(f"/api/admin/users/{anna.pk}").json()["assessments"]}
+    # A draft: never sent, so no ID.
+    assert (rows["FNP-2026-0001"]["requestId"], rows["FNP-2026-0001"]["runCount"]) == (None, 0)
+    assert rows["FNP-2026-0001"]["runStatus"] is None
+    # Resubmitted: the latest run's ID, and how many runs there were.
+    assert (rows["FNP-2026-0002"]["requestId"], rows["FNP-2026-0002"]["runCount"]) == ("req-second", 2)
+
+    # Sent, but the engine has not given it an ID yet.
+    waiting = make.assessment(applicant=anna, public_id="FNP-2026-0009", reference="R-9", stage=Stage.AUTH_RUNNING)
+    Submission.objects.create(assessment=waiting, attempt_no=1, version=waiting.version, payload={})
+    row = next(a for a in reviewer.get(f"/api/admin/users/{anna.pk}").json()["assessments"] if a["id"] == "FNP-2026-0009")
+    assert (row["requestId"], row["runCount"], row["runStatus"]) == (None, 1, "queued")
+
+
+def test_a_users_detail_runs_a_fixed_number_of_queries(reviewer):
+    applicant = make.user("many@example.na")
+    make.assessment(applicant=applicant, public_id="FNP-2026-0100", reference="Q-0")
+    with CaptureQueriesContext(connection) as few:
+        reviewer.get(f"/api/admin/users/{applicant.pk}")
+    for i in range(1, 8):
+        case = make.assessment(applicant=applicant, public_id=f"FNP-2026-01{i:02d}", reference=f"Q-{i}")
+        Submission.objects.create(assessment=case, attempt_no=1, version=case.version, payload={}, engine_request_id=f"r{i}")
+    with CaptureQueriesContext(connection) as many:
+        body = reviewer.get(f"/api/admin/users/{applicant.pk}").json()
+    assert len(many) == len(few) and len(body["assessments"]) == 8

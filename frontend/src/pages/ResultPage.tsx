@@ -109,6 +109,7 @@ export default function ResultPage() {
           assessment={data.assessment}
           assignment={assignment}
           decision={decision}
+          scoreResult={scoreResult}
           onClose={() => setSummaryOpen(false)}
         />
       )}

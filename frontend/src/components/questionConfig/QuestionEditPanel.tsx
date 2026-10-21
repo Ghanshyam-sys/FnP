@@ -7,6 +7,7 @@ import { displaySection } from "../../domain/sectionLabels";
 import { CUSTOM_NAME_MAX, customCode, customName } from "../../domain/catalogue";
 import { XIcon } from "../icons";
 import ChecksStep from "./ChecksStep";
+import ChipChoices from "./ChipChoices";
 
 const toggle = <T,>(list: T[], item: T, order: T[]) =>
   list.includes(item) ? list.filter((x) => x !== item) : order.filter((x) => list.includes(x) || x === item);
@@ -30,6 +31,7 @@ export default function QuestionEditPanel({
   isNew,
   configurableFileTypes,
   evidenceOptionChoices,
+  engineEvidenceOptions,
   checkChoices,
   onDone,
   onCancel,
@@ -40,6 +42,8 @@ export default function QuestionEditPanel({
   isNew: boolean;
   configurableFileTypes: string[];
   evidenceOptionChoices: { code: string; label: string }[];
+  /** The engine's own document types for each of its questions, by code. */
+  engineEvidenceOptions: Record<string, string[]>;
   /** Every check in use on any question, with its name in words. */
   checkChoices: { name: string; label: string }[];
   onDone: (settings: QuestionSettingsDraft) => void;
@@ -57,27 +61,45 @@ export default function QuestionEditPanel({
   const [docName, setDocName] = useState("");
   const [docNameNote, setDocNameNote] = useState<string | null>(null);
   const engineCodes = evidenceOptionChoices.map((c) => c.code);
-  const named = draft.evidenceOptions.filter((c) => customName(c) !== null);
+  // One of the engine's questions takes the engine's own list for it until other types are chosen
+  // (an empty list means that list); one added here always names its own.
+  const engineList = question.qid ? (engineEvidenceOptions[question.qid] ?? []) : [];
+  const followsEngine = !question.ownOptions && draft.evidenceOptions.length === 0;
+  const chosen = followsEngine ? engineList : draft.evidenceOptions;
+  const named = chosen.filter((c) => customName(c) !== null);
+  /** Saves the types chosen; for one of the engine's questions, back to its list when they match it. */
+  const setChosen = (next: string[]) => {
+    if (question.ownOptions) return set({ evidenceOptions: next });
+    // Nothing chosen would read as the engine's list: one type at least stays.
+    if (next.length === 0) return;
+    const same = next.length === engineList.length && next.every((c) => engineList.includes(c));
+    set({ evidenceOptions: same ? [] : next });
+  };
   const addDocName = () => {
     const name = docName.split(/\s+/).filter(Boolean).join(" ");
     if (!name) return;
     const sameAsEngine = evidenceOptionChoices.find((o) => o.label.toLowerCase() === name.toLowerCase());
     if (sameAsEngine) {
       // Already one of the engine's: that one is chosen instead.
-      if (!draft.evidenceOptions.includes(sameAsEngine.code)) toggleEngine(sameAsEngine.code);
+      if (!chosen.includes(sameAsEngine.code)) toggleEngine(sameAsEngine.code);
       setDocNameNote(`"${sameAsEngine.label}" is one of the AI engine's document types, so it is chosen from the list.`);
     } else if (named.some((c) => customName(c)?.toLowerCase() === name.toLowerCase())) {
       setDocNameNote(`"${name}" is already added.`);
     } else {
-      set({ evidenceOptions: [...draft.evidenceOptions, customCode(name)] });
+      setChosen([...chosen, customCode(name)]);
       setDocNameNote(null);
     }
     setDocName("");
   };
   // The engine's document types in their list order, then the names typed in, in the order added.
   function toggleEngine(code: string) {
-    const engine = toggle(draft.evidenceOptions.filter((c) => engineCodes.includes(c)), code, engineCodes);
-    set({ evidenceOptions: [...engine, ...named] });
+    const engine = toggle(chosen.filter((c) => engineCodes.includes(c)), code, engineCodes);
+    if (!question.ownOptions && engine.length + named.length === 0) {
+      setDocNameNote("This question takes at least one document type: choose another before taking this one off.");
+      return;
+    }
+    setDocNameNote(null);
+    setChosen([...engine, ...named]);
   }
 
   const takesDocs = draft.evidenceRequired !== "never";
@@ -246,28 +268,43 @@ export default function QuestionEditPanel({
               <option value={1}>1 — primary only</option>
               <option value={2}>2 — primary and supporting</option>
             </select>
-            {question.ownOptions && (
+            {(question.ownOptions || evidenceOptionChoices.length > 0) && (
               <div className="qpanel-row">
                 <span className="field-label">Document types this question takes</span>
+                {!question.ownOptions && (
+                  <p className="qpanel-hint">
+                    {followsEngine
+                      ? "As the AI engine lists them for this question. Change them to offer other ones."
+                      : "Chosen here in place of the AI engine's list for this question."}
+                    {!followsEngine && (
+                      <>
+                        {" "}
+                        <button
+                          type="button"
+                          className="link-button"
+                          onClick={() => {
+                            set({ evidenceOptions: [] });
+                            setDocNameNote(null);
+                          }}
+                        >
+                          Use the AI engine's list again
+                        </button>
+                      </>
+                    )}
+                  </p>
+                )}
                 {evidenceOptionChoices.length === 0 ? (
                   <p className="qpanel-hint">
                     The AI engine's document types could not be loaded. Reload the page to try again, or add
                     document names of your own below.
                   </p>
                 ) : (
-                  <div className="chipset">
-                    {evidenceOptionChoices.map((o) => (
-                      <button
-                        key={o.code}
-                        type="button"
-                        className={`toggle-chip${draft.evidenceOptions.includes(o.code) ? " is-on" : ""}`}
-                        aria-pressed={draft.evidenceOptions.includes(o.code)}
-                        onClick={() => toggleEngine(o.code)}
-                      >
-                        {o.label}
-                      </button>
-                    ))}
-                  </div>
+                  <ChipChoices
+                    label="Document types"
+                    items={evidenceOptionChoices.map((o) => ({ key: o.code, label: o.label }))}
+                    isOn={(code) => chosen.includes(code)}
+                    onToggle={toggleEngine}
+                  />
                 )}
                 {named.length > 0 && (
                   <div className="chipset" role="group" aria-label="Document names added">
@@ -278,7 +315,14 @@ export default function QuestionEditPanel({
                         className="toggle-chip is-on is-custom"
                         aria-label={`Remove ${customName(c)}`}
                         title="Remove"
-                        onClick={() => set({ evidenceOptions: draft.evidenceOptions.filter((x) => x !== c) })}
+                        onClick={() => {
+                          const next = chosen.filter((x) => x !== c);
+                          if (!question.ownOptions && next.length === 0) {
+                            setDocNameNote("This question takes at least one document type: choose another before taking this one off.");
+                            return;
+                          }
+                          setChosen(next);
+                        }}
                       >
                         {customName(c)}
                         <XIcon size={11} />

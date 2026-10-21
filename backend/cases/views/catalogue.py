@@ -34,7 +34,8 @@ def _question_payload(q: Question) -> dict:
         "isKnockout": q.is_knockout,
         "evidenceRequired": q.evidence_required,
         "answerType": q.answer_type,
-        # The document types chosen for a question added here (engine codes); empty otherwise.
+        # The document types chosen here for the question (engine codes, or names typed in); empty
+        # for one of the engine's questions that follows the engine's own list.
         "evidenceOptions": q.evidence_options,
         # Added in this app's configuration, so its document types are chosen here.
         "addedHere": q.added_here,
@@ -153,15 +154,22 @@ class QuestionnaireView(APIView):
                 {"code": o["code"], "label": o["label"]}
                 for o in catalogue.all_engine_options() if o["code"] != catalogue.OTHER_CODE
             ]
+            # The engine's own list for each of its questions, which a question follows until other
+            # document types are chosen for it.
+            engine_lists = {
+                qid: [o["code"] for o in items if o["code"] != catalogue.OTHER_CODE]
+                for qid, items in catalogue.evidence_options().items() if qid != catalogue.CV_QID
+            }
         except EngineUnavailable:
-            # The page still opens; only a new question's document types cannot be chosen.
-            choices = []
+            # The page still opens; only document types cannot be chosen.
+            choices, engine_lists = [], {}
         return Response({
             "current": _version_payload(catalogue.active_version()),
             "published": _version_payload(published),
             "configurableFileTypes": CONFIGURABLE_FILE_TYPES,
             # The document types a new question can take (the engine's, for any question).
             "evidenceOptionChoices": choices,
+            "engineEvidenceOptions": engine_lists,
             # The checks a question's documents can be given (the engine runs them on submission).
             "checkChoices": catalogue.check_choices(),
             "defaultChecks": catalogue.DEFAULT_CHECKS,
@@ -341,6 +349,14 @@ def _own_options(codes: list[str], engine_codes: set[str] | None) -> tuple[list[
     return options, None
 
 
+def _engine_list(qid: str | None) -> list[str]:
+    """The document types the engine lists for a question's code (not "Other — please specify",
+    which every question offers anyway)."""
+    if not qid:
+        return []
+    return [o["code"] for o in catalogue.evidence_options().get(qid, []) if o["code"] != catalogue.OTHER_CODE]
+
+
 def _clean_checks(raw: list[str]) -> tuple[list[str], str | None]:
     """The checks chosen for a question, in order and once each, named as the engine names them
     (a check typed in is turned into that form). A name too long or with control characters is
@@ -441,9 +457,11 @@ def _publish_structure(request, body: dict):
                     errors[f"questions.{label}"] = "Choose at least one accepted file type."
                     continue
                 options: list[str] = []
-                # A question added here names its document types; one the engine knows uses the engine's.
+                # A question added here names its document types. One the engine knows uses the
+                # engine's list for its code, unless other types are chosen for it (sent empty, or
+                # exactly the engine's list, it keeps following the engine's).
                 needs_own_options = takes_documents and (before is None or before.added_here)
-                if needs_own_options:
+                if takes_documents and (needs_own_options or q["evidenceOptions"]):
                     # Only names the reviewer typed in need nothing from the engine.
                     if engine_codes is None and any(catalogue.custom_name(c) is None for c in q["evidenceOptions"]):
                         engine_codes = {o["code"] for o in catalogue.all_engine_options()}
@@ -454,6 +472,8 @@ def _publish_structure(request, body: dict):
                     if not options:
                         errors[f"questions.{label}"] = "Choose the document types this question takes."
                         continue
+                    if not needs_own_options and set(options) == set(_engine_list(qid)):
+                        options = []
                 # The checks run on its documents: as sent (none for a question that takes none),
                 # or, left out, the ones it has.
                 if "checks" in q:

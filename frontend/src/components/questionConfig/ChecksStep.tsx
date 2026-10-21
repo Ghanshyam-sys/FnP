@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CHECK_MAX, checkLabel, checkName } from "../../domain/checks";
 import { XIcon } from "../icons";
+import ChipChoices from "./ChipChoices";
 
 /**
  * The checks the AI engine runs on a question's documents, chosen like its document types: the
@@ -53,19 +54,12 @@ export default function ChecksStep({
       <legend>Checks</legend>
       <p className="qpanel-hint">What the AI engine checks in this question's documents.</p>
       {choices.length > 0 && (
-        <div className="chipset" role="group" aria-label="Checks">
-          {choices.map((c) => (
-            <button
-              key={c.name}
-              type="button"
-              className={`toggle-chip${checks.includes(c.name) ? " is-on" : ""}`}
-              aria-pressed={checks.includes(c.name)}
-              onClick={() => toggle(c.name)}
-            >
-              {c.label}
-            </button>
-          ))}
-        </div>
+        <ChipChoices
+          label="Checks"
+          items={choices.map((c) => ({ key: c.name, label: c.label }))}
+          isOn={(name) => checks.includes(name)}
+          onToggle={toggle}
+        />
       )}
       {own.length > 0 && (
         <div className="chipset" role="group" aria-label="Checks added">

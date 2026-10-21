@@ -32,11 +32,14 @@ from ..models import (
     AnswerValue,
     ApplicantProfile,
     Assessment,
+    Decision,
     Department,
     EvidenceFile,
     QuestionResult,
     ResultStatus,
     Role,
+    Ruling,
+    Score,
     Stage,
     Submission,
     User,
@@ -172,11 +175,12 @@ def _queue_summary(a: Assessment) -> dict:
 
 
 def removable_by(user: User, a: Assessment) -> bool:
-    """Only before submission, and never a built-in demo assessment: the reviewer may remove any
-    that someone started, an applicant only one they started themselves."""
-    if a.stage != Stage.NOT_SUBMITTED or a.created_by_id is None:
-        return False
-    return user.is_reviewer or a.created_by_id == user.id
+    """The reviewer may remove any assessment, at any stage, except while the AI engine is working
+    on it (a run being sent or followed would lose its case). An applicant may remove only one they
+    started themselves, before submission, and never a built-in demo one."""
+    if user.is_reviewer:
+        return a.stage not in workflow.FOLLOWED_STAGES
+    return a.stage == Stage.NOT_SUBMITTED and a.created_by_id is not None and a.created_by_id == user.id
 
 
 def assessment_payload(a: Assessment, viewer: User) -> dict:
@@ -525,6 +529,19 @@ class ContinueView(APIView):
         return Response(assessment_payload(assessment, request.user), status=status.HTTP_201_CREATED)
 
 
+def _delete_with_history(assessment: Assessment) -> None:
+    """Deletes an assessment and everything kept for it: its engine runs (with their documents and
+    results), the reviewer's rulings, the score and the decision. These are protected from being
+    deleted with it by accident, so they go first, explicitly. The audit trail keeps its entries,
+    which name the case by its ID."""
+    runs = Submission.objects.filter(assessment=assessment)
+    Ruling.objects.filter(submission__in=runs).delete()
+    Score.objects.filter(submission__in=runs).delete()
+    Decision.objects.filter(assessment=assessment).delete()
+    runs.delete()
+    assessment.delete()
+
+
 class AssessmentDetailView(APIView):
     def get(self, request, public_id):
         qs = with_queue_summary(Assessment.objects.all())
@@ -534,15 +551,22 @@ class AssessmentDetailView(APIView):
         assessment = assessment_for(request.user, public_id)
         if not request.user.is_reviewer and assessment.created_by_id != request.user.id:
             raise PermissionDenied("Only an application you started yourself can be removed.")
-        refused = "Only an assessment that was started here, and not yet submitted, can be removed."
+        refused = (
+            "This assessment is with the AI engine right now. Remove it once the run has finished."
+            if request.user.is_reviewer
+            else "Only an assessment that was started here, and not yet submitted, can be removed."
+        )
         if not removable_by(request.user, assessment):
             raise Conflict(refused)
         with transaction.atomic():
-            # Re-checked on the locked row: a submit at the same moment must not be deleted.
-            if lock(assessment).stage != Stage.NOT_SUBMITTED:
+            # Re-checked on the locked row: a submit or a run starting at the same moment must not
+            # lose its case.
+            row = lock(assessment)
+            if not removable_by(request.user, row):
                 raise Conflict(refused)
-            files = [e.file.name for e in assessment.evidence.all()]
-            assessment.delete()
-            audit.record(request.user, "assessment.remove", assessment_ref=public_id)
+            stage = row.stage
+            files = [e.file.name for e in row.evidence.all()]
+            _delete_with_history(row)
+            audit.record(request.user, "assessment.remove", assessment_ref=public_id, metadata={"stage": stage})
             transaction.on_commit(lambda: delete_files(files))
         return Response(status=status.HTTP_204_NO_CONTENT)

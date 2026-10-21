@@ -9,7 +9,7 @@ import { STAGE_LABELS } from "../state/caseLabels";
 import { formatDateTime } from "../utils/format";
 import { routes } from "../routes";
 import { RoleChip, StatusChip } from "./AdminUsersPage";
-import type { Stage } from "../api/types";
+import type { AdminUserDetail, Stage } from "../api/types";
 
 /** The audit trail's actions in words. An action not listed here is shown as recorded. */
 const ACTIONS: Record<string, string> = {
@@ -43,6 +43,28 @@ const ACTIONS: Record<string, string> = {
 /** Where the reviewer works on a case: the decision page once it is waiting for one. */
 const caseRoute = (id: string, stage: Stage) =>
   stage === "DECISION_PENDING" ? routes.reviewerResult(id) : routes.reviewerAuthentication(id);
+
+/** The AI engine's ID for the latest run, or why there is none yet. */
+function RequestId({ assessment: a }: { assessment: AdminUserDetail["assessments"][number] }) {
+  if (!a.requestId) {
+    return (
+      <>
+        <span className="admin-muted">—</span>
+        <span className="admin-muted admin-sub">{a.runCount === 0 ? "Not submitted" : "Waiting for the engine"}</span>
+      </>
+    );
+  }
+  return (
+    <>
+      <code className="admin-request-id">{a.requestId}</code>
+      {a.runCount > 1 && (
+        <span className="admin-muted admin-sub">
+          Run {a.runCount} of {a.runCount}
+        </span>
+      )}
+    </>
+  );
+}
 
 export default function AdminUserPage() {
   const navigate = useNavigate();
@@ -122,6 +144,7 @@ export default function AdminUserPage() {
               <thead>
                 <tr>
                   <th scope="col">Assessment</th>
+                  <th scope="col">Request ID</th>
                   <th scope="col">Applicant</th>
                   <th scope="col">Department</th>
                   <th scope="col">Stage</th>
@@ -133,6 +156,9 @@ export default function AdminUserPage() {
                   <tr key={a.id}>
                     <td>
                       <Link to={caseRoute(a.id, a.stage)}>{a.id}</Link>
+                    </td>
+                    <td>
+                      <RequestId assessment={a} />
                     </td>
                     <td>
                       {a.applicantName}

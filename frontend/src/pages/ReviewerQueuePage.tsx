@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useAssessments, useDepartments } from "../api/queries";
+import { useAssessments, useDepartments, useRemoveAssessment } from "../api/queries";
+import { ApiError } from "../api/client";
+import Modal from "../components/Modal";
 import { daysSince, formatDate } from "../utils/format";
 import { QUEUE_ORDER, STAGE_LABELS, needsReviewer } from "../state/caseLabels";
 import { rememberQueueSearch } from "../state/queueReturn";
@@ -16,7 +18,9 @@ import {
   CheckCircleIcon,
   GridIcon,
   SearchIcon,
+  ShieldCheckIcon,
   SlidersIcon,
+  XIcon,
 } from "../components/icons";
 import type { Assessment, Stage } from "../api/types";
 
@@ -99,6 +103,8 @@ export default function ReviewerQueuePage() {
   // Where "Back to the queue" returns to.
   useEffect(() => rememberQueueSearch(location.search), [location.search]);
   const departments = useDepartments();
+  // The application the reviewer asked to remove, while they confirm it.
+  const [toRemove, setToRemove] = useState<Assessment | null>(null);
   // Refreshes itself while any listed case is still with the engine.
   const list = useAssessments(department, status, search);
 
@@ -283,52 +289,72 @@ export default function ReviewerQueuePage() {
               const { assignment, stage } = row;
               const label = STAGE_LABELS[stage];
               return (
-                <button className="case-card" key={assignment.id} onClick={() => openCase(row)}>
-                  <div className="case-card-head">
-                    <span className="case-avatar">
-                      <DepartmentIcon departmentKey={assignment.department.key} size={16} />
-                    </span>
-                    <span className={`chip chip-${label.tone}`}>
-                      {needsReviewer(stage) && <AlertTriangleIcon size={12} />}
-                      {stage === "ACCEPTED" && <CheckCircleIcon size={12} />}
-                      {label.reviewer}
-                    </span>
-                  </div>
-
-                  <h2 className="case-name">{assignment.applicantName}</h2>
-                  <p className="case-role">
-                    {assignment.position} · {assignment.entity}
-                  </p>
-
-                  {needsReviewer(stage) && daysSince(assignment.updatedAt) >= 1 && (
-                    <p className={`case-age${daysSince(assignment.updatedAt) >= 3 ? " is-late" : ""}`}>
-                      Waiting {daysSince(assignment.updatedAt)} day{daysSince(assignment.updatedAt) === 1 ? "" : "s"}
+                <div className="case-card-wrap" key={assignment.id}>
+                  <button className="case-card" onClick={() => openCase(row)}>
+                    <div className="case-card-head">
+                      <span className="case-avatar">
+                        <DepartmentIcon departmentKey={assignment.department.key} size={16} />
+                      </span>
+                      <span className={`chip chip-${label.tone}`}>
+                        {needsReviewer(stage) && stage !== "DECISION_PENDING" && <AlertTriangleIcon size={12} />}
+                        {stage === "DECISION_PENDING" && <ShieldCheckIcon size={12} />}
+                        {stage === "ACCEPTED" && <CheckCircleIcon size={12} />}
+                        {label.reviewer}
+                      </span>
+                    </div>
+  
+                    <h2 className="case-name">{assignment.applicantName}</h2>
+                    <p className="case-role">
+                      {assignment.position} · {assignment.entity}
                     </p>
-                  )}
-
-                  <dl className="case-meta">
-                    <div>
-                      <dt>Reference</dt>
-                      <dd>{assignment.reference}</dd>
-                    </div>
-                    <div>
-                      <dt>Initiated</dt>
-                      <dd>{formatDate(assignment.initiatedOn)}</dd>
-                    </div>
-                    <div>
-                      <dt>Department</dt>
-                      <dd>{assignment.department.name}</dd>
-                    </div>
-                  </dl>
-
-                  <footer className="case-foot">
-                    <CaseFootNote row={row} />
-                    <span className="case-open">
-                      {stage === "DECISION_PENDING" ? "Decide" : "Open"}
-                      <ArrowRightIcon size={14} />
-                    </span>
-                  </footer>
-                </button>
+  
+                    {needsReviewer(stage) && daysSince(assignment.updatedAt) >= 1 && (
+                      <p className={`case-age${daysSince(assignment.updatedAt) >= 3 ? " is-late" : ""}`}>
+                        Waiting {daysSince(assignment.updatedAt)} day{daysSince(assignment.updatedAt) === 1 ? "" : "s"}
+                      </p>
+                    )}
+  
+                    <dl className="case-meta">
+                      <div>
+                        <dt>Reference</dt>
+                        <dd>{assignment.reference}</dd>
+                      </div>
+                      <div>
+                        <dt>Initiated</dt>
+                        <dd>{formatDate(assignment.initiatedOn)}</dd>
+                      </div>
+                      <div>
+                        <dt>Department</dt>
+                        <dd>{assignment.department.name}</dd>
+                      </div>
+                    </dl>
+  
+                    <footer className="case-foot">
+                      <CaseFootNote row={row} />
+                      <span className="case-open">
+                        {stage === "DECISION_PENDING" ? "Decide" : "Open"}
+                        <ArrowRightIcon size={14} />
+                      </span>
+                    </footer>
+                  </button>
+                  {/* Beside the card rather than in it: a button cannot hold another button. */}
+                  <button
+                    type="button"
+                    className="case-remove"
+                    aria-label={`Remove ${assignment.applicantName}'s application ${assignment.id}`}
+                    aria-disabled={!assignment.removable || undefined}
+                    title={
+                      assignment.removable
+                        ? "Remove this application"
+                        : "With the AI engine right now: it can be removed once the run has finished"
+                    }
+                    onClick={() => {
+                      if (assignment.removable) setToRemove(assignment);
+                    }}
+                  >
+                    <XIcon size={13} />
+                  </button>
+                </div>
               );
             })}
           </div>
@@ -342,7 +368,48 @@ export default function ReviewerQueuePage() {
           </div>
         )}
       </div>
+
+      {toRemove && <RemoveDialog assignment={toRemove} onClose={() => setToRemove(null)} />}
     </div>
+  );
+}
+
+/** Asks before an application is removed for good, and says what goes with it. */
+function RemoveDialog({ assignment, onClose }: { assignment: Assessment; onClose: () => void }) {
+  const removal = useRemoveAssessment(assignment.id);
+  const submitted = assignment.stage !== "NOT_SUBMITTED";
+  return (
+    <Modal labelledBy="remove-case-title" dismissible={!removal.isPending} onClose={onClose}>
+      <span className="modal-icon">
+        <AlertTriangleIcon size={20} />
+      </span>
+      <h2 id="remove-case-title">Remove {assignment.applicantName}'s application?</h2>
+      <p className="modal-sub">
+        {assignment.id} · {assignment.reference} · {STAGE_LABELS[assignment.stage].reviewer}. It is deleted for good with
+        its answers and documents
+        {submitted ? ", the AI engine's results, the rulings, the score and any decision" : ""}. The applicant no longer
+        sees it. This cannot be undone.
+      </p>
+      {removal.isError && (
+        <p className="field-error" role="alert">
+          {removal.error instanceof ApiError && removal.error.status === 409
+            ? removal.error.message
+            : "It was not removed. Check your connection and try again."}
+        </p>
+      )}
+      <div className="modal-actions">
+        <button className="btn btn-ghost" disabled={removal.isPending} onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="btn btn-critical"
+          disabled={removal.isPending}
+          onClick={() => removal.mutate(undefined, { onSuccess: onClose })}
+        >
+          {removal.isPending ? "Removing…" : "Remove application"}
+        </button>
+      </div>
+    </Modal>
   );
 }
 

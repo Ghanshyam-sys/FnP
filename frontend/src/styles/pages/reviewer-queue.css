@@ -16,6 +16,79 @@
   gap: 0.9rem;
 }
 
+/* The card and its remove button side by side in the grid cell; the card fills the cell. */
+.case-card-wrap {
+  position: relative;
+  display: flex;
+  min-width: 0;
+}
+
+.case-card-wrap > .case-card {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Remove: a small round button on the card's top-right corner, clear of the stage chip. Shown on
+   hover or focus where there is a pointer, and always on touch screens. */
+.case-remove {
+  position: absolute;
+  top: -0.55rem;
+  right: -0.55rem;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 1.65rem;
+  height: 1.65rem;
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 50%;
+  background: var(--surface-raised, var(--surface));
+  color: var(--ink-3);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.16s ease, color 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.case-card-wrap:hover .case-remove,
+.case-card-wrap:focus-within .case-remove {
+  opacity: 1;
+}
+
+.case-remove:hover:not([aria-disabled]),
+.case-remove:focus-visible {
+  border-color: var(--critical);
+  background: var(--critical-wash);
+  color: var(--critical-ink);
+  outline: none;
+}
+
+.case-remove[aria-disabled] {
+  cursor: not-allowed;
+  opacity: 0;
+}
+
+.case-card-wrap:hover .case-remove[aria-disabled],
+.case-card-wrap:focus-within .case-remove[aria-disabled] {
+  opacity: 0.45;
+}
+
+@media (hover: none) {
+  .case-remove {
+    opacity: 1;
+  }
+
+  .case-remove[aria-disabled] {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .case-remove {
+    transition: none;
+  }
+}
+
 .case-card {
   display: flex;
   flex-direction: column;

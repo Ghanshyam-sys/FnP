@@ -190,7 +190,8 @@
   background: var(--surface);
 }
 
-.pane-concern + .pane-concern {
+.pane-concern + .pane-concern,
+.pane-concern-item + .pane-concern-item {
   margin-top: 0.75rem;
 }
 
@@ -391,10 +392,36 @@
   display: none;
 }
 
+/* "Where the risk comes from" prints with the PDF; on screen the scoring page has it. */
+.pane-print-risk {
+  display: none;
+}
+
+/* What the PDF explains for a reader with no app at hand: on screen the app itself explains. */
+.pane-print-explain,
+.pane-print-inline,
+.pane-print-outcomes {
+  display: none;
+}
+
 /* Paper margins, and a running footer: the case on the left (written by the pane, which knows
    it), the page count on the right. */
 @page {
   margin: 16mm 15mm 18mm;
+
+  /* Taking the top margin boxes keeps the browser's own header (the date and the page title) off
+     the page: the case is named in the printed header and in the footer on every page. */
+  @top-left {
+    content: "";
+  }
+
+  @top-center {
+    content: "";
+  }
+
+  @top-right {
+    content: "";
+  }
 
   @bottom-left {
     font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -586,5 +613,312 @@
   .pane-condition p {
     orphans: 3;
     widows: 3;
+  }
+
+  /* ---- Where the risk comes from: a bar per section, risky sections with their questions ---- */
+  .pane-print-risk {
+    display: block;
+  }
+
+  .pane-print-risk-sub {
+    margin: 0 0 8pt;
+    font-size: 8.5pt;
+    color: var(--ink-2);
+  }
+
+  /* A section may continue on the next page (no half-empty pages); its bar stays with the
+     start of its table, and the heading and intro with the first section. */
+  .pane-print-risk-sub,
+  .pane-risk-row {
+    break-after: avoid;
+  }
+
+  .pane-risk-table thead {
+    display: table-header-group;
+  }
+
+  .pane-risk-section + .pane-risk-section {
+    margin-top: 5pt;
+  }
+
+  .pane-risk-row {
+    display: grid;
+    grid-template-columns: 38% minmax(0, 1fr) 13%;
+    align-items: center;
+    gap: 8pt;
+    font-size: 9pt;
+    color: var(--ink);
+  }
+
+  .pane-risk-track {
+    display: block;
+    height: 6pt;
+    border-radius: 3pt;
+    background: var(--surface-sunken);
+    border: 0.5pt solid var(--hairline);
+    overflow: hidden;
+  }
+
+  .pane-risk-fill {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+  }
+
+  .pane-risk-track,
+  .pane-risk-fill,
+  .pane-risk-table .chip {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .pane-risk-value {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink-3);
+  }
+
+  .pane-risk-value strong {
+    color: var(--ink);
+  }
+
+  .pane-risk-table {
+    width: 100%;
+    margin: 5pt 0 8pt;
+    border-collapse: collapse;
+    font-size: 8.5pt;
+  }
+
+  /* The same columns in every section, so the tables line up down the page. */
+  .pane-risk-table {
+    table-layout: fixed;
+  }
+
+  .pane-risk-table th:nth-child(1) {
+    width: 40%;
+  }
+
+  .pane-risk-table th:nth-child(2) {
+    width: 11%;
+  }
+
+  .pane-risk-table th:nth-child(3) {
+    width: 17%;
+  }
+
+  .pane-risk-table th:nth-child(4) {
+    width: 16%;
+  }
+
+  .pane-risk-table th:nth-child(5) {
+    width: 16%;
+  }
+
+  .pane-risk-table th {
+    white-space: nowrap;
+  }
+
+  .pane-risk-table th {
+    padding: 3pt 5pt;
+    border-bottom: 0.75pt solid var(--ink-3);
+    text-align: left;
+    font-size: 7.5pt;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pane-risk-table td {
+    padding: 4pt 5pt;
+    border-bottom: 0.5pt solid var(--hairline);
+    vertical-align: top;
+    color: var(--ink);
+  }
+
+  .pane-risk-table tr {
+    break-inside: avoid;
+  }
+
+  .pane-risk-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .pane-risk-table .strong {
+    font-weight: 700;
+  }
+
+  /* A risky question's text and why it counts, across the row under it. */
+  .pane-risk-table tr.is-risk td {
+    border-bottom: 0;
+  }
+
+  .pane-risk-why td {
+    padding-top: 0;
+    padding-left: 10pt;
+  }
+
+  .pane-risk-question {
+    margin: 0;
+    color: var(--ink);
+  }
+
+  .pane-risk-note {
+    margin: 2pt 0 0;
+    font-size: 8pt;
+    color: var(--ink-2);
+  }
+
+  .pane-risk-note.is-knockout {
+    font-weight: 600;
+    color: var(--critical-ink);
+  }
+
+  /* The AI engine's concerns about a question, under it, as the scoring page opens them. */
+  .pane-risk-concerns {
+    margin-top: 4pt;
+  }
+
+  .pane-risk-concerns .pane-concern {
+    padding: 5pt 7pt;
+  }
+
+  .pane-risk-concerns .pane-concern + .pane-concern {
+    margin-top: 4pt;
+  }
+
+  /* A question with its concerns may be taller than what is left of a page: it may then run on,
+     its row staying with the start of its details. */
+  .pane-risk-table tr.pane-risk-why {
+    break-inside: auto;
+  }
+
+  .pane-risk-table tr.is-risk {
+    break-after: avoid;
+  }
+
+  /* A concern's type says what its section would ("Conflict of interest" · "Conflict of
+     Interest — Entity"); the breakdown above places each question in its section. */
+  .pane-concern-section {
+    display: none;
+  }
+
+  /* What the screen shows but the PDF already says elsewhere. */
+  .pane-screen-only {
+    display: none !important;
+  }
+
+  /* ---- Plain-language explanations ---- */
+  .pane-print-explain {
+    display: block;
+    font-size: 8pt;
+    line-height: 1.4;
+    color: var(--ink-3);
+  }
+
+  .pane-print-inline {
+    display: inline;
+  }
+
+  .pane-stats .pane-print-explain {
+    margin-top: 2pt;
+    font-weight: 400;
+  }
+
+  .pane-section-explain {
+    margin: -2pt 0 7pt;
+  }
+
+  .pane-verdict-who {
+    margin: 0 0 5pt;
+  }
+
+  /* ---- Question outcomes, explained, with what each question asked ---- */
+  .pane-print-outcomes {
+    display: block;
+  }
+
+  .pane-outcome-group + .pane-outcome-group {
+    margin-top: 9pt;
+  }
+
+  .pane-outcome-group h4 {
+    display: flex;
+    align-items: center;
+    gap: 6pt;
+    margin: 0;
+    break-after: avoid;
+  }
+
+  .pane-outcome-group .chip {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .pane-outcome-count {
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: var(--ink-2);
+  }
+
+  .pane-outcome-explain {
+    margin: 3pt 0 4pt;
+    font-size: 8pt;
+    color: var(--ink-3);
+    break-after: avoid;
+  }
+
+  .pane-outcome-none {
+    margin: 0;
+    font-size: 8.5pt;
+    color: var(--ink-3);
+  }
+
+  .pane-outcome-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-size: 8.5pt;
+  }
+
+  .pane-outcome-table th {
+    padding: 3pt 5pt;
+    border-bottom: 0.75pt solid var(--ink-3);
+    text-align: left;
+    font-size: 7.5pt;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+  }
+
+  .pane-outcome-table th:nth-child(1) {
+    width: 13%;
+  }
+
+  .pane-outcome-table th:nth-child(3) {
+    width: 13%;
+  }
+
+  .pane-outcome-table td {
+    padding: 4pt 5pt;
+    border-bottom: 0.5pt solid var(--hairline);
+    vertical-align: top;
+    color: var(--ink);
+  }
+
+  .pane-outcome-table tr {
+    break-inside: avoid;
+  }
+
+  .pane-outcome-above {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 4pt;
+    margin: 4pt 0 0;
+    font-size: 8.5pt;
+    color: var(--ink-2);
   }
 }

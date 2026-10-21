@@ -155,7 +155,18 @@ class AdminUserDetailView(APIView):
 
     def get(self, request, user_id):
         user = get_object_or_404(User, pk=user_id)
-        assessments = Assessment.objects.filter(applicant=user).select_related("department").order_by("-updated_at")
+        # The latest engine run of each, in the same query: the request ID the engine gave it.
+        latest_run = Submission.objects.filter(assessment=OuterRef("pk")).order_by("-attempt_no")
+        assessments = (
+            Assessment.objects.filter(applicant=user)
+            .select_related("department")
+            .annotate(
+                run_count=Count("submissions"),
+                request_id=Subquery(latest_run.values("engine_request_id")[:1]),
+                run_status=Subquery(latest_run.values("status")[:1]),
+            )
+            .order_by("-updated_at")
+        )
         activity = AuditEvent.objects.filter(actor=user).order_by("-occurred_at")[:RECENT_ACTIVITY]
         return Response({
             **_user_row(user),
@@ -169,6 +180,9 @@ class AdminUserDetailView(APIView):
                     "updatedAt": a.updated_at,
                     "submittedAt": a.submitted_at,
                     "decidedAt": a.decided_at,
+                    "requestId": a.request_id,
+                    "runCount": a.run_count,
+                    "runStatus": a.run_status,
                 }
                 for a in assessments
             ],

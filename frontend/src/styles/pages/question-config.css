@@ -711,6 +711,16 @@ button.weight-legend-item:hover {
   gap: 0.3rem;
 }
 
+/* "+ 4 more" / "Show fewer": opens the rest of a long list of choices. */
+.toggle-chip.is-more {
+  border-style: dashed;
+  color: var(--accent-ink);
+}
+
+.toggle-chip.is-more:hover {
+  border-color: var(--accent);
+}
+
 .qrow-actions {
   display: flex;
   align-items: center;

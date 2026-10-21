@@ -116,6 +116,10 @@ export interface AdminUserDetail extends AdminUser {
     updatedAt: string;
     submittedAt: string | null;
     decidedAt: string | null;
+    /** The ID the AI engine gave the latest run; null before the engine has given one. */
+    requestId: string | null;
+    runCount: number;
+    runStatus: "queued" | "running" | "completed" | "failed" | null;
   }[];
   activity: { at: string; action: string; assessmentRef: string }[];
 }
@@ -187,6 +191,8 @@ export interface QuestionnaireSettings {
   configurableFileTypes: string[];
   /** The engine's document types a question added here can take. */
   evidenceOptionChoices: { code: string; label: string }[];
+  /** The engine's own document types for each of its questions, which it takes until others are chosen. */
+  engineEvidenceOptions?: Record<string, string[]>;
   /** Every check a question's documents can be given (those in use on any question), in words too. */
   checkChoices?: { name: string; label: string }[];
 }

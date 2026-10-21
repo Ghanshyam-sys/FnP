@@ -11,8 +11,8 @@ from django.db import connection
 from django.test.utils import CaptureQueriesContext
 
 from cases.models import (
-    ApplicantProfile, Assessment, AuditEvent, EvidenceFile, QuestionnaireVersion, QuestionResult, Ruling, Stage,
-    Submission, User,
+    ApplicantProfile, Assessment, AuditEvent, Decision, EvidenceFile, QuestionnaireVersion, QuestionResult, Ruling,
+    Score, Stage, Submission, SubmissionDocument, User,
 )
 from cases.tests import factories as make
 from engine.client import EngineUnavailable
@@ -213,11 +213,13 @@ def test_reviewer_queue_is_keyset_paginated_with_a_fixed_number_of_queries(revie
     assert reviewer.get("/api/assessments", stage="NOPE").status_code == 400
 
 
-def test_reviewer_removes_only_an_assessment_they_opened_before_submission(
+def test_reviewer_removes_an_assessment_and_its_documents(
     reviewer, applicant, opened, django_capture_on_commit_callbacks
 ):
+    # A built-in demo one too, which the applicant could never remove.
     built_in = make.assessment(public_id="FNP-2026-0412", reference="BL-2026-0412")
-    assert reviewer.delete(f"/api/assessments/{built_in.public_id}").status_code == 409
+    assert reviewer.get(f"/api/assessments/{built_in.public_id}").json()["removable"] is True
+    assert reviewer.delete(f"/api/assessments/{built_in.public_id}").status_code == 204
     assert applicant.delete(f"/api/assessments/{opened}").status_code == 403
 
     applicant.post(f"/api/assessments/{opened}/evidence", {"file": pdf(), "qid": "CV", "optionCode": "CURRICULUM_VITAE"}, multipart=True)
@@ -230,9 +232,41 @@ def test_reviewer_removes_only_an_assessment_they_opened_before_submission(
     assert AuditEvent.objects.filter(action="assessment.remove", assessment_ref=opened).exists()
 
 
-def test_a_submitted_assessment_cannot_be_removed(reviewer, opened):
-    type(make.assessment()).objects.filter(public_id=opened).update(stage=Stage.AUTH_RUNNING)
-    assert reviewer.delete(f"/api/assessments/{opened}").status_code == 409
+@pytest.mark.parametrize("stage", [Stage.AUTH_RUNNING, Stage.SCORING])
+def test_an_assessment_with_the_engine_cannot_be_removed(reviewer, opened, stage):
+    Assessment.objects.filter(public_id=opened).update(stage=stage)
+    assert reviewer.get(f"/api/assessments/{opened}").json()["removable"] is False
+    refused = reviewer.delete(f"/api/assessments/{opened}")
+    assert refused.status_code == 409 and "with the AI engine" in refused.json()["detail"]
+    assert Assessment.objects.filter(public_id=opened).exists()
+
+
+def test_a_decided_assessment_is_removed_with_its_runs_rulings_score_and_decision(reviewer, opened):
+    case = Assessment.objects.get(public_id=opened)
+    Assessment.objects.filter(pk=case.pk).update(stage=Stage.ACCEPTED)
+    run = Submission.objects.create(assessment=case, attempt_no=1, version=case.version, payload={}, engine_request_id="r-1")
+    SubmissionDocument.objects.create(submission=run, authentication={"x": 1})
+    QuestionResult.objects.create(submission=run, qid="PC1", status="issue")
+    Ruling.objects.create(submission=run, qid="PC1", verdict="accepted", comment="ok", reviewer=make.reviewer())
+    Score.objects.create(
+        submission=run, source="engine", risk_score=10, normalised="0.1", band="Low", knock_out=False,
+        recommendation="Approve", lines=[],
+    )
+    Decision.objects.create(assessment=case, verdict="accepted", remarks="Fine.", reviewer=make.reviewer())
+    assert reviewer.get(f"/api/assessments/{opened}").json()["removable"] is True
+    assert reviewer.delete(f"/api/assessments/{opened}").status_code == 204
+    assert not Assessment.objects.filter(public_id=opened).exists()
+    for model in (Submission, SubmissionDocument, QuestionResult, Ruling, Score, Decision):
+        assert not model.objects.exists(), model.__name__
+    removed = AuditEvent.objects.get(action="assessment.remove", assessment_ref=opened)
+    assert removed.metadata == {"stage": "ACCEPTED"}
+
+
+def test_an_applicant_still_removes_only_their_own_unsubmitted_one(applicant):
+    own = applicant.post("/api/assessments", OWN).json()["id"]
+    Assessment.objects.filter(public_id=own).update(stage=Stage.REVIEW_PENDING)
+    assert applicant.get(f"/api/assessments/{own}").json()["removable"] is False
+    assert applicant.delete(f"/api/assessments/{own}").status_code == 409
 
 
 # ---- The applicant's form ---------------------------------------------------------------------

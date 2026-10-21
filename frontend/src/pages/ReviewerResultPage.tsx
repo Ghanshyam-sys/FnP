@@ -269,6 +269,7 @@ export default function ReviewerResultPage() {
           assessment={data.assessment}
           assignment={assignment}
           decision={decision}
+          scoreResult={scoreResult}
           onClose={() => setSummaryOpen(false)}
         />
       )}

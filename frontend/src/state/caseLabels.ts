@@ -1,9 +1,9 @@
 import type { Stage } from "../api/types";
 
 /**
- * How each stage reads in the two queues. `tone` maps onto the existing chip palette: blue for
- * work sitting with someone, amber when it is waiting on the applicant, green once accepted,
- * red once rejected or when the engine failed.
+ * How each stage reads in the two queues. `tone` maps onto the chip palette: green-grey for work
+ * in flight, red for answers to rule on, a rejection or a failed run, blue once ready for the
+ * decision, amber when it is waiting on the applicant, green once accepted.
  */
 export const STAGE_LABELS: Record<Stage, { reviewer: string; applicant: string; tone: string }> = {
   NOT_SUBMITTED: { reviewer: "Not submitted", applicant: "Draft saved", tone: "neutral" },
@@ -20,7 +20,7 @@ export const STAGE_LABELS: Record<Stage, { reviewer: string; applicant: string; 
     tone: "warning",
   },
   SCORING: { reviewer: "Scoring in progress", applicant: "Scoring in progress", tone: "info" },
-  DECISION_PENDING: { reviewer: "Decision pending", applicant: "Awaiting decision", tone: "serious" },
+  DECISION_PENDING: { reviewer: "Decision pending", applicant: "Awaiting decision", tone: "decision" },
   ACCEPTED: { reviewer: "Accepted", applicant: "Accepted", tone: "low" },
   REJECTED: { reviewer: "Rejected", applicant: "Rejected", tone: "critical" },
 };

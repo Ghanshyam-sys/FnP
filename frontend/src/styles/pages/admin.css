@@ -167,6 +167,15 @@
   font-size: var(--fs-xs);
 }
 
+/* The AI engine's request ID: whole on one line, and easy to select and copy. */
+.admin-request-id {
+  font-family: var(--mono);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  white-space: nowrap;
+  user-select: all;
+}
+
 .admin-none {
   padding: 1rem 1.25rem 1.15rem;
   font-size: var(--fs-md);
