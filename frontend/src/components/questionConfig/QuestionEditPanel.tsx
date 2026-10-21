@@ -6,6 +6,7 @@ import type { AnswerType, EvidenceRule } from "../../api/types";
 import { displaySection } from "../../domain/sectionLabels";
 import { CUSTOM_NAME_MAX, customCode, customName } from "../../domain/catalogue";
 import { XIcon } from "../icons";
+import ChecksStep from "./ChecksStep";
 
 const toggle = <T,>(list: T[], item: T, order: T[]) =>
   list.includes(item) ? list.filter((x) => x !== item) : order.filter((x) => list.includes(x) || x === item);
@@ -29,6 +30,7 @@ export default function QuestionEditPanel({
   isNew,
   configurableFileTypes,
   evidenceOptionChoices,
+  checkChoices,
   onDone,
   onCancel,
 }: {
@@ -38,6 +40,8 @@ export default function QuestionEditPanel({
   isNew: boolean;
   configurableFileTypes: string[];
   evidenceOptionChoices: { code: string; label: string }[];
+  /** Every check in use on any question, with its name in words. */
+  checkChoices: { name: string; label: string }[];
   onDone: (settings: QuestionSettingsDraft) => void;
   onCancel: () => void;
 }) {
@@ -310,13 +314,23 @@ export default function QuestionEditPanel({
                 </div>
                 <p className="qpanel-hint" id={`${titleId}-docname-hint`} role="status">
                   {docNameNote ??
-                    "When none in the list fits, name the document: the applicant picks it like the others, and the AI engine reads it as a document of another kind."}
+                    "When none in the list fits, name the document: the applicant picks it like the others, and the AI engine reads it as a document of another kind. “Other — please specify” is always offered too."}
                 </p>
               </div>
             )}
           </>
         )}
       </fieldset>
+
+      {/* Checks are run on the question's documents: none to choose for one that takes none. */}
+      {takesDocs && (
+        <ChecksStep
+          idPrefix={titleId}
+          checks={draft.checks}
+          choices={checkChoices}
+          onChange={(checks) => set({ checks })}
+        />
+      )}
 
       <fieldset className="qpanel-step">
         <legend>Weight</legend>

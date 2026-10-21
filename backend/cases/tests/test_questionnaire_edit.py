@@ -112,7 +112,8 @@ def test_a_section_and_question_added_reach_drafts_the_payload_and_uploads(revie
 
     # The catalogue offers the chosen document types under the new code.
     catalogue_body = applicant.get("/api/catalogue").json()
-    assert [o["code"] for o in catalogue_body["evidenceOptions"]["N1"]] == ["PASSPORT"]
+    # The chosen types, and "Other — please specify", which every question offers.
+    assert [o["code"] for o in catalogue_body["evidenceOptions"]["N1"]] == ["PASSPORT", "OTHER"]
 
     # A draft sees it, and can attach that document type to it.
     aid = reviewer.post("/api/assessments", NEW).json()["id"]
@@ -302,7 +303,7 @@ def test_a_form_offers_the_document_types_of_its_own_version(reviewer, applicant
     reviewer.put("/api/questionnaire", body)
     aid = reviewer.post("/api/assessments", NEW).json()["id"]
     entry = next(a for a in applicant.get(f"/api/assessments/{aid}/form").json()["answers"] if a["qid"] == "N1")
-    assert [o["code"] for o in entry["evidenceOptions"]] == ["PASSPORT"]
+    assert [o["code"] for o in entry["evidenceOptions"]] == ["PASSPORT", "OTHER"]
     others = next(a for a in applicant.get(f"/api/assessments/{aid}/form").json()["answers"] if a["qid"] == "A1")
     assert others["evidenceOptions"] is None
 
@@ -405,11 +406,12 @@ def test_a_question_added_here_can_take_document_types_named_here(reviewer, appl
     assert [(o["code"], o["label"], o["doc_type"]) for o in options] == [
         ("PASSPORT", options[0]["label"], "passport"),
         ("CUSTOM:Professional licence", "Professional licence", "other"),
+        ("OTHER", options[2]["label"], "other"),
     ]
     aid = reviewer.post("/api/assessments", NEW).json()["id"]
     form = applicant.get(f"/api/assessments/{aid}/form").json()
     entry = next(a for a in form["answers"] if a["qid"] == "N1")
-    assert [o["code"] for o in entry["evidenceOptions"]] == ["PASSPORT", "CUSTOM:Professional licence"]
+    assert [o["code"] for o in entry["evidenceOptions"]] == ["PASSPORT", "CUSTOM:Professional licence", "OTHER"]
 
     # Attached under its name, it needs no description and reaches the engine as "other".
     applicant.patch(f"/api/assessments/{aid}/form", {"answers": {"N1": "Yes"}})
@@ -437,3 +439,33 @@ def test_a_document_name_typed_in_is_checked(reviewer):
     # Names alone are enough: the engine's list is not needed.
     body["sections"][-1]["questions"][-1]["evidenceOptions"] = ["CUSTOM:Board minutes"]
     assert reviewer.put("/api/questionnaire", body).status_code == 200
+
+
+
+def test_a_question_added_here_always_offers_other_please_specify(reviewer, applicant):
+    body = structure(reviewer)
+    # Chosen explicitly or not, it is offered once, last.
+    body["sections"][-1]["questions"].append(new_question(evidenceOptions=["OTHER", "PASSPORT"]))
+    assert reviewer.put("/api/questionnaire", body).status_code == 200
+    assert [o["code"] for o in applicant.get("/api/catalogue").json()["evidenceOptions"]["N1"]] == ["PASSPORT", "OTHER"]
+    # The editor does not offer it as a choice: it is always there.
+    choices = [c["code"] for c in reviewer.get("/api/questionnaire").json()["evidenceOptionChoices"]]
+    assert "OTHER" not in choices and "PASSPORT" in choices
+
+    aid = reviewer.post("/api/assessments", NEW).json()["id"]
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {"N1": "Yes"}})
+    upload = {"file": SimpleUploadedFile("other.pdf", PDF), "qid": "N1", "optionCode": "OTHER"}
+    refused = applicant.post(f"/api/assessments/{aid}/evidence", upload, multipart=True)
+    assert refused.status_code == 400 and "description" in refused.json()  # it says what it is
+    upload = {"file": SimpleUploadedFile("other.pdf", PDF), "qid": "N1", "optionCode": "OTHER",
+              "description": "Board resolution"}
+    created = applicant.post(f"/api/assessments/{aid}/evidence", upload, multipart=True)
+    assert created.status_code == 201 and created.json()["docType"] == "other"
+
+
+def test_a_question_with_only_names_typed_in_offers_other_too(reviewer, applicant):
+    from cases import catalogue
+
+    options = catalogue.chosen_options(["CUSTOM:Board minutes"], {})
+    assert [o["code"] for o in options] == ["CUSTOM:Board minutes", "OTHER"]
+    assert options[-1]["label"] == "Other — please specify"

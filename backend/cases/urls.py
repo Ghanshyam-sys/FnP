@@ -1,7 +1,7 @@
 from django.urls import path
 
 from .views.admin_panel import AdminOverviewView, AdminUserDetailView, AdminUserListView
-from .views.assessments import AssessmentDetailView, AssessmentListView, ContinueView
+from .views.assessments import AssessmentDetailView, AssessmentListView, ContinueView, PrefillView
 from .views.case import (
     CaseView, CompleteReviewView, DecisionView, ForceScoreView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView,
 )
@@ -23,6 +23,8 @@ urlpatterns = [
     path("questionnaire", QuestionnaireView.as_view(), name="questionnaire"),
     path("questionnaire/impact", QuestionnaireImpactView.as_view(), name="questionnaire-impact"),
     path("assessments", AssessmentListView.as_view(), name="assessments"),
+    # Before the assessment pattern below, which would otherwise take "prefill" as an id.
+    path("assessments/prefill", PrefillView.as_view(), name="assessments-prefill"),
     path(A, AssessmentDetailView.as_view(), name="assessment"),
     path(f"{A}/continue", ContinueView.as_view(), name="continue"),
     path(f"{A}/form", FormView.as_view(), name="form"),

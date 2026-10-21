@@ -2,6 +2,8 @@
 the engine accepts. Questions are read once per version and cached, since a version never changes
 after it is published."""
 
+import re
+
 from django.core.cache import cache
 
 from engine import client as engine
@@ -112,9 +114,19 @@ def custom_option(code: str) -> dict | None:
     }
 
 
+# "Other — please specify": every question offers it, the engine's own and those added here alike,
+# for a document none of the listed types fits (the applicant then says what it is).
+OTHER_CODE = "OTHER"
+_OTHER = {
+    "code": OTHER_CODE, "label": "Other — please specify", "display": "document of another kind",
+    "doc_type": "other", "unprofiled": True,
+}
+
+
 def chosen_options(codes: list[str], by_code: dict[str, dict] | None = None) -> list[dict]:
-    """The document types with these codes, in this order: the engine's, and those the reviewer
-    named (unknown codes left out). Pass options_by_code() as by_code when looking up several
+    """The document types a question added here takes: those chosen for it, in this order (the
+    engine's, and those the reviewer named; unknown codes left out), then "Other — please specify",
+    which every question offers. Pass options_by_code() as by_code when looking up several
     questions' at once."""
     if all(custom_name(c) is not None for c in codes):
         by_code = {}  # nothing to look up from the engine
@@ -123,8 +135,10 @@ def chosen_options(codes: list[str], by_code: dict[str, dict] | None = None) -> 
     chosen = []
     for c in codes:
         found = custom_option(c) or by_code.get(c)
-        if found is not None:
+        if found is not None and found["code"] != OTHER_CODE:
             chosen.append(found)
+    # Last, as in the engine's own lists: its entry when the engine's list is to hand.
+    chosen.append(by_code.get(OTHER_CODE) or _OTHER)
     return chosen
 
 
@@ -134,6 +148,45 @@ def options_for(qid: str, question: Question | None = None) -> list[dict]:
     if question is not None and question.evidence_options:
         return chosen_options(question.evidence_options)
     return evidence_options().get(qid, [])
+
+
+# ---- The checks the engine runs on a question's documents --------------------------------------
+
+# The longest check name stored (Question.checks holds up to 60 characters each).
+CHECK_MAX = 60
+# What a new question that takes documents starts with: every question with documents has them.
+DEFAULT_CHECKS = ["Document_Check", "Name_Check"]
+
+
+def check_name(text: str) -> str | None:
+    """A check as the engine names them: words capitalised and joined by underscores, ending in
+    "_Check" ("licence validity" gives "Licence_Validity_Check"; "Age_Check" stays as it is).
+    None for text with no letters or digits."""
+    words = [w for w in re.split(r"[^0-9A-Za-z]+", text) if w]
+    if not words:
+        return None
+    if words[-1].lower() == "check":
+        words = words[:-1]
+    return "_".join([w[0].upper() + w[1:] for w in words] + ["Check"])
+
+
+def check_label(name: str) -> str:
+    """A check's name in words: "Licence_Validity_Check" reads "Licence validity check" (a word in
+    capitals, such as ID, stays as it is)."""
+    words = name.split("_")
+    return " ".join([words[0]] + [w if w.isupper() and len(w) > 1 else w.lower() for w in words[1:]])
+
+
+def check_choices() -> list[dict]:
+    """Every check a question can be given: those of the questionnaire as first published, in its
+    order, then any added on other questions since. Each with its name in words."""
+    seen: dict[str, None] = {}
+    first = QuestionnaireVersion.objects.order_by("pk").values_list("pk", flat=True).first()
+    for checks in Question.objects.filter(version_id=first).order_by("position").values_list("checks", flat=True):
+        seen.update(dict.fromkeys(checks))
+    others = sorted({c for checks in Question.objects.exclude(version_id=first).values_list("checks", flat=True) for c in checks})
+    seen.update(dict.fromkeys(others))
+    return [{"name": name, "label": check_label(name)} for name in seen]
 
 
 def option(qid: str, code: str, question: Question | None = None) -> dict | None:

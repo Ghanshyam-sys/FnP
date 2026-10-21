@@ -26,7 +26,7 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .. import audit, catalogue, validation, workflow
+from .. import audit, catalogue, prefill, validation, workflow
 from ..models import (
     AnswerType,
     AnswerValue,
@@ -433,7 +433,12 @@ def next_reference(applicant: User, source: Assessment) -> str:
     with a number added, the first one free ("BL-2506" gives "BL-2506-2", then "BL-2506-3", and
     continuing from "BL-2506-2" gives "BL-2506-3"). Which application came from which is stored, so
     a reference that merely ends in a number is never taken for a continued one."""
-    base = line_start(source).parent_reference
+    return _numbered_reference(applicant, line_start(source).parent_reference)
+
+
+def _numbered_reference(applicant: User, base: str) -> str:
+    """`base` with the first free number added for this applicant ("-2", then "-3" ...), numbered on
+    from the ones of theirs already using it."""
     pattern = re.compile(rf"{re.escape(base)}-(\d+)", re.IGNORECASE)
     # Numbered on from the applicant's own continued applications only: another applicant's
     # reference that happens to start the same way ("BL-2506-2025") says nothing about these. A
@@ -449,6 +454,33 @@ def next_reference(applicant: User, source: Assessment) -> str:
         if not Assessment.objects.filter(parent_reference__iexact=candidate).exists():
             return candidate
         number += 1
+
+
+def free_reference(applicant: User, reference: str) -> str:
+    """The reference itself if no application has it yet; otherwise the next free number on it,
+    as "Continue with previous" numbers them ("BL-2026-0412" gives "BL-2026-0412-2")."""
+    if not Assessment.objects.filter(parent_reference__iexact=reference).exists():
+        return reference
+    return _numbered_reference(applicant, reference)
+
+
+class PrefillView(APIView):
+    """GET (applicant): the application details on record for the signed-in applicant, to fill in
+    "Start a new application" with; null for anyone with none on record. Only the signed-in user's
+    own email is looked up. A reference already used is moved on to the next free number, so the
+    form never starts with one the server would refuse; a department not taking applications is
+    left out, for the applicant to choose."""
+
+    def get(self, request):
+        if request.user.is_reviewer:
+            raise PermissionDenied("Only an applicant starts their own application.")
+        details = prefill.details_for(request.user.email)
+        if details is None:
+            return Response({"prefill": None})
+        if not Department.objects.filter(key=details["department"]).exists():
+            details["department"] = ""
+        details["reference"] = free_reference(request.user, details["reference"])
+        return Response({"prefill": details})
 
 
 class ContinueView(APIView):

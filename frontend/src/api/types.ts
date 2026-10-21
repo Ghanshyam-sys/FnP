@@ -187,6 +187,8 @@ export interface QuestionnaireSettings {
   configurableFileTypes: string[];
   /** The engine's document types a question added here can take. */
   evidenceOptionChoices: { code: string; label: string }[];
+  /** Every check a question's documents can be given (those in use on any question), in words too. */
+  checkChoices?: { name: string; label: string }[];
 }
 
 /** What changing the questions reaches on the applications not yet submitted (read on applying). */

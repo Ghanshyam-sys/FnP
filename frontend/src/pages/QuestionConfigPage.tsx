@@ -93,6 +93,7 @@ function QuestionConfigEditor({
   published,
   configurableFileTypes,
   evidenceOptionChoices = [],
+  checkChoices = [],
   save,
 }: QuestionnaireSettings & { save: ReturnType<typeof useSaveQuestionnaire> }) {
   const navigate = useNavigate();
@@ -578,6 +579,7 @@ function QuestionConfigEditor({
           isNew={editing.isNew}
           configurableFileTypes={configurableFileTypes}
           evidenceOptionChoices={evidenceOptionChoices}
+          checkChoices={checkChoices}
           onDone={(settings) => closePanel(settings)}
           onCancel={() => closePanel()}
         />

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  blankQuestion,
   changeSummary,
   evenSplit,
   fromVersion,
@@ -87,6 +88,9 @@ describe("a question's settings", () => {
   it("reads as one line", () => {
     const [basic] = fromVersion(version);
     expect(summaryLine(basic.questions[0])).toBe("Positive · Yes / No · Document always · PDF · 1 file");
+    expect(summaryLine({ ...basic.questions[0], checks: ["Document_Check", "Age_Check"] })).toBe(
+      "Positive · Yes / No · Document always · PDF · 1 file · 2 checks"
+    );
     expect(summaryLine({ ...basic.questions[0], answerType: "text", evidenceRequired: "never" })).toBe(
       "Positive · Text answer · No document"
     );
@@ -178,5 +182,42 @@ describe("the change summary", () => {
       'Section "Basic Details" deleted, with its questions — removed from unsubmitted applications (A1: 2 answers, 1 with documents)'
     );
     expect(changeSummary(version, withoutBasic, use({}))[0]).toMatch(/no unsubmitted application has anything saved for them/);
+  });
+});
+
+describe("a question's checks", () => {
+  it("are part of what is edited, and of what is sent", () => {
+    const sections = fromVersion(version);
+    const q = sections[0].questions[0];
+    expect(isEdited({ ...q, checks: ["Document_Check", "Licence_Validity_Check"] })).toBe(true);
+    sections[0].questions[0] = { ...q, checks: ["Document_Check"] };
+    expect(toBody(sections)[0].questions[0].checks).toEqual(["Document_Check"]);
+    // None for a question that takes no documents.
+    sections[0].questions[0] = { ...q, checks: ["Document_Check"], evidenceRequired: "never" };
+    expect(toBody(sections)[0].questions[0].checks).toEqual([]);
+  });
+
+  it("start with the document and name checks on a new question", () => {
+    expect(blankQuestion().checks).toEqual(["Document_Check", "Name_Check"]);
+  });
+
+  it("say what is added and removed before applying", () => {
+    const sections = fromVersion(version);
+    sections[0].questions[0] = { ...sections[0].questions[0], checks: ["Licence_Validity_Check"] };
+    const withChecks = { ...version, questions: version.questions.map((q, i) => (i === 0 ? { ...q, checks: ["Age_Check"] } : q)) };
+    expect(changeSummary(withChecks, toBody(sections), null)).toContain(
+      "A1: checks added: Licence validity check; checks removed: Age check"
+    );
+  });
+});
+
+describe("check names", () => {
+  it("take the engine's form, and read in words", async () => {
+    const { checkName, checkLabel } = await import("./checks");
+    expect(checkName("licence validity")).toBe("Licence_Validity_Check");
+    expect(checkName("  Licence  validity CHECK ")).toBe("Licence_Validity_Check");
+    expect(checkName("Age_Check")).toBe("Age_Check");
+    expect(checkName(" -- ")).toBeNull();
+    expect(checkLabel("ID_Number_Check")).toBe("ID number check");
   });
 });

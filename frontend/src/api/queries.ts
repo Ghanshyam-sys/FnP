@@ -164,6 +164,8 @@ export interface SectionEdit {
     maxFiles: 1 | 2;
     evidenceRequired: EvidenceRule;
     evidenceOptions: string[];
+    /** The checks the engine runs on its documents (none for a question that takes none). */
+    checks: string[];
   }[];
 }
 
@@ -191,6 +193,24 @@ export function useSaveQuestionnaire() {
 }
 
 // ---- Assessments ------------------------------------------------------------------------------
+
+/** The application details on record for the signed-in applicant (null for anyone with none). */
+export type Prefill = Pick<NewAssessmentInput, "applicantName" | "department" | "entity" | "position" | "reference">;
+
+/**
+ * What "Start a new application" is filled in with for an applicant whose details are on record.
+ * Read fresh each time the page opens: the reference offered moves on once one is used.
+ */
+export function usePrefill(enabled: boolean) {
+  return useQuery({
+    queryKey: ["prefill"],
+    queryFn: () => api<{ prefill: Prefill | null }>("GET", "/assessments/prefill"),
+    enabled,
+    staleTime: 0,
+    gcTime: 0,
+    retry: false,
+  });
+}
 
 export function useDepartments() {
   return useQuery({

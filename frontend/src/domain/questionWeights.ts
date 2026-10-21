@@ -7,6 +7,7 @@
  * weights to 100, so the question weights always add up to 100 too.
  */
 import type { AnswerType, CatalogueQuestion, EvidenceRule, QuestionnaireVersion } from "../api/types";
+import { DEFAULT_CHECKS, checkLabel } from "./checks";
 import type { SectionEdit } from "../api/queries";
 import { displaySection } from "./sectionLabels";
 import type { Answer } from "./types";
@@ -27,6 +28,8 @@ export interface QuestionSettingsDraft {
   maxFiles: 1 | 2;
   evidenceRequired: EvidenceRule;
   evidenceOptions: string[];
+  /** The checks the AI engine runs on its documents, in the engine's form. */
+  checks: string[];
 }
 
 /** A question as the editor holds it. */
@@ -83,6 +86,7 @@ export const settingsOf = (q: QuestionSettingsDraft): QuestionSettingsDraft => (
   maxFiles: q.maxFiles,
   evidenceRequired: q.evidenceRequired,
   evidenceOptions: q.evidenceOptions,
+  checks: q.checks,
 });
 
 export function fromVersion(version: QuestionnaireVersion): EditSection[] {
@@ -133,6 +137,7 @@ function fromQuestion(q: CatalogueQuestion, sectionWeight: number): EditQuestion
     maxFiles: q.maxFiles,
     evidenceRequired: q.evidenceRequired,
     evidenceOptions: q.evidenceOptions ?? [],
+    checks: q.checks ?? [],
     // A question added here names its document types (the engine has no list of its own for it).
     ownOptions: q.addedHere ?? false,
     baseWeight: q.weight,
@@ -158,6 +163,7 @@ export function blankQuestion(pct = "0"): EditQuestion {
     maxFiles: 1,
     evidenceRequired: "if_yes",
     evidenceOptions: [],
+    checks: [...DEFAULT_CHECKS],
     ownOptions: true,
     baseWeight: null,
     basePct: pct,
@@ -184,7 +190,8 @@ export function isEdited(q: EditQuestion): boolean {
     now.evidenceRequired !== was.evidenceRequired ||
     !sameSet(now.allowedAnswers, was.allowedAnswers) ||
     !sameSet(now.fileTypes, was.fileTypes) ||
-    !sameSet(now.evidenceOptions, was.evidenceOptions)
+    !sameSet(now.evidenceOptions, was.evidenceOptions) ||
+    !sameSet(now.checks, was.checks)
   );
 }
 
@@ -286,6 +293,7 @@ export function summaryLine(q: QuestionSettingsDraft): string {
   if (q.evidenceRequired !== "never") {
     parts.push(q.fileTypes.map((t) => t.toUpperCase()).join(", "));
     parts.push(q.maxFiles === 2 ? "up to 2 files" : "1 file");
+    if (q.checks.length > 0) parts.push(q.checks.length === 1 ? "1 check" : `${q.checks.length} checks`);
   }
   return parts.join(" · ");
 }
@@ -309,6 +317,8 @@ export function toBody(sections: EditSection[]): SectionEdit[] {
         maxFiles: takesDocs(q) ? q.maxFiles : 1,
         evidenceRequired: q.evidenceRequired,
         evidenceOptions: q.ownOptions && takesDocs(q) ? q.evidenceOptions : [],
+        // Checks are run on its documents: none for a question that takes none.
+        checks: takesDocs(q) ? q.checks : [],
       })),
     };
   });
@@ -440,6 +450,11 @@ export function changeSummary(published: QuestionnaireVersion, edited: SectionEd
       if ([...now.fileTypes].sort().join() !== [...was.fileTypes].sort().join()) changes.push(`file types ${now.fileTypes.map((t) => t.toUpperCase()).join(", ")}`);
       if (now.maxFiles !== was.maxFiles) changes.push(now.maxFiles === 2 ? "up to 2 files" : "1 file");
       if ([...now.evidenceOptions].sort().join() !== [...(was.evidenceOptions ?? [])].sort().join()) changes.push("document types changed");
+      const wasChecks = was.checks ?? [];
+      const added = now.checks.filter((c) => !wasChecks.includes(c));
+      const dropped = wasChecks.filter((c) => !now.checks.includes(c));
+      if (added.length > 0) changes.push(`checks added: ${added.map(checkLabel).join(", ")}`);
+      if (dropped.length > 0) changes.push(`checks removed: ${dropped.map(checkLabel).join(", ")}`);
     }
     if (now.weight !== was.weight) changes.push(`weight ${was.weight} → ${now.weight} of 100`);
     if (changes.length > 0) lines.push(`${qid}: ${changes.join("; ")}`);

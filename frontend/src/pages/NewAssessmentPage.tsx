@@ -1,14 +1,14 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
-import { useCreateAssessment, useDepartments, useSession } from "../api/queries";
+import { useCreateAssessment, useDepartments, usePrefill, useSession } from "../api/queries";
 import { ApiError } from "../api/client";
 import { newAssessmentFields, normaliseNewAssessment, validateNewAssessment } from "../domain/newAssessment";
 import { todayIso } from "../utils/format";
 import { routes } from "../routes";
 import PageHeader from "../components/PageHeader";
 import { Loading, LoadError } from "../components/LoadState";
-import { AlertTriangleIcon, ArrowLeftIcon, PlusIcon } from "../components/icons";
+import { AlertTriangleIcon, ArrowLeftIcon, InfoIcon, PlusIcon } from "../components/icons";
 import type { NewAssessmentField, NewAssessmentFieldDef, NewAssessmentInput, NewAssessmentMode } from "../domain/newAssessment";
 import type { QueueNotice } from "../routes";
 
@@ -53,6 +53,9 @@ export default function NewAssessmentPage({ mode }: { mode: NewAssessmentMode })
   const user = useSession().data;
   const email = user?.email ?? "";
   const departments = useDepartments();
+  // An applicant whose details are on record finds the form filled in with them.
+  const prefillWanted = mode === "applicant" && user?.role === "applicant";
+  const prefill = usePrefill(prefillWanted);
   const create = useCreateAssessment();
   const fields = newAssessmentFields(mode);
   const byApplicant = mode === "applicant";
@@ -71,10 +74,23 @@ export default function NewAssessmentPage({ mode }: { mode: NewAssessmentMode })
   // A refusal that names no field on this form (a lost connection, or too many open
   // applications) is reported under the form. Editing a field does not bring it back.
   const [formError, setFormError] = useState("");
+  // Filled in once, when the details arrive; from then on the fields are the applicant's to change.
+  const [prefilled, setPrefilled] = useState(false);
+  const onRecord = prefill.data?.prefill ?? null;
+  if (onRecord && !prefilled) {
+    setPrefilled(true);
+    setInput((prev) => ({
+      ...prev,
+      // Only what is on record; anything left blank there stays for the applicant to fill in.
+      ...Object.fromEntries(Object.entries(onRecord).filter(([, value]) => value)),
+    }));
+  }
 
   // The reviewer opens assessments for applicants from their own page.
   if (byApplicant && user?.role === "reviewer") return <Navigate to={routes.reviewerNewAssessment()} replace />;
-  if (departments.isPending) return <Loading />;
+  // Waits for the details on record (if any), so the form does not change under the applicant;
+  // if they cannot be read, the form simply starts empty, as for anyone else.
+  if (departments.isPending || (prefillWanted && prefill.isPending)) return <Loading />;
   if (departments.isError && !departments.data) return <LoadError error={departments.error} onRetry={departments.refetch} />;
 
   const chosen = departments.data.find((d) => d.key === input.department);
@@ -141,6 +157,16 @@ export default function NewAssessmentPage({ mode }: { mode: NewAssessmentMode })
           )
         }
       />
+
+      {byApplicant && prefilled && (
+        <div className="notice notice-info" role="status">
+          <InfoIcon size={17} />
+          <div>
+            <strong>We've filled in your application details from our records.</strong> Check them
+            before continuing; you can change any of them.
+          </div>
+        </div>
+      )}
 
       <form className="card section" id={FORM_ID} onSubmit={submit} noValidate>
         <h2 className="section-head-wrap">

@@ -148,7 +148,11 @@ class QuestionnaireView(APIView):
     def get(self, request):
         published = QuestionnaireVersion.objects.order_by("pk").first()
         try:
-            choices = [{"code": o["code"], "label": o["label"]} for o in catalogue.all_engine_options()]
+            # "Other — please specify" is not one to choose: every question offers it anyway.
+            choices = [
+                {"code": o["code"], "label": o["label"]}
+                for o in catalogue.all_engine_options() if o["code"] != catalogue.OTHER_CODE
+            ]
         except EngineUnavailable:
             # The page still opens; only a new question's document types cannot be chosen.
             choices = []
@@ -158,6 +162,9 @@ class QuestionnaireView(APIView):
             "configurableFileTypes": CONFIGURABLE_FILE_TYPES,
             # The document types a new question can take (the engine's, for any question).
             "evidenceOptionChoices": choices,
+            # The checks a question's documents can be given (the engine runs them on submission).
+            "checkChoices": catalogue.check_choices(),
+            "defaultChecks": catalogue.DEFAULT_CHECKS,
         })
 
 
@@ -276,6 +283,8 @@ class QuestionEditSerializer(serializers.Serializer):
     maxFiles = serializers.ChoiceField(choices=[1, 2], default=1)
     evidenceRequired = serializers.ChoiceField(choices=EvidenceRule.values)
     evidenceOptions = serializers.ListField(child=serializers.CharField(max_length=60), default=list)
+    # The checks the engine runs on its documents. Left out, the question keeps the ones it has.
+    checks = serializers.ListField(child=serializers.CharField(max_length=200, allow_blank=True), required=False, max_length=40)
 
 
 class SectionEditSerializer(serializers.Serializer):
@@ -330,6 +339,27 @@ def _own_options(codes: list[str], engine_codes: set[str] | None) -> tuple[list[
         seen.add(name.casefold())
         options.append(catalogue.CUSTOM_PREFIX + name)
     return options, None
+
+
+def _clean_checks(raw: list[str]) -> tuple[list[str], str | None]:
+    """The checks chosen for a question, in order and once each, named as the engine names them
+    (a check typed in is turned into that form). A name too long or with control characters is
+    refused; one with no letters or digits is left out."""
+    checks: list[str] = []
+    seen: set[str] = set()
+    for text in raw:
+        if any(ord(ch) < 32 or 0xD800 <= ord(ch) <= 0xDFFF for ch in text):
+            return [], "A check cannot contain control characters."
+        name = catalogue.check_name(text)
+        if name is None:
+            continue
+        if len(name) > catalogue.CHECK_MAX:
+            return [], f"A check's name can be at most {catalogue.CHECK_MAX} characters."
+        if name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
+        checks.append(name)
+    return checks, None
 
 
 def _publish_structure(request, body: dict):
@@ -424,6 +454,15 @@ def _publish_structure(request, body: dict):
                     if not options:
                         errors[f"questions.{label}"] = "Choose the document types this question takes."
                         continue
+                # The checks run on its documents: as sent (none for a question that takes none),
+                # or, left out, the ones it has.
+                if "checks" in q:
+                    checks, problem = _clean_checks(q["checks"]) if takes_documents else ([], None)
+                    if problem:
+                        errors[f"questions.{label}"] = problem
+                        continue
+                else:
+                    checks = list(before.checks) if before else []
                 rows.append({
                     "section": section["name"], "qid": qid or next(fresh), "text": q["text"],
                     "polarity": q["polarity"], "answer_type": q["answerType"], "weight": q["weight"],
@@ -431,7 +470,7 @@ def _publish_structure(request, body: dict):
                     "added_here": before.added_here if before else True,
                     "evidence_required": rule, "evidence_options": options,
                     "allows_na": before.allows_na if before else Answer.NA in allowed,
-                    "checks": before.checks if before else [],
+                    "checks": checks,
                     "allowed_answers": allowed, "file_types": file_types,
                     "max_files": q["maxFiles"] if takes_documents else 1,
                     "accepts_supporting": (
