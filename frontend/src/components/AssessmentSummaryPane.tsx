@@ -122,7 +122,17 @@ function ReviewerDecision({ decision }: { decision: Case["decision"] }) {
           {accepted ? <CheckCircleIcon size={12} /> : <AlertTriangleIcon size={12} />}
           {accepted ? "Accepted" : "Rejected"}
         </span>
-        <span className="pane-decision-date">{formatDay(decision.at)}</span>
+        <span className="pane-decision-date">
+          {formatDay(decision.at)}
+          {decision.by && (
+            <>
+              <span className="pane-decision-sep" aria-hidden="true">
+                |
+              </span>
+              {accepted ? "Approved" : "Rejected"} by <strong className="pane-decision-by">{decision.by}</strong>
+            </>
+          )}
+        </span>
       </div>
       <p className="pane-decision-label">Feedback</p>
       <p className="pane-prose pane-decision-feedback">{decision.remarks}</p>

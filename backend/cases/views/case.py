@@ -79,6 +79,8 @@ def case_payload(assessment: Assessment) -> dict:
         "assessment": None,
         "decision": None if decision is None else {
             "verdict": decision.verdict, "remarks": decision.remarks, "at": decision.decided_at,
+            # Who decided it: the account's email, the only name an account has.
+            "by": decision.reviewer.email,
         },
     }
     if submission is None:
@@ -133,14 +135,14 @@ def case_payload(assessment: Assessment) -> dict:
 
 def _assessment(request, public_id) -> Assessment:
     return assessment_for(
-        request.user, public_id, queryset=Assessment.objects.select_related("applicant", "decision")
+        request.user, public_id, queryset=Assessment.objects.select_related("applicant", "decision__reviewer")
     )
 
 
 def _reloaded(assessment: Assessment) -> Assessment:
     """The case as a step left it, read again with its decision (refresh_from_db would drop the
     decision loaded with it, and reading it then takes a query of its own)."""
-    return Assessment.objects.select_related("applicant", "decision").get(pk=assessment.pk)
+    return Assessment.objects.select_related("applicant", "decision__reviewer").get(pk=assessment.pk)
 
 
 def _transition(fn, *args):

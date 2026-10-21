@@ -394,6 +394,18 @@
   color: var(--ink-3);
 }
 
+/* "14 Oct 2026 | Approved by admin": who decided, after the date. */
+.pane-decision-sep {
+  margin: 0 0.45rem;
+  opacity: 0.6;
+}
+
+.pane-decision-by {
+  font-weight: 600;
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
 .pane-decision-label {
   margin: 0 0 0.2rem;
   font-size: var(--fs-xs);

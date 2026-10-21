@@ -194,6 +194,9 @@ def test_a_clear_run_is_scored_by_the_engine_and_waits_for_the_decision(monkeypa
     response = reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "accepted", "remarks": "Approved."})
     assert response.json()["stage"] == "ACCEPTED"
     assert response.json()["decision"]["remarks"] == "Approved."
+    # Who decided it, for the summary's "Approved by"; the applicant reads the same.
+    assert response.json()["decision"]["by"] == reviewer.user.email
+    assert applicant.get(f"/api/assessments/{case}/case").json()["decision"]["by"] == reviewer.user.email
     assert reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "rejected", "remarks": "x"}).status_code == 409
 
 

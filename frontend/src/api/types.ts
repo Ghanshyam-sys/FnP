@@ -346,7 +346,8 @@ export interface Case {
   score: ApiScore | null;
   /** The engine's written assessment, links already pointing at this backend. */
   assessment: FinalAssessment | null;
-  decision: { verdict: Verdict; remarks: string; at: string } | null;
+  /** `by`: the account that decided it (its email); left out by an older server. */
+  decision: { verdict: Verdict; remarks: string; at: string; by?: string } | null;
 }
 
 /**
