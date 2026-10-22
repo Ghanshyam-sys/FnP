@@ -84,7 +84,12 @@ export default function ResultPage() {
       )}
 
       {scoreResult ? (
-        <ReportView authentication={outcome} scoreResult={scoreResult} concerns={data.assessment?.concerns} />
+        <ReportView
+          authentication={outcome}
+          scoreResult={scoreResult}
+          concerns={data.assessment?.concerns}
+          reviews={data.reviewHistory}
+        />
       ) : (
         <EmptyState icon={<InfoIcon size={22} />} title="No risk score">
           The AI engine scores only a submission in which every answer was authenticated, so this
@@ -110,6 +115,7 @@ export default function ResultPage() {
           assignment={assignment}
           decision={decision}
           scoreResult={scoreResult}
+          reviews={data.reviewHistory}
           onClose={() => setSummaryOpen(false)}
         />
       )}

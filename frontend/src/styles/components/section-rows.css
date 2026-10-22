@@ -168,3 +168,77 @@ button.sbar-row {
     max-width: none;
   }
 }
+
+/* What the reviewer did with a question: small labels after its outcome, one per ruling, oldest
+   first. Quieter than the outcome chip, which stays the main signal; they wrap under it in a
+   narrow column. */
+.review-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
+
+.chip.chip-review {
+  gap: 0.25rem;
+  padding: 0.1rem 0.45rem;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+
+/* The scoring page's table scrolls sideways when narrow, so a label stays on one line there; the
+   summary's table has fixed columns, so a long label wraps inside its chip instead. */
+.pane-risk-table .chip.chip-review {
+  white-space: normal;
+}
+
+.chip-review.is-rejected {
+  background: transparent;
+  border: 1px solid var(--hairline);
+  color: var(--ink-2);
+}
+
+/* The reviewer's rulings and comments, when the question's row is opened. */
+.review-notes {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.review-notes-title {
+  margin: 0;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.review-notes ul {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.review-notes li {
+  display: grid;
+  gap: 0.1rem;
+  padding-left: 0.65rem;
+  border-left: 2px solid var(--decision-ink);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+.review-notes-line {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.review-notes-comment {
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}

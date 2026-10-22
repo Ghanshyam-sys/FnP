@@ -194,10 +194,26 @@ def test_a_clear_run_is_scored_by_the_engine_and_waits_for_the_decision(monkeypa
     response = reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "accepted", "remarks": "Approved."})
     assert response.json()["stage"] == "ACCEPTED"
     assert response.json()["decision"]["remarks"] == "Approved."
-    # Who decided it, for the summary's "Approved by"; the applicant reads the same.
+    # Who decided it, for the summary's "Decided by": the reviewer sees the account, on every read;
+    # the applicant is not shown a reviewer's sign-in.
     assert response.json()["decision"]["by"] == reviewer.user.email
-    assert applicant.get(f"/api/assessments/{case}/case").json()["decision"]["by"] == reviewer.user.email
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["decision"]["by"] == reviewer.user.email
+    assert applicant.get(f"/api/assessments/{case}/case").json()["decision"]["by"] is None
     assert reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "rejected", "remarks": "x"}).status_code == 409
+
+
+def test_a_rejection_says_who_decided_it_to_the_reviewer_only(monkeypatch, no_poll_delay, applicant, reviewer, case):
+    fake = FakeEngine(monkeypatch, "APP001-clear")
+    applicant.post(f"/api/assessments/{case}/submit")
+    fake.finish()
+    assert applicant.get(f"/api/assessments/{case}/case").json()["stage"] == "DECISION_PENDING"
+    response = reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "rejected", "remarks": "Not fit."})
+    assert response.json()["stage"] == "REJECTED"
+    assert response.json()["decision"] == {
+        "verdict": "rejected", "remarks": "Not fit.", "at": response.json()["decision"]["at"], "by": reviewer.user.email,
+    }
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["decision"]["by"] == reviewer.user.email
+    assert applicant.get(f"/api/assessments/{case}/case").json()["decision"]["by"] is None
 
 
 def test_the_engine_is_asked_at_most_once_per_poll_interval(monkeypatch, settings, applicant, case):
@@ -443,6 +459,14 @@ def test_accepting_every_flag_has_the_engine_score_the_same_run(reviewer, case, 
     assert actions[-2:] == ["case.force_score", "case.scored"]
     decided = reviewer.post(f"/api/assessments/{case}/decision", {"verdict": "accepted", "remarks": "Fine."})
     assert decided.json()["stage"] == "ACCEPTED"
+    # The breakdown's reviewer label: accepted on the scored run, which the reviewer had scored.
+    history = reviewer.get(f"/api/assessments/{case}/case").json()["reviewHistory"]
+    assert set(history) == {"PC1"} and len(history["PC1"]) == 1
+    entry = history["PC1"][0]
+    assert (entry["verdict"], entry["comment"], entry["run"], entry["current"], entry["scoreForced"]) == (
+        "accepted", "Expunged.", "v1", True, True,
+    )
+    assert entry["by"] == reviewer.user.email
 
 
 def test_a_refused_force_score_leaves_the_case_on_the_decision_and_can_be_asked_again(applicant, reviewer, case, flagged):
@@ -705,6 +729,126 @@ def test_a_resubmission_needs_new_evidence_for_each_rejected_answer(reviewer, ap
     assert stage(case) == Stage.AWAITING_APPLICANT and Submission.objects.count() == 1
     attach(applicant, case, "PC1", "POLICE_CLEARANCE")
     assert applicant.post(f"/api/assessments/{case}/resubmit").json()["stage"] == "AUTH_RUNNING"
+
+
+def _questions(payload):
+    return {q["qid"]: q for section in payload["sections"] for q in section["questions"]}
+
+
+def _sections(payload):
+    return {section["section"]: section for section in payload["sections"]}
+
+
+def test_a_first_submission_says_it_is_the_first(monkeypatch, applicant, case):
+    fake = FakeEngine(monkeypatch)
+    applicant.post(f"/api/assessments/{case}/submit")
+    payload = fake.sent[0]["payload"]
+    assert (payload["is_resubmission"], payload["submission_version"], payload["previous_submission_version"]) == (
+        False, "v1", None,
+    )
+    assert payload["previous_request_id"] is None
+    assert not any(section["resubmitted"] for section in payload["sections"])
+    questions = _questions(payload)
+    assert all(q["resubmitted"] is False and q["reviewer_review"] is None for q in questions.values())
+    # Documents sent for the first time are v1; a question sending none has no version.
+    assert questions["A1"]["evidence"] and questions["A1"]["evidence_version"] == "v1"
+    assert all(q["evidence_version"] is None for q in questions.values() if not q["evidence"])
+
+
+def test_a_resubmission_tells_the_engine_what_the_reviewer_ruled_and_what_changed(
+    monkeypatch, no_poll_delay, reviewer, applicant, case
+):
+    # APP004's result, with A1 flagged as well as PC1: one to accept, one to send back.
+    original = adapt.question_results
+    monkeypatch.setattr(adapt, "question_results", lambda result: [
+        {**r, "status": "issue" if r["qid"] == "A1" else r["status"]} for r in original(result)
+    ])
+    fake = FakeEngine(monkeypatch, "APP004-return")
+    applicant.post(f"/api/assessments/{case}/submit")
+    fake.finish()
+    assert sorted(applicant.get(f"/api/assessments/{case}/case").json()["flags"]) == ["A1", "PC1"]
+    reviewer.put(f"/api/assessments/{case}/rulings/A1", {"verdict": "accepted", "comment": "Age confirmed on the ID."})
+    reviewer.put(f"/api/assessments/{case}/rulings/PC1", {"verdict": "rejected", "comment": "Need the court order."})
+    assert reviewer.post(f"/api/assessments/{case}/complete-review").json()["stage"] == "AWAITING_APPLICANT"
+
+    fake.status_doc = PENDING
+    attach(applicant, case, "PC1", "POLICE_CLEARANCE")
+    assert applicant.post(f"/api/assessments/{case}/resubmit").json()["stage"] == "AUTH_RUNNING"
+    first, again = fake.sent[0]["payload"], fake.sent[1]["payload"]
+    assert (again["is_resubmission"], again["submission_version"], again["previous_submission_version"]) == (
+        True, "v2", "v1",
+    )
+    # The engine's id for the run the reviewer ruled on.
+    ruled = Submission.objects.get(assessment__public_id=case, attempt_no=1)
+    assert ruled.engine_request_id and again["previous_request_id"] == ruled.engine_request_id
+    assert first["previous_request_id"] is None
+
+    questions = _questions(again)
+    # Sent back: marked, with the reviewer's word, and its new document is the second version.
+    assert questions["PC1"]["resubmitted"] is True
+    assert questions["PC1"]["reviewer_review"] == {"verdict": "rejected", "comment": "Need the court order."}
+    assert questions["PC1"]["evidence_version"] == "v2"
+    # Accepted by the reviewer: not resubmitted, but its review and comment still go; its
+    # document is unchanged.
+    assert questions["A1"]["resubmitted"] is False
+    assert questions["A1"]["reviewer_review"] == {"verdict": "accepted", "comment": "Age confirmed on the ID."}
+    assert questions["A1"]["evidence_version"] == "v1"
+    # Not ruled on: false and no review, beside them in the same section too.
+    assert questions["PC19"]["resubmitted"] is False and questions["PC19"]["reviewer_review"] is None
+
+    sections = _sections(again)
+    pc1_section = next(name for name, s in sections.items() if any(q["qid"] == "PC1" for q in s["questions"]))
+    a1_section = next(name for name, s in sections.items() if any(q["qid"] == "A1" for q in s["questions"]))
+    # A section is resubmitted when one of its questions is: PC1's is; A1's holds only an
+    # accepted question, so every question in it is false, and so is the section.
+    assert sections[pc1_section]["resubmitted"] is True and sections[a1_section]["resubmitted"] is False
+    assert all(q["resubmitted"] is False for q in sections[a1_section]["questions"])
+    for section in sections.values():
+        assert section["resubmitted"] is any(q["resubmitted"] for q in section["questions"])
+    untouched = [s for name, s in sections.items() if name not in (pc1_section, a1_section)]
+    assert untouched and all(s["resubmitted"] is False for s in untouched)
+    assert all(q["resubmitted"] is False and q["reviewer_review"] is None for s in untouched for q in s["questions"])
+
+    # The case keeps each question's rulings, by run, for the breakdown's reviewer labels.
+    history = reviewer.get(f"/api/assessments/{case}/case").json()["reviewHistory"]
+    assert set(history) == {"A1", "PC1"}
+    assert [(e["verdict"], e["run"], e["current"], e["scoreForced"]) for e in history["PC1"]] == [
+        ("rejected", "v1", False, False),
+    ]
+    assert history["A1"][0]["comment"] == "Age confirmed on the ID." and history["A1"][0]["by"] == reviewer.user.email
+    seen_by_applicant = applicant.get(f"/api/assessments/{case}/case").json()["reviewHistory"]
+    assert seen_by_applicant["PC1"][0]["by"] is None and seen_by_applicant["PC1"][0]["comment"] == "Need the court order."
+
+    # Everything the engine read before is still sent the same way.
+    for key in ("application_id", "licensee", "applicant", "cv_verification"):
+        assert again[key] == first[key]
+    old_keys = {"qid", "question", "question_weight", "polarity", "knockout", "answer", "evidence_required",
+                "evidence", "checks_to_perform"}
+    assert all(old_keys <= set(q) for q in questions.values())
+
+
+def test_a_case_never_submitted_has_no_review_history(reviewer, case):
+    assert reviewer.get(f"/api/assessments/{case}/case").json()["reviewHistory"] == {}
+
+
+def test_a_retried_run_is_not_counted_as_another_submission():
+    from types import SimpleNamespace as Run
+
+    def run(submitted_at, files=(), rulings=(), request_id=None):
+        return Run(
+            payload={"submitted_at": submitted_at},
+            engine_request_id=request_id,
+            evidence_files=Run(all=lambda: [Run(pk=pk, qid=qid) for qid, pk in files]),
+            rulings=Run(all=lambda: [Run(qid=q, verdict=v, comment=c) for q, v, c in rulings]),
+        )
+
+    first = run("t1", files=[("PC1", 1)])  # its send failed: the engine gave it no id
+    retried = run("t1", files=[("PC1", 1)], rulings=[("PC1", "rejected", "Court order.")], request_id="r-2")
+    history = adapt.run_history([first, retried])
+    assert history.version == 2  # the next submission is the second, not the third
+    assert history.previous_request_id == "r-2"  # the run the engine completed and the reviewer ruled on
+    assert history.reviews == {"PC1": {"verdict": "rejected", "comment": "Court order."}}
+    assert history.sent == {"PC1": [frozenset({1})]}  # the same documents, one version
 
 
 def test_documents_attached_under_older_settings_must_be_replaced_before_submitting(monkeypatch, reviewer, applicant, case):

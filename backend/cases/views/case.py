@@ -1,7 +1,8 @@
 import re
 
 from django.conf import settings
-from django.db.models import prefetch_related_objects
+from django.db.models import F, prefetch_related_objects
+from django.db.models.fields.json import KeyTextTransform
 from django.http import Http404, StreamingHttpResponse
 from rest_framework import serializers
 from rest_framework.response import Response
@@ -10,7 +11,7 @@ from rest_framework.views import APIView
 from engine import client as engine
 
 from .. import adapt, workflow
-from ..models import Assessment, RunStatus, Stage, Verdict
+from ..models import Assessment, Ruling, RunStatus, Stage, Submission, User, Verdict
 from ..permissions import IsReviewer, assessment_for
 from .common import Conflict, ServiceUnavailable, require_not_own, require_owner
 
@@ -46,20 +47,65 @@ def _score_payload(score) -> dict:
 
 def _latest_run(assessment: Assessment):
     """The latest run with what the case page reads from it, loaded together: its documents, its
-    score and its rulings (never the payload sent to the engine, which the page does not show)."""
+    score (never the payload sent to the engine, which the page does not show). Its rulings come
+    with the case's others, in _rulings_by_run."""
     return (
         assessment.submissions.select_related("documents", "score")
-        .prefetch_related("rulings")
         .defer("payload")
         .order_by("-attempt_no")
         .first()
     )
 
 
-def case_payload(assessment: Assessment) -> dict:
+def _rulings_by_run(assessment: Assessment, submission: Submission | None) -> list[Ruling]:
+    """Every ruling on the case, across all its runs, oldest run first, in one query: with who
+    ruled, and each run's attempt, version and whether it was force-scored. The latest run is given
+    its own from these, so the page reads them once."""
+    if submission is None:
+        return []
+    rulings = list(
+        Ruling.objects.filter(submission__assessment=assessment)
+        .select_related("reviewer")
+        .annotate(
+            run_attempt=F("submission__attempt_no"),
+            run_version=KeyTextTransform("submission_version", "submission__payload"),
+            run_forced=F("submission__score_forced_at"),
+        )
+        .order_by("submission__attempt_no", "created_at", "pk")
+    )
+    # The latest run's rulings, as a prefetch would give them (workflow reads them from the run).
+    latest = submission.rulings.all()
+    latest._result_cache = [r for r in rulings if r.submission_id == submission.pk]
+    latest._prefetch_done = True
+    submission._prefetched_objects_cache = {**getattr(submission, "_prefetched_objects_cache", {}), "rulings": latest}
+    return rulings
+
+
+def review_history(rulings: list[Ruling], submission: Submission | None, viewer: User) -> dict[str, list[dict]]:
+    """Every ruling the reviewer made on each question, across all the case's runs, oldest first:
+    the verdict and comment, the run's version (v1, v2 ...: as its request to the engine named it,
+    so a retry keeps its run's; a run sent before versions were named goes by its attempt),
+    whether it was on the latest run, and whether that run was scored at the reviewer's request.
+    Who ruled is given to a reviewer only (null for an applicant)."""
+    history: dict[str, list[dict]] = {}
+    for r in rulings:
+        history.setdefault(r.qid, []).append({
+            "verdict": r.verdict,
+            "comment": r.comment,
+            "at": r.created_at,
+            "by": r.reviewer.email if viewer.is_reviewer else None,
+            "run": r.run_version or f"v{r.run_attempt}",
+            "current": submission is not None and r.submission_id == submission.pk,
+            "scoreForced": r.run_forced is not None,
+        })
+    return history
+
+
+def case_payload(assessment: Assessment, viewer: User) -> dict:
     """Everything a case page shows: the stage, the latest run and its report, the reviewer's
     rulings, the score, the written assessment and the decision."""
     submission = _latest_run(assessment)
+    rulings = _rulings_by_run(assessment, submission)
     decision = getattr(assessment, "decision", None)
     payload = {
         "stage": assessment.stage,
@@ -77,10 +123,13 @@ def case_payload(assessment: Assessment) -> dict:
         "reviewOutcome": None,
         "score": None,
         "assessment": None,
+        # Each question's rulings across every run, for the score breakdown's reviewer labels.
+        "reviewHistory": review_history(rulings, submission, viewer),
         "decision": None if decision is None else {
             "verdict": decision.verdict, "remarks": decision.remarks, "at": decision.decided_at,
-            # Who decided it: the account's email, the only name an account has.
-            "by": decision.reviewer.email,
+            # Who decided it, for a reviewer: the account's email, the only name an account has. An
+            # applicant is not shown a reviewer's sign-in (null: "the reviewer").
+            "by": decision.reviewer.email if viewer.is_reviewer else None,
         },
     }
     if submission is None:
@@ -162,7 +211,7 @@ class CaseView(APIView):
         if settings.ENGINE_FOLLOW_IN_REQUESTS and assessment.stage in workflow.FOLLOWED_STAGES:
             workflow.sync(assessment)
             assessment = _reloaded(assessment)
-        return Response(case_payload(assessment))
+        return Response(case_payload(assessment, request.user))
 
 
 class SubmitView(APIView):
@@ -172,7 +221,7 @@ class SubmitView(APIView):
         assessment = _assessment(request, public_id)
         require_owner(request.user, assessment)
         _transition(self.action, assessment, request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
 
 class ResubmitView(SubmitView):
@@ -187,7 +236,7 @@ class RetryView(APIView):
         if not request.user.is_reviewer:
             require_owner(request.user, assessment)
         _transition(workflow.retry, assessment, request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
 
 class RulingSerializer(serializers.Serializer):
@@ -205,13 +254,13 @@ class RulingView(APIView):
         data.is_valid(raise_exception=True)
         _transition(workflow.rule, assessment, qid, data.validated_data["verdict"],
                     data.validated_data["comment"], request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
     def delete(self, request, public_id, qid):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.undo_ruling, assessment, qid, request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
 
 class CompleteReviewView(APIView):
@@ -224,7 +273,7 @@ class CompleteReviewView(APIView):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.complete_review, assessment, request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
 
 class ForceScoreView(APIView):
@@ -238,7 +287,7 @@ class ForceScoreView(APIView):
         assessment = _assessment(request, public_id)
         require_not_own(request.user, assessment)
         _transition(workflow.force_score, assessment, request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
 
 class DecisionSerializer(serializers.Serializer):
@@ -256,7 +305,7 @@ class DecisionView(APIView):
         data.is_valid(raise_exception=True)
         _transition(workflow.decide, assessment, data.validated_data["verdict"],
                     data.validated_data["remarks"], request.user)
-        return Response(case_payload(_reloaded(assessment)))
+        return Response(case_payload(_reloaded(assessment), request.user))
 
 
 class _UpstreamBody:

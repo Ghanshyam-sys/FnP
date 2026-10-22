@@ -11,6 +11,7 @@ import { displaySection } from "../domain/sectionLabels";
 import { reportQuestions } from "../api/adapt";
 import AnswerTag from "./AnswerTag";
 import ConcernCard from "./ConcernCard";
+import { ReviewChips, ReviewNotes } from "./ReviewMarks";
 import { concernKey, type Concern } from "../domain/concerns";
 import { sectionTotals, type SectionTotal } from "../domain/riskSections";
 import type {
@@ -18,6 +19,7 @@ import type {
   ScoreResult,
   SectionScoreLine,
 } from "../domain/types";
+import type { ReviewEntry } from "../api/types";
 
 /** Outcome cell, shared by every question row. */
 function OutcomeTag({ line }: { line: SectionScoreLine }) {
@@ -38,12 +40,23 @@ function OutcomeTag({ line }: { line: SectionScoreLine }) {
 }
 
 /**
- * One question's line in the breakdown. A line that carries risk, or that the AI engine wrote a
- * concern about, opens to the question and that concern (as the assessment summary shows it).
+ * One question's line in the breakdown. A line that carries risk, that the AI engine wrote a
+ * concern about, or that the reviewer ruled on, opens to the question, the reviewer's rulings and
+ * the AI engine's concern (as the assessment summary shows them). What the reviewer did shows as
+ * labels after the outcome.
  */
-function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: Concern[] }) {
+function QuestionRow({
+  line: l,
+  concerns,
+  reviews,
+}: {
+  line: SectionScoreLine;
+  concerns: Concern[];
+  reviews?: ReviewEntry[];
+}) {
   const [open, setOpen] = useState(false);
-  const expandable = l.riskFlag === 1 || concerns.length > 0;
+  const reviewed = (reviews?.length ?? 0) > 0;
+  const expandable = l.riskFlag === 1 || concerns.length > 0 || reviewed;
   const detailId = `risk-detail-${l.qid.replace(/[^a-z0-9]+/gi, "-")}`;
   const rowClass = [l.knockOutTriggered && "row-knockout", open && "is-open"].filter(Boolean).join(" ");
 
@@ -64,7 +77,7 @@ function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: 
               className="outcome-toggle"
               aria-expanded={open}
               aria-controls={detailId}
-              title={open ? "Hide the details" : "Show why this question carries risk"}
+              title={open ? "Hide the details" : l.riskFlag === 1 ? "Show why this question carries risk" : "Show the details"}
               onClick={() => setOpen((v) => !v)}
             >
               <OutcomeTag line={l} />
@@ -75,6 +88,7 @@ function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: 
           ) : (
             <OutcomeTag line={l} />
           )}
+          <ReviewChips entries={reviews} />
         </td>
         <td className="num strong">{l.weightedRisk.toFixed(1)}</td>
       </tr>
@@ -89,9 +103,12 @@ function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: 
                   This is a knock-out question: the case is referred regardless of the weighted score.
                 </p>
               )}
-              {concerns.length > 0 ? (
-                concerns.map((c, i) => <ConcernCard key={concernKey(c, i)} concern={c} showSection={false} />)
-              ) : (
+              <ReviewNotes entries={reviews} />
+              {concerns.map((c, i) => (
+                <ConcernCard key={concernKey(c, i)} concern={c} showSection={false} />
+              ))}
+              {/* A risky answer the AI engine wrote nothing about says why it counts. */}
+              {concerns.length === 0 && l.riskFlag === 1 && (
                 <p className="risk-detail-note">
                   <InfoIcon size={14} />
                   The answer "{l.answer}" counts as a risk for this question, adding{" "}
@@ -108,7 +125,15 @@ function QuestionRow({ line: l, concerns }: { line: SectionScoreLine; concerns: 
 }
 
 /** A section's contribution, expanding to the questions that produced it. */
-function SectionRow({ total, concerns }: { total: SectionTotal; concerns: Concern[] }) {
+function SectionRow({
+  total,
+  concerns,
+  reviews,
+}: {
+  total: SectionTotal;
+  concerns: Concern[];
+  reviews?: Record<string, ReviewEntry[]>;
+}) {
   const [open, setOpen] = useState(false);
   const bodyId = `risk-${total.section.replace(/[^a-z0-9]+/gi, "-")}`;
 
@@ -154,7 +179,12 @@ function SectionRow({ total, concerns }: { total: SectionTotal; concerns: Concer
             </thead>
             <tbody>
               {total.lines.map((l) => (
-                <QuestionRow key={l.qid} line={l} concerns={concerns.filter((c) => c.qid === l.qid)} />
+                <QuestionRow
+                  key={l.qid}
+                  line={l}
+                  concerns={concerns.filter((c) => c.qid === l.qid)}
+                  reviews={reviews?.[l.qid]}
+                />
               ))}
             </tbody>
           </table>
@@ -168,11 +198,14 @@ export default function ReportView({
   authentication,
   scoreResult,
   concerns = [],
+  reviews,
 }: {
   authentication: AuthenticationOutcome;
   scoreResult: ScoreResult;
   /** The AI engine's concerns from its written assessment, shown under the questions they are about. */
   concerns?: Concern[];
+  /** Each question's rulings across the case's runs (Case.reviewHistory), as labels and notes. */
+  reviews?: Record<string, ReviewEntry[]>;
 }) {
   const cautions = reportQuestions(authentication).filter((q) => q.checks.some((c) => c.status === "caution"));
   const sections = sectionTotals(scoreResult);
@@ -217,7 +250,7 @@ export default function ReportView({
 
         <div className="sectionbars">
           {sections.map((s) => (
-            <SectionRow key={s.section} total={s} concerns={concerns} />
+            <SectionRow key={s.section} total={s} concerns={concerns} reviews={reviews} />
           ))}
 
           <div className="sbar-total">

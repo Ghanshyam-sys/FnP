@@ -189,7 +189,12 @@ export default function ReviewerResultPage() {
       )}
 
       {scoreResult ? (
-        <ReportView authentication={outcome} scoreResult={scoreResult} concerns={data.assessment?.concerns} />
+        <ReportView
+          authentication={outcome}
+          scoreResult={scoreResult}
+          concerns={data.assessment?.concerns}
+          reviews={data.reviewHistory}
+        />
       ) : (
         <EmptyState
           icon={<InfoIcon size={22} />}
@@ -270,6 +275,7 @@ export default function ReviewerResultPage() {
           assignment={assignment}
           decision={decision}
           scoreResult={scoreResult}
+          reviews={data.reviewHistory}
           onClose={() => setSummaryOpen(false)}
         />
       )}

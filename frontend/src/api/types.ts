@@ -312,6 +312,18 @@ export interface Ruling {
   at: string;
 }
 
+/** One ruling in a question's history across the case's runs (Case.reviewHistory). */
+export interface ReviewEntry extends Ruling {
+  /** The reviewer's account, for a reviewer; null for an applicant. */
+  by: string | null;
+  /** The submission version the ruling was made on: "v1", "v2" ... */
+  run: string;
+  /** Made on the latest run (the one scored), rather than an earlier one. */
+  current: boolean;
+  /** That run was scored at the reviewer's request although it did not authenticate CLEAR. */
+  scoreForced: boolean;
+}
+
 export interface Case {
   stage: Stage;
   submittedAt: string | null;
@@ -337,6 +349,8 @@ export interface Case {
   authentication: ApiAuthentication | null;
   flags: string[];
   rulings: Record<string, Ruling>;
+  /** Each question's rulings across every run, oldest first (left out by an older server). */
+  reviewHistory?: Record<string, ReviewEntry[]>;
   rejected: string[];
   /** Rejected answers with no new document since the run they were rejected in. */
   unreplaced: string[];
@@ -346,8 +360,11 @@ export interface Case {
   score: ApiScore | null;
   /** The engine's written assessment, links already pointing at this backend. */
   assessment: FinalAssessment | null;
-  /** `by`: the account that decided it (its email); left out by an older server. */
-  decision: { verdict: Verdict; remarks: string; at: string; by?: string } | null;
+  /**
+   * `by`: the account that decided it (its email), for a reviewer; null for an applicant, who is
+   * not shown a reviewer's sign-in (and left out by an older server).
+   */
+  decision: { verdict: Verdict; remarks: string; at: string; by?: string | null } | null;
 }
 
 /**

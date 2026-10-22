@@ -799,6 +799,8 @@
     --serious-ink: #9c4520;
     --critical-wash: #fbeaea;
     --critical-ink: #a32b2b;
+    --decision-wash: #ebf0fb;
+    --decision-ink: #2f4b9c;
     color-scheme: light;
   }
 
@@ -1138,6 +1140,25 @@
   .pane-risk-note.is-knockout {
     font-weight: 600;
     color: var(--critical-ink);
+  }
+
+  /* What the reviewer did: the labels after the outcome, and the rulings under the question. */
+  .pane .chip.chip-review {
+    padding: 0.5pt 4pt;
+    font-size: 7pt;
+  }
+
+  .pane-risk-why .review-notes {
+    margin-top: 4pt;
+  }
+
+  .pane-risk-why .review-notes-title {
+    font-size: 7pt;
+  }
+
+  .pane-risk-why .review-notes li {
+    font-size: 8pt;
+    break-inside: avoid;
   }
 
   /* The AI engine's concerns about a question, under it, as the scoring page opens them. */

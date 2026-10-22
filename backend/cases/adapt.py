@@ -5,6 +5,7 @@ nationality, ID number or phone) and files under neutral names. Inbound, every e
 replaced by our own access-checked one, so no engine URL or request id reaches the browser."""
 
 import re
+from dataclasses import dataclass, field
 
 from django.utils import timezone
 
@@ -15,6 +16,8 @@ from .models import (
     EvidenceFile,
     EvidenceRole,
     Question,
+    Submission,
+    Verdict,
 )
 
 CV_DOC_TYPE = "curriculum_vitae"
@@ -24,15 +27,80 @@ _HIGHLIGHT = re.compile(r"/authentication/evidence-highlight/[^/]+/([A-Za-z0-9._
 
 # ---- Outbound ---------------------------------------------------------------------------------
 
+@dataclass(frozen=True)
+class RunHistory:
+    """What a submission says about the ones before it, worked out from the case's earlier runs.
+
+    version: this submission's number (1 for the first; a retry resends a run, so it adds none).
+    reviews: the reviewer's ruling on each question flagged in the latest run, accepted or
+        rejected, with its comment (the latest round only).
+    sent: for each question, the sets of documents earlier runs carried, one per change.
+    previous_request_id: the engine's id for the latest run (the one the reviewer ruled on); None
+        before any run.
+    """
+
+    version: int = 1
+    reviews: dict[str, dict] = field(default_factory=dict)
+    sent: dict[str, list[frozenset[int]]] = field(default_factory=dict)
+    previous_request_id: str | None = None
+
+
+def run_history(previous: list[Submission]) -> RunHistory:
+    """The history for a new submission from the case's earlier runs, oldest first (with their
+    documents and rulings loaded). A retry resends its run's request word for word, submission
+    time included, so the distinct submission times count the submissions made."""
+    if not previous:
+        return RunHistory()
+    version = len({run.payload.get("submitted_at") for run in previous}) + 1
+    reviews = {r.qid: {"verdict": r.verdict, "comment": r.comment} for r in previous[-1].rulings.all()}
+    sent: dict[str, list[frozenset[int]]] = {}
+    for run in previous:
+        by_qid: dict[str, set[int]] = {}
+        for e in run.evidence_files.all():
+            by_qid.setdefault(e.qid, set()).add(e.pk)
+        for qid, pks in by_qid.items():
+            versions = sent.setdefault(qid, [])
+            if not versions or versions[-1] != frozenset(pks):
+                versions.append(frozenset(pks))
+    return RunHistory(
+        version=version, reviews=reviews, sent=sent, previous_request_id=previous[-1].engine_request_id,
+    )
+
+
+def _label(n: int | None) -> str | None:
+    return None if n is None else f"v{n}"
+
+
+def _evidence_version(history: RunHistory, qid: str, files: list[EvidenceFile]) -> int | None:
+    """Which version of a question's documents this is: 1 the first time any go, one more each time
+    they change. None when it takes none now."""
+    if not files:
+        return None
+    versions = history.sent.get(qid, [])
+    now = frozenset(e.pk for e in files)
+    if versions and versions[-1] == now:
+        return len(versions)
+    return len(versions) + 1
+
+
 def submission_payload(
     assessment: Assessment,
     questions: dict[str, Question],
     answers: dict[str, str],
     profile: ApplicantProfile | None,
     evidence: list[EvidenceFile],
+    history: RunHistory | None = None,
 ) -> dict:
     """The submission in the format the engine reads (the test set's form_data with a
-    cv_verification block). Unanswered questions are No, as on the form."""
+    cv_verification block). Unanswered questions are No, as on the form.
+
+    On a resubmission it also says what changed since the last run: each question the reviewer
+    sent back (rejected) is marked resubmitted, and so is a section holding one; every question
+    the reviewer ruled on, accepted or rejected, carries the verdict and comment; the request
+    names the engine's id for the run it follows; and the submission and each question's
+    documents carry a version (v1, v2 ...). A first submission sends the same fields, all false,
+    v1 and null."""
+    history = history or RunHistory()
     by_qid: dict[str, list[EvidenceFile]] = {}
     for e in evidence:
         by_qid.setdefault(e.qid, []).append(e)
@@ -40,8 +108,16 @@ def submission_payload(
     sections: list[dict] = []
     for q in questions.values():
         if not sections or sections[-1]["section"] != q.section.name:
-            sections.append({"section": q.section.name, "section_weight": float(q.section.weight), "questions": []})
+            sections.append({
+                "section": q.section.name, "section_weight": float(q.section.weight),
+                "resubmitted": False, "questions": [],
+            })
         answer = answers.get(q.qid, catalogue.default_answer(q))
+        files = by_qid.get(q.qid, [])
+        review = history.reviews.get(q.qid)
+        # Sent back by the reviewer, so changed by the applicant. One the reviewer accepted is not,
+        # though its review (and comment) still goes.
+        sent_back = review is not None and review["verdict"] == Verdict.REJECTED
         sections[-1]["questions"].append({
             "qid": q.qid,
             "question": q.text,
@@ -50,12 +126,22 @@ def submission_payload(
             "knockout": int(q.is_knockout),
             "answer": answer,
             "evidence_required": catalogue.evidence_required(q, answer),
-            "evidence": [{"doc_type": e.doc_type, "role": e.role} for e in by_qid.get(q.qid, [])],
+            "evidence": [{"doc_type": e.doc_type, "role": e.role} for e in files],
             "checks_to_perform": q.checks,
+            "resubmitted": sent_back,
+            "evidence_version": _label(_evidence_version(history, q.qid, files)),
+            "reviewer_review": review,
         })
+        # A section is resubmitted when any of its questions is; all false, it is false.
+        if sent_back:
+            sections[-1]["resubmitted"] = True
 
     return {
         "application_id": assessment.public_id,
+        "is_resubmission": history.version > 1,
+        "submission_version": _label(history.version),
+        "previous_submission_version": _label(history.version - 1 if history.version > 1 else None),
+        "previous_request_id": history.previous_request_id,
         "licensee": assessment.entity,
         "applicant": {
             "full_name": assessment.applicant_name,

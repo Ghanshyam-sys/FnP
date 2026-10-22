@@ -14,7 +14,8 @@ import ScoreVerdict from "./ScoreVerdict";
 import QuestionOutcomes from "./QuestionOutcomes";
 import { concernKey } from "../domain/concerns";
 import { detailedQids } from "../domain/riskSections";
-import type { Assessment, Case, FinalAssessment } from "../api/types";
+import { reviewedQids } from "../domain/reviewLabels";
+import type { Assessment, Case, FinalAssessment, ReviewEntry } from "../api/types";
 import type { ScoreResult } from "../domain/types";
 
 const VERDICT_TONE: Record<string, string> = {
@@ -124,14 +125,14 @@ function ReviewerDecision({ decision }: { decision: Case["decision"] }) {
         </span>
         <span className="pane-decision-date">
           {formatDay(decision.at)}
-          {decision.by && (
-            <>
-              <span className="pane-decision-sep" aria-hidden="true">
-                |
-              </span>
-              {accepted ? "Approved" : "Rejected"} by <strong className="pane-decision-by">{decision.by}</strong>
-            </>
-          )}
+          {/* A bar to the eye, a pause to a screen reader. */}
+          <span className="sr-only">, </span>
+          <span className="pane-decision-sep" aria-hidden="true">
+            |
+          </span>
+          {/* The account for a reviewer; an applicant is told it was the reviewer. */}
+          Decided by{" "}
+          {decision.by ? <strong className="pane-decision-by">{decision.by}</strong> : "the reviewer"}
         </span>
       </div>
       <p className="pane-decision-label">Feedback</p>
@@ -161,6 +162,7 @@ export default function AssessmentSummaryPane({
   assignment,
   decision,
   scoreResult = null,
+  reviews,
   onClose,
 }: {
   assessment: FinalAssessment | null;
@@ -169,6 +171,8 @@ export default function AssessmentSummaryPane({
   decision: Case["decision"];
   /** The score as the page shows it (null: none to show): its breakdown prints with the PDF. */
   scoreResult?: ScoreResult | null;
+  /** Each question's rulings across the case's runs: labelled in the breakdown, as on the scoring page. */
+  reviews?: Record<string, ReviewEntry[]>;
   onClose: () => void;
 }) {
   const applicantName = assignment.applicantName;
@@ -345,7 +349,7 @@ export default function AssessmentSummaryPane({
               )}
 
               {/* Where the risk comes from: risky sections open, each concern under its question. */}
-              {scoreResult && <RiskBreakdown scoreResult={scoreResult} concerns={concerns} />}
+              {scoreResult && <RiskBreakdown scoreResult={scoreResult} concerns={concerns} reviews={reviews} />}
 
               {unplacedConcerns.length > 0 && (
                 <section className="pane-section">
@@ -408,10 +412,7 @@ export default function AssessmentSummaryPane({
                   <QuestionOutcomes
                     outcomes={outcomes}
                     lines={scoreResult.lines}
-                    detailed={detailedQids(
-                      scoreResult,
-                      concerns.map((c) => c.qid)
-                    )}
+                    detailed={detailedQids(scoreResult, [...concerns.map((c) => c.qid), ...reviewedQids(reviews)])}
                   />
                 ) : (
                   <dl className="pane-qsplit">

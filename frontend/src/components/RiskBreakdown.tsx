@@ -1,9 +1,12 @@
 import { Fragment } from "react";
 import ConcernCard from "./ConcernCard";
+import { ReviewChips, ReviewNotes } from "./ReviewMarks";
+import { reviewedQids } from "../domain/reviewLabels";
 import { displaySection } from "../domain/sectionLabels";
 import { detailedQids, riskShare, sectionTotals } from "../domain/riskSections";
 import { concernKey, type Concern } from "../domain/concerns";
 import type { ScoreResult, SectionScoreLine } from "../domain/types";
+import type { ReviewEntry } from "../api/types";
 
 /** The outcome of one question, in words, as the scoring page's chips read. */
 function outcome(line: SectionScoreLine): { text: string; tone: string } {
@@ -20,13 +23,21 @@ function outcome(line: SectionScoreLine): { text: string; tone: string } {
  * page shows them when the question is opened. The sections' total is the weighted risk the score
  * block already gives.
  */
-export default function RiskBreakdown({ scoreResult, concerns }: { scoreResult: ScoreResult; concerns: Concern[] }) {
+export default function RiskBreakdown({
+  scoreResult,
+  concerns,
+  reviews,
+}: {
+  scoreResult: ScoreResult;
+  concerns: Concern[];
+  /** Each question's rulings across the case's runs, as labels and notes. */
+  reviews?: Record<string, ReviewEntry[]>;
+}) {
   const sections = sectionTotals(scoreResult);
   if (sections.length === 0) return null;
-  const detailed = detailedQids(
-    scoreResult,
-    concerns.map((c) => c.qid)
-  );
+  // Shown in full: questions carrying risk, those the AI engine wrote a concern about, and those
+  // the reviewer ruled on.
+  const detailed = detailedQids(scoreResult, [...concerns.map((c) => c.qid), ...reviewedQids(reviews)]);
 
   return (
     <section className="pane-section pane-risk">
@@ -76,6 +87,7 @@ export default function RiskBreakdown({ scoreResult, concerns }: { scoreResult: 
                           <td className="num">{l.applicableWeight}</td>
                           <td>
                             <span className={`chip chip-${o.tone}`}>{o.text}</span>
+                            <ReviewChips entries={reviews?.[l.qid]} />
                           </td>
                           <td className="num strong">{l.weightedRisk.toFixed(1)}</td>
                         </tr>
@@ -89,13 +101,16 @@ export default function RiskBreakdown({ scoreResult, concerns }: { scoreResult: 
                                   Knock-out question: the case is referred regardless of the weighted score.
                                 </p>
                               )}
-                              {about.length > 0 ? (
+                              <ReviewNotes entries={reviews?.[l.qid]} />
+                              {about.length > 0 && (
                                 <div className="pane-risk-concerns">
                                   {about.map((c, i) => (
                                     <ConcernCard key={concernKey(c, i)} concern={c} showSection={false} />
                                   ))}
                                 </div>
-                              ) : (
+                              )}
+                              {/* A risky answer the AI engine wrote nothing about says why it counts. */}
+                              {about.length === 0 && l.riskFlag === 1 && (
                                 <p className="pane-risk-note">
                                   The answer "{l.answer}" counts as a risk for this question, adding{" "}
                                   {l.weightedRisk.toFixed(1)} to the score. The AI engine wrote no further concern about it.

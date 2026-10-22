@@ -198,7 +198,11 @@ def _start_run(assessment: Assessment, actor: User, action: str, *from_stages: S
             payload = last.payload
             evidence = list(last.evidence_files.order_by("pk"))
         else:
-            payload = adapt.submission_payload(row, questions, answers, profile, evidence)
+            # What earlier runs say about this one: its version, and on a resubmission the
+            # reviewer's rulings and the documents already sent.
+            previous = list(row.submissions.order_by("attempt_no").prefetch_related("evidence_files", "rulings"))
+            history = adapt.run_history(previous)
+            payload = adapt.submission_payload(row, questions, answers, profile, evidence, history)
         submission = Submission.objects.create(
             assessment=row, attempt_no=(last.attempt_no + 1) if last else 1, version=version, payload=payload
         )
