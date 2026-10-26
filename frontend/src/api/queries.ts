@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useInfiniteQuery, useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { QueryClient } from "@tanstack/react-query";
-import { ApiError, api } from "./client";
+import { ApiError, api, uploadWithProgress } from "./client";
 import type {
   AdminOverview,
   AdminUserDetail,
@@ -19,6 +19,7 @@ import type {
   EvidenceItem,
   EvidenceRule,
   Form,
+  LibraryDocument,
   Page,
   QuestionnaireImpact,
   QuestionnaireSettings,
@@ -52,6 +53,9 @@ const RUNNING: Stage[] = ["AUTH_RUNNING", "SCORING"];
 const POLL_MS = 5000;
 /** How often a list checks back: each check reloads every page of it shown so far. */
 const LIST_POLL_MS = 10000;
+// Otherwise, every so often: the list is in order of the latest action, so a case acted on elsewhere
+// moves to the top, and the pages already loaded are read again to show it there.
+const LIST_REFRESH_MS = 30000;
 
 // ---- Session ----------------------------------------------------------------------------------
 
@@ -224,7 +228,7 @@ export function useDepartments() {
  * The applicant's own assessments, or the reviewer's queue, a page at a time. The reviewer can
  * narrow the queue to one department and/or one stage.
  */
-export function useAssessments(department = "", stage = "", search = "") {
+export function useAssessments(department = "", stage = "", search = "", { live = false } = {}) {
   const { data: user } = useSession();
   return useInfiniteQuery({
     queryKey: [...keys.assessments, department, stage, search],
@@ -243,9 +247,15 @@ export function useAssessments(department = "", stage = "", search = "") {
     getNextPageParam: (last) => last.next ?? undefined,
     // Switching the department filter keeps the current list on screen until the new one arrives.
     placeholderData: (previous) => previous,
-    // The queue reflects running engine jobs; refresh it while any listed case is still running.
+    // The list reflects running engine jobs; refresh it while any listed case is still running.
+    // A live list (the reviewer's queue, in order of the latest action) is also read again every
+    // so often, while it is on screen, so a case acted on elsewhere moves to the top.
     refetchInterval: (query) =>
-      query.state.data?.pages.some((p) => p.results.some((a) => RUNNING.includes(a.stage))) ? LIST_POLL_MS : false,
+      query.state.data?.pages.some((p) => p.results.some((a) => RUNNING.includes(a.stage)))
+        ? LIST_POLL_MS
+        : live
+          ? LIST_REFRESH_MS
+          : false,
   });
 }
 
@@ -394,7 +404,9 @@ export interface Upload {
   optionCode: string;
   role: EvidenceRole;
   description?: string;
-  file: File;
+  /** A new file, which also goes into "Your documents"; or one already there. */
+  file?: File;
+  documentId?: string;
 }
 
 export function useUploadEvidence(id: string) {
@@ -404,11 +416,47 @@ export function useUploadEvidence(id: string) {
     mutationKey: [...keys.form(id), "upload"],
     mutationFn: ({ file, ...fields }: Upload) => {
       const body = new FormData();
-      body.append("file", file);
+      if (file) body.append("file", file);
       for (const [name, value] of Object.entries(fields)) if (value) body.append(name, value);
       return api<EvidenceItem>("POST", `/assessments/${id}/evidence`, body);
     },
     onSuccess: () => refreshCaseData(client, id),
+  });
+}
+
+/** Uploads one file to "Your documents", reporting its progress (0 to 1) as it is sent. */
+export function useUploadDocument(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationKey: [...keys.form(id), "document"],
+    mutationFn: ({ file, onProgress }: { file: File; onProgress?: (share: number) => void }) =>
+      uploadWithProgress<LibraryDocument>(`/assessments/${id}/documents`, file, onProgress),
+    onSuccess: (document) => {
+      // In the list at once, before the upload leaves the queue, so the room left is counted right.
+      client.setQueryData<Form>(keys.form(id), (form) =>
+        form && !(form.documents ?? []).some((d) => d.id === document.id)
+          ? { ...form, documents: [...(form.documents ?? []), document] }
+          : form
+      );
+    },
+    // Read again once the whole batch is done (useRefreshCase, from the page that queues them):
+    // the page sends a few at a time, so no single upload knows it is the last.
+  });
+}
+
+/** Reads the form and the case again, as they stand on the server. */
+export function useRefreshCase(id: string) {
+  const client = useQueryClient();
+  return useCallback(() => refreshCaseData(client, id), [client, id]);
+}
+
+/** Removes a document from "Your documents", and from every question it is attached to. */
+export function useRemoveDocument(id: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationKey: [...keys.form(id), "remove-document"],
+    mutationFn: (documentId: string) => api<void>("DELETE", `/assessments/${id}/documents/${documentId}`),
+    onSettled: () => refreshCaseData(client, id),
   });
 }
 

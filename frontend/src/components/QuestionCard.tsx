@@ -3,7 +3,7 @@ import TextAnswer from "./TextAnswer";
 import EvidenceBlock from "./EvidenceBlock";
 import { answerOptions } from "../domain/catalogue";
 import type { AttachHandler } from "./EvidenceBlock";
-import type { CatalogueQuestion } from "../api/types";
+import type { CatalogueQuestion, LibraryDocument } from "../api/types";
 import type { EvidenceOption } from "../domain/catalogue";
 import type { Answer, EvidenceRef, ResponseItem } from "../domain/types";
 
@@ -13,6 +13,7 @@ export default function QuestionCard({
   options,
   defaultCode,
   labelFor,
+  library,
   onAnswerChange,
   onAttach,
   onRemove,
@@ -23,6 +24,8 @@ export default function QuestionCard({
   options: EvidenceOption[];
   defaultCode: string;
   labelFor: (file: EvidenceRef) => string;
+  /** "Your documents", to attach one from there. */
+  library?: LibraryDocument[];
   onAnswerChange: (answer: string) => void;
   onAttach: AttachHandler;
   onRemove: (evidenceId: string) => Promise<unknown>;
@@ -30,7 +33,7 @@ export default function QuestionCard({
   const labelId = `q-${response.qid}-label`;
 
   return (
-    <article className="qcard">
+    <article className="qcard" id={`question-${response.qid}`}>
       <div className="qcard-main">
         <div className="qcard-prompt">
           <span className="qid">{response.qid}</span>
@@ -63,6 +66,7 @@ export default function QuestionCard({
           fileTypes={question.fileTypes}
           allowSupporting={question.maxFiles > 1}
           labelFor={labelFor}
+          library={library}
           onAttach={onAttach}
           onRemove={onRemove}
         />

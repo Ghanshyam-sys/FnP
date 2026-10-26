@@ -86,17 +86,28 @@ export const DEFAULT_MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
 
 const SAME_FORMAT: Record<string, string> = { jpeg: "jpg", tiff: "tif", heif: "heic" };
 
+/** A format as the questions name it: "jpeg" is "jpg", "tiff" is "tif", "heif" is "heic". */
+export function sameFormat(format: string): string {
+  return SAME_FORMAT[format] ?? format;
+}
+
 /**
  * Why a chosen file cannot be uploaded, before sending it: the same format and size rules the
  * server applies (and words them the same way), or null if it may be sent. The server still
- * checks everything, including what the file really contains.
+ * checks everything, including what the file really contains. `accepts` begins the message for
+ * a refused format ("Upload" where the formats are not one question's).
  */
-export function fileProblem(file: File, fileTypes: string[], maxBytes: number): string | null {
+export function fileProblem(
+  file: File,
+  fileTypes: string[],
+  maxBytes: number,
+  accepts = "This question accepts"
+): string | null {
   const name = file.name.toLowerCase();
   const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1) : "";
-  const allowed = new Set(fileTypes.map((f) => SAME_FORMAT[f] ?? f));
-  if (!allowed.has(SAME_FORMAT[extension] ?? extension)) {
-    return `This question accepts ${fileTypes.map((f) => f.toUpperCase()).join(", ")} files.`;
+  const allowed = new Set(fileTypes.map(sameFormat));
+  if (!allowed.has(sameFormat(extension))) {
+    return `${accepts} ${fileTypes.map((f) => f.toUpperCase()).join(", ")} files.`;
   }
   if (file.size > maxBytes) return `Files must be ${Math.floor(maxBytes / (1024 * 1024))} MB or smaller.`;
   if (file.size === 0) return "The file is empty.";

@@ -26,6 +26,7 @@ from cases.models import (
     Assessment,
     Decision,
     Department,
+    CaseDocument,
     EvidenceFile,
     QuestionResult,
     Role,
@@ -137,7 +138,8 @@ class Command(BaseCommand):
 
     @staticmethod
     def _attach(assessment, applicant, qid, doc_type, role, path, questions, stored: list[str]) -> None:
-        """Stores one document exactly as an upload would: the same option lookup and file checks."""
+        """Stores one document exactly as an upload at a question would: the same option lookup and
+        file checks, the file kept in "Your documents" and the attachment sharing it."""
         option = next((o for o in catalogue.evidence_options().get(qid, []) if o["doc_type"] == doc_type), None)
         if option is None:
             raise CommandError(f"{assessment.public_id} {qid}: no evidence option reads {doc_type}")
@@ -148,14 +150,24 @@ class Command(BaseCommand):
                 _, content_type = validation.evidence_file(upload, allowed, settings.EVIDENCE_MAX_BYTES)
             except ValidationError as exc:
                 raise CommandError(f"{assessment.public_id} {qid} {path.name}: {exc.messages[0]}") from None
-            evidence = EvidenceFile(
-                assessment=assessment, qid=qid, option_code=option["code"], doc_type=doc_type, role=role,
-                original_name=path.name, content_type=content_type, size_bytes=path.stat().st_size,
-                sha256=hashlib.sha256(path.read_bytes()).hexdigest(), uploaded_by=applicant,
-            )
-            fh.seek(0)
-            evidence.file.save("upload", upload, save=False)
-            stored.append(evidence.file.name)
+            sha = hashlib.sha256(path.read_bytes()).hexdigest()
+            # One library document per file, however many questions it is attached to.
+            document = CaseDocument.objects.filter(assessment=assessment, sha256=sha).first()
+            if document is None:
+                document = CaseDocument(
+                    assessment=assessment, original_name=path.name, content_type=content_type,
+                    size_bytes=path.stat().st_size, sha256=sha, uploaded_by=applicant,
+                )
+                fh.seek(0)
+                document.file.save("upload", upload, save=False)
+                stored.append(document.file.name)
+                document.save()
+        evidence = EvidenceFile(
+            assessment=assessment, document=document, qid=qid, option_code=option["code"], doc_type=doc_type,
+            role=role, original_name=path.name, content_type=content_type, size_bytes=document.size_bytes,
+            sha256=sha, uploaded_by=applicant,
+        )
+        evidence.file.name = document.file.name
         evidence.save()
 
     def _remove(self, public_ids: list[str]) -> None:
@@ -164,7 +176,10 @@ class Command(BaseCommand):
         with transaction.atomic():
             assessments = Assessment.objects.filter(public_id__in=public_ids)
             submissions = Submission.objects.filter(assessment__in=assessments)
-            names = list(EvidenceFile.objects.filter(assessment__in=assessments).values_list("file", flat=True))
+            names = sorted(
+                set(EvidenceFile.objects.filter(assessment__in=assessments).values_list("file", flat=True))
+                | set(CaseDocument.objects.filter(assessment__in=assessments).values_list("file", flat=True))
+            )
             Decision.objects.filter(assessment__in=assessments).delete()
             Score.objects.filter(submission__in=submissions).delete()
             Ruling.objects.filter(submission__in=submissions).delete()

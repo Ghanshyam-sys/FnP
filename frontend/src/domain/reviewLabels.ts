@@ -29,8 +29,8 @@ export function reviewLabel(entry: ReviewEntry): ReviewLabel {
     return entry.scoreForced
       ? {
           kind: "overridden",
-          text: "Overridden by reviewer",
-          title: "The AI engine flagged this answer; the reviewer accepted it and had the case scored anyway.",
+          text: "AI authentication failed. Overridden by Admin.",
+          title: "The AI engine flagged this answer; the admin accepted it and had the case scored anyway.",
           tone: "warning",
         }
       : {

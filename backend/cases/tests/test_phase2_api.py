@@ -358,25 +358,45 @@ def test_an_upload_while_the_engine_is_unreachable_is_a_503(monkeypatch, applica
     assert response.status_code == 503 and not EvidenceFile.objects.exists()
 
 
-def test_reviewer_queue_pages_cases_needing_the_reviewer_first_and_counts_the_whole_queue(reviewer):
+def test_reviewer_queue_pages_the_latest_activity_first_and_counts_the_whole_queue(reviewer):
     for i in range(55):
         make.assessment(public_id=f"FNP-2026-{i:04d}", reference=f"BL-Q-{i}", stage=Stage.ACCEPTED)
-    # Needs the reviewer, but last changed long before everything else: newest-first paging alone
-    # would leave it on the second page.
+    # Needs the reviewer, but last changed long before everything else: the queue is in order of
+    # the latest action whatever the stage, so it is on the second page.
     waiting = make.assessment(public_id="FNP-2026-0900", reference="BL-Q-WAIT", stage=Stage.REVIEW_PENDING)
     Assessment.objects.filter(pk=waiting.pk).update(updated_at=datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC))
 
     first = reviewer.get("/api/assessments").json()
-    assert first["results"][0]["id"] == "FNP-2026-0900"
     assert (first["total"], first["actionable"]) == (56, 1)
     second = reviewer.get("/api/assessments", cursor=first["next"]).json()
     # The counts come with the first page only; a later page just adds rows.
     assert "total" not in second and "stageCounts" not in second and second["next"] is None
     ids = [a["id"] for a in first["results"] + second["results"]]
-    assert len(ids) == len(set(ids)) == 56
-    # Newest activity first within a stage.
-    stamps = [a["updatedAt"] for a in first["results"][1:] + second["results"]]
+    assert len(ids) == len(set(ids)) == 56 and ids[-1] == "FNP-2026-0900"
+    # The latest activity first, across stages.
+    stamps = [a["updatedAt"] for a in first["results"] + second["results"]]
     assert stamps == sorted(stamps, reverse=True)
+
+
+def test_an_action_on_a_case_brings_it_to_the_top_of_the_queue(reviewer):
+    from cases import workflow
+
+    long_ago = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+    flagged = make.assessment(public_id="FNP-2026-0901", reference="BL-Q-FLAG", stage=Stage.REVIEW_PENDING)
+    run = Submission.objects.create(assessment=flagged, attempt_no=1, version=flagged.version, payload={})
+    QuestionResult.objects.create(submission=run, qid="PC1", status="issue")
+    for i in range(3):
+        make.assessment(public_id=f"FNP-2026-{i:04d}", reference=f"BL-T-{i}", stage=Stage.ACCEPTED)
+    Assessment.objects.filter(pk=flagged.pk).update(updated_at=long_ago)
+    assert reviewer.get("/api/assessments").json()["results"][-1]["id"] == "FNP-2026-0901"
+
+    # A ruling on one of its answers is an action on it.
+    workflow.rule(flagged, "PC1", "accepted", "Fine", make.reviewer())
+    assert reviewer.get("/api/assessments").json()["results"][0]["id"] == "FNP-2026-0901"
+    # So is undoing it.
+    Assessment.objects.filter(pk=flagged.pk).update(updated_at=long_ago)
+    workflow.undo_ruling(flagged, "PC1", make.reviewer())
+    assert reviewer.get("/api/assessments").json()["results"][0]["id"] == "FNP-2026-0901"
 
 
 def test_the_queue_lists_only_submitted_assessments(applicant, reviewer, opened):
@@ -501,9 +521,12 @@ def test_a_new_document_replaces_the_old_one_in_its_slot(applicant, opened, djan
     upload(applicant, opened)
     first = EvidenceFile.objects.get().file.name
     with django_capture_on_commit_callbacks(execute=True):
-        upload(applicant, opened, optionCode="PASSPORT")
+        upload(applicant, opened, file=pdf(content=b"%PDF-1.7\n%another\n"), optionCode="PASSPORT")
     assert EvidenceFile.objects.get().doc_type == "passport"
-    assert not default_storage.exists(first)
+    # The one it replaced is off the question but stays in "Your documents", file and all.
+    assert default_storage.exists(first)
+    library = applicant.get(f"/api/assessments/{opened}/form").json()["documents"]
+    assert len(library) == 2 and [len(d["usedBy"]) for d in library] == [0, 1]
 
 
 def test_removing_the_primary_takes_its_supporting_document(applicant, opened):

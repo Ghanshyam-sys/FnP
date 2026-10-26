@@ -20,7 +20,7 @@ describe("reviewer labels beside a question's outcome", () => {
   });
 
   it("says the reviewer overrode it when the run was scored at their request", () => {
-    expect(latestReviewLabel([entry({ scoreForced: true })])?.text).toBe("Overridden by reviewer");
+    expect(latestReviewLabel([entry({ scoreForced: true })])?.text).toBe("AI authentication failed. Overridden by Admin.");
   });
 
   it("says an answer sent back earlier was resubmitted, in which version", () => {
@@ -35,7 +35,7 @@ describe("reviewer labels beside a question's outcome", () => {
       entry({ verdict: "rejected", run: "v2", current: false }),
       entry({ verdict: "accepted", run: "v3", current: true, scoreForced: true }),
     ]);
-    expect(label?.text).toBe("Overridden by reviewer");
+    expect(label?.text).toBe("AI authentication failed. Overridden by Admin.");
   });
 
   it("has nothing for a question the reviewer never ruled on", () => {

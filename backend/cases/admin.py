@@ -24,6 +24,7 @@ from .models import (
     AuditEvent,
     Decision,
     Department,
+    CaseDocument,
     EvidenceFile,
     Question,
     QuestionnaireVersion,
@@ -313,6 +314,18 @@ class EvidenceFileAdmin(ReadOnlyAdmin):
     list_filter = ("doc_type", "role")
     list_select_related = ("assessment",)
     search_fields = ("assessment__public_id", "original_name", "qid")
+
+
+@admin.register(CaseDocument)
+class CaseDocumentAdmin(ReadOnlyAdmin):
+    """An applicant's uploaded documents ("Your documents"), before or after attaching them."""
+
+    fields = (
+        "public_id", "assessment", "original_name", "content_type", "size_bytes", "sha256", "uploaded_by", "uploaded_at",
+    )
+    list_display = ("original_name", "assessment", "size_bytes", "uploaded_at")
+    list_select_related = ("assessment",)
+    search_fields = ("assessment__public_id", "original_name")
 
 
 class QuestionResultInline(ReadOnlyInline):

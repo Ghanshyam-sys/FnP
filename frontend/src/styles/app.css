@@ -10,6 +10,7 @@
 @import "./pages/login.css";
 @import "./components/question.css";
 @import "./components/evidence.css";
+@import "./components/document-library.css";
 @import "./components/controls.css";
 @import "./pages/review.css";
 @import "./pages/status.css";

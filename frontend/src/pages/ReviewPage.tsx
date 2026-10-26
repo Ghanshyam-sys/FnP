@@ -11,6 +11,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CheckCircleIcon,
+  InfoIcon,
 } from "../components/icons";
 import { documentRuleBreaks, evidenceGaps } from "../domain/evidenceRules";
 import { routes } from "../routes";
@@ -39,6 +40,8 @@ export default function ReviewPage() {
   // A text question must be answered (the others start from an answer).
   const unanswered = form.responses.filter((r) => r.answerType === "text" && !r.answer.trim()).map((r) => r.qid);
   const blockers = missingTotal + ruleBreaks.length + unanswered.length;
+  // Uploaded to "Your documents" but attached to no question.
+  const unattached = (raw.documents ?? []).filter((d) => d.usedBy.length === 0);
 
   return (
     <div className="page">
@@ -101,6 +104,21 @@ export default function ReviewPage() {
             ({ruleBreaks.join("; ")}). The settings changed after you attached{" "}
             {ruleBreaks.length > 1 ? "them" : "it"}: go back to edit and replace{" "}
             {ruleBreaks.length > 1 ? "them" : "it"} before submitting.
+          </div>
+        </div>
+      )}
+
+      {/* Uploaded but on no question: not sent. A warning only; submitting is still allowed. */}
+      {unattached.length > 0 && (
+        <div className="notice notice-info">
+          <InfoIcon size={17} />
+          <div>
+            <strong>
+              {unattached.length} uploaded document{unattached.length > 1 ? "s are" : " is"} not attached and won't be
+              sent
+            </strong>{" "}
+            ({unattached.map((d) => d.fileName).join(", ")}). You can submit anyway, or go back to edit and attach{" "}
+            {unattached.length > 1 ? "them" : "it"} to a question.
           </div>
         </div>
       )}

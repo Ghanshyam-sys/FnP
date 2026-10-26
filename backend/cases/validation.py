@@ -102,13 +102,20 @@ def _looks_like(ext: str, head: bytes, upload) -> bool:
     return False
 
 
-def evidence_file(upload, allowed: list[str], max_bytes: int) -> tuple[str, str]:
+def formats_refused(allowed: list[str], accepts: str = "This question accepts") -> str:
+    """The refusal for a file in a format not allowed: "This question accepts PDF, PNG files." (the
+    frontend's fileProblem words it the same way)."""
+    return f"{accepts} {', '.join(a.upper() for a in allowed)} files."
+
+
+def evidence_file(upload, allowed: list[str], max_bytes: int, accepts: str = "This question accepts") -> tuple[str, str]:
     """Checks one uploaded file against the question's allowed formats, the size limit and its
-    actual contents. Returns (extension, content type to serve it back with)."""
+    actual contents. Returns (extension, content type to serve it back with). `accepts` begins the
+    message for a refused format ("Upload" where the formats are not one question's)."""
     name = upload.name or ""
     ext = extension(name)
     if not format_allowed(name, allowed):
-        raise ValidationError(f"This question accepts {', '.join(a.upper() for a in allowed)} files.")
+        raise ValidationError(formats_refused(allowed, accepts))
     if upload.size > max_bytes:
         raise ValidationError(f"Files must be {max_bytes // (1024 * 1024)} MB or smaller.")
     if upload.size == 0:

@@ -20,8 +20,6 @@ from ..permissions import IsReviewer
 from .common import Conflict, ServiceUnavailable
 from .evidence import remove_files
 
-# Formats the reviewer may allow on a question; all are formats the engine reads.
-CONFIGURABLE_FILE_TYPES = ["pdf", "xlsx", "csv", "jpg", "png", "docx"]
 
 
 def _question_payload(q: Question) -> dict:
@@ -90,7 +88,7 @@ class DepartmentListView(APIView):
 
 class QuestionSettingSerializer(serializers.Serializer):
     allowedAnswers = serializers.ListField(child=serializers.ChoiceField(choices=Answer.values), min_length=1)
-    fileTypes = serializers.ListField(child=serializers.ChoiceField(choices=CONFIGURABLE_FILE_TYPES), min_length=1)
+    fileTypes = serializers.ListField(child=serializers.ChoiceField(choices=catalogue.CONFIGURABLE_FILE_TYPES), min_length=1)
     maxFiles = serializers.ChoiceField(choices=[1, 2])
     # Optional: left out, the question keeps its weight.
     weight = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"), required=False)
@@ -166,7 +164,7 @@ class QuestionnaireView(APIView):
         return Response({
             "current": _version_payload(catalogue.active_version()),
             "published": _version_payload(published),
-            "configurableFileTypes": CONFIGURABLE_FILE_TYPES,
+            "configurableFileTypes": catalogue.CONFIGURABLE_FILE_TYPES,
             # The document types a new question can take (the engine's, for any question).
             "evidenceOptionChoices": choices,
             "engineEvidenceOptions": engine_lists,
@@ -200,7 +198,7 @@ class QuestionnaireView(APIView):
                 # Order answers and formats canonically so identical settings compare equal.
                 changes[qid] = {
                     "allowed_answers": [a for a in Answer.values if a in v["allowedAnswers"]],
-                    "file_types": [t for t in CONFIGURABLE_FILE_TYPES if t in v["fileTypes"]],
+                    "file_types": [t for t in catalogue.CONFIGURABLE_FILE_TYPES if t in v["fileTypes"]],
                     "max_files": v["maxFiles"],
                 }
                 if "weight" in v:
@@ -287,7 +285,7 @@ class QuestionEditSerializer(serializers.Serializer):
     answerType = serializers.ChoiceField(choices=AnswerType.values, default=AnswerType.CHOICE)
     weight = serializers.DecimalField(max_digits=5, decimal_places=2, min_value=Decimal("0"))
     allowedAnswers = serializers.ListField(child=serializers.ChoiceField(choices=Answer.values), default=list)
-    fileTypes = serializers.ListField(child=serializers.ChoiceField(choices=CONFIGURABLE_FILE_TYPES), default=list)
+    fileTypes = serializers.ListField(child=serializers.ChoiceField(choices=catalogue.CONFIGURABLE_FILE_TYPES), default=list)
     maxFiles = serializers.ChoiceField(choices=[1, 2], default=1)
     evidenceRequired = serializers.ChoiceField(choices=EvidenceRule.values)
     evidenceOptions = serializers.ListField(child=serializers.CharField(max_length=60), default=list)
@@ -452,7 +450,7 @@ def _publish_structure(request, body: dict):
                     errors[f"questions.{label}"] = "A text question either always takes a document or never does."
                     continue
                 takes_documents = rule != EvidenceRule.NEVER
-                file_types = [t for t in CONFIGURABLE_FILE_TYPES if t in q["fileTypes"]] if takes_documents else []
+                file_types = [t for t in catalogue.CONFIGURABLE_FILE_TYPES if t in q["fileTypes"]] if takes_documents else []
                 if takes_documents and not file_types:
                     errors[f"questions.{label}"] = "Choose at least one accepted file type."
                     continue

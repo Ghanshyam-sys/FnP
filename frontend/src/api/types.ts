@@ -39,6 +39,8 @@ export interface Assessment {
   submittedAt: string | null;
   decidedAt: string | null;
   updatedAt: string;
+  /** When it reached its stage (left out by an older server): how long it has waited there. */
+  stageSince?: string;
   /** Whether the person viewing it may remove it (only before submission). */
   removable: boolean;
   /** An applicant's form not submitted yet: documents attached of those it needs. */
@@ -217,6 +219,25 @@ export interface EvidenceItem {
   sizeBytes: number;
   uploadedAt: string;
   url: string;
+  /** The library document it attaches (null for one attached before the library existed). */
+  documentId?: string | null;
+}
+
+/** A document in the application's library ("Your documents"), and where it is attached now. */
+export interface LibraryDocument {
+  id: string;
+  fileName: string;
+  sizeBytes: number;
+  contentType: string;
+  /** Its format, from its name: "pdf", "png" ... */
+  format: string;
+  uploadedAt: string;
+  url: string;
+  /** Its contents' SHA-256 (left out by an older server): a file already here is told by it. */
+  sha256?: string;
+  usedBy: { qid: string; role: EvidenceRole }[];
+  /** On an upload: the same file was already there, so this is that one. */
+  duplicate?: boolean;
 }
 
 /** Who the applicant is, from the assessment record. Personal details are not collected. */
@@ -245,6 +266,12 @@ export interface Form {
     evidenceOptions?: EngineOption[] | null;
   }[];
   evidence: EvidenceItem[];
+  /** "Your documents": everything uploaded, attached or not (left out by an older server). */
+  documents?: LibraryDocument[];
+  /** The most documents the library holds. */
+  documentsMax?: number;
+  /** The formats the library takes, as its upload checks them. */
+  documentsFileTypes?: string[];
 }
 
 export interface ApiQuestionResult {

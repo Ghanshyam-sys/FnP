@@ -257,7 +257,7 @@ export default function AssessmentsPage() {
                   </span>
                 ) : stage !== "NOT_SUBMITTED" ? (
                   <span className="tile-since">
-                    {STAGE_LABELS[stage].applicant} since {formatShortDay(assignment.updatedAt)}
+                    {STAGE_LABELS[stage].applicant} since {formatShortDay(assignment.stageSince ?? assignment.updatedAt)}
                   </span>
                 ) : null}
 

@@ -6,7 +6,9 @@ from .views.case import (
     CaseView, CompleteReviewView, DecisionView, ForceScoreView, HighlightView, ResubmitView, RetryView, RulingView, SubmitView,
 )
 from .views.catalogue import CatalogueView, DepartmentListView, QuestionnaireImpactView, QuestionnaireView
-from .views.evidence import EvidenceDetailView, EvidenceFileView, EvidenceUploadView
+from .views.evidence import (
+    DocumentDetailView, DocumentFileView, DocumentListView, EvidenceDetailView, EvidenceFileView, EvidenceUploadView,
+)
 from .views.form import FormResetView, FormView
 from .views.session import SessionView
 
@@ -32,6 +34,10 @@ urlpatterns = [
     path(f"{A}/evidence", EvidenceUploadView.as_view(), name="evidence-upload"),
     path(f"{A}/evidence/<uuid:evidence_id>", EvidenceDetailView.as_view(), name="evidence"),
     path(f"{A}/evidence/<uuid:evidence_id>/file", EvidenceFileView.as_view(), name="evidence-file"),
+    # The application's library ("Your documents"): uploaded first, attached to questions after.
+    path(f"{A}/documents", DocumentListView.as_view(), name="documents"),
+    path(f"{A}/documents/<uuid:document_id>", DocumentDetailView.as_view(), name="document"),
+    path(f"{A}/documents/<uuid:document_id>/file", DocumentFileView.as_view(), name="document-file"),
     path(f"{A}/submit", SubmitView.as_view(), name="submit"),
     path(f"{A}/resubmit", ResubmitView.as_view(), name="resubmit"),
     path(f"{A}/retry", RetryView.as_view(), name="retry"),

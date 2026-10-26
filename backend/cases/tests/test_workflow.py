@@ -109,9 +109,15 @@ def case(reviewer, applicant):
     return aid
 
 
+_attached = iter(range(1, 10_000))
+
+
 def attach(applicant, aid, qid, code):
+    """Attaches a new document: each one different, as a real replacement would be (the same
+    contents again is the same document)."""
+    content = PDF + f"%copy {next(_attached)}\n".encode()
     response = applicant.post(f"/api/assessments/{aid}/evidence", {
-        "file": SimpleUploadedFile("my scan (final).pdf", PDF), "qid": qid, "optionCode": code,
+        "file": SimpleUploadedFile("my scan (final).pdf", content), "qid": qid, "optionCode": code,
     }, multipart=True)
     assert response.status_code == 201, (qid, response.content)
 
@@ -838,17 +844,17 @@ def test_a_retried_run_is_not_counted_as_another_submission():
         return Run(
             payload={"submitted_at": submitted_at},
             engine_request_id=request_id,
-            evidence_files=Run(all=lambda: [Run(pk=pk, qid=qid) for qid, pk in files]),
+            evidence_files=Run(all=lambda: [Run(identity=sha, qid=qid) for qid, sha in files]),
             rulings=Run(all=lambda: [Run(qid=q, verdict=v, comment=c) for q, v, c in rulings]),
         )
 
-    first = run("t1", files=[("PC1", 1)])  # its send failed: the engine gave it no id
-    retried = run("t1", files=[("PC1", 1)], rulings=[("PC1", "rejected", "Court order.")], request_id="r-2")
+    first = run("t1", files=[("PC1", "aa11")])  # its send failed: the engine gave it no id
+    retried = run("t1", files=[("PC1", "aa11")], rulings=[("PC1", "rejected", "Court order.")], request_id="r-2")
     history = adapt.run_history([first, retried])
     assert history.version == 2  # the next submission is the second, not the third
     assert history.previous_request_id == "r-2"  # the run the engine completed and the reviewer ruled on
     assert history.reviews == {"PC1": {"verdict": "rejected", "comment": "Court order."}}
-    assert history.sent == {"PC1": [frozenset({1})]}  # the same documents, one version
+    assert history.sent == {"PC1": [frozenset({"aa11"})]}  # the same documents, one version
 
 
 def test_documents_attached_under_older_settings_must_be_replaced_before_submitting(monkeypatch, reviewer, applicant, case):

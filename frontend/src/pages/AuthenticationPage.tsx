@@ -9,6 +9,8 @@ import { routes } from "../routes";
 import OutcomeTabs from "../components/OutcomeTabs";
 import AuthenticationReport from "../components/AuthenticationReport";
 import EvidenceBlock from "../components/EvidenceBlock";
+import { sourceFields } from "../domain/attachSource";
+import { DocumentDragContext, useDocumentDragState } from "../state/documentDrag";
 import EmptyState from "../components/EmptyState";
 import PageHeader from "../components/PageHeader";
 import { Loading, LoadError } from "../components/LoadState";
@@ -32,6 +34,8 @@ export default function AuthenticationPage() {
   const upload = useUploadEvidence(id);
   const remove = useRemoveEvidence(id);
   const resubmit = useResubmit(id);
+  // Files dragged over the page, so a sent-back answer's document can be replaced by dropping one.
+  const drag = useDocumentDragState();
 
   if (view.status === "error") return <LoadError error={view.error} onRetry={view.retry} />;
   const failed = [form, catalogue].find((q) => q.isError && q.data === undefined);
@@ -111,8 +115,9 @@ export default function AuthenticationPage() {
             fileTypes={rules.fileTypes}
             allowSupporting={rules.maxFiles > 1}
             labelFor={(file) => documentLabel(cat, file, result.qid)}
-            onAttach={(optionCode, role, file, description) =>
-              upload.mutateAsync({ qid: result.qid, optionCode, role, file, description })
+            library={form.data.documents ?? []}
+            onAttach={(optionCode, role, source, description) =>
+              upload.mutateAsync({ qid: result.qid, optionCode, role, description, ...sourceFields(source) })
             }
             onRemove={remove.mutateAsync}
           />
@@ -167,6 +172,7 @@ export default function AuthenticationPage() {
   );
 
   return (
+    <DocumentDragContext.Provider value={drag}>
     <div className="page">
       {header}
 
@@ -214,5 +220,6 @@ export default function AuthenticationPage() {
         )}
       </footer>
     </div>
+    </DocumentDragContext.Provider>
   );
 }

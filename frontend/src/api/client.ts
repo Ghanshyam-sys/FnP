@@ -65,6 +65,29 @@ function logResponse(method: Method, path: string, status: number | string, star
   console.groupEnd();
 }
 
+/** The headers every request sends: JSON wanted back, and the CSRF token on a change. */
+function requestHeaders(method: Method, json: boolean): Record<string, string> {
+  return {
+    Accept: "application/json",
+    ...(method === "GET" ? {} : { "X-CSRFToken": csrfToken() }),
+    ...(json ? { "Content-Type": "application/json" } : {}),
+  };
+}
+
+/**
+ * What a response comes to, however it was fetched: logged, then its data, or an ApiError with the
+ * backend's error body. A 204 has no data.
+ */
+function settle<T>(method: Method, path: string, status: number, started: number, data: unknown): T {
+  if (status === 204) {
+    logResponse(method, path, 204, started);
+    return undefined as T;
+  }
+  logResponse(method, path, status, started, data);
+  if (status < 200 || status >= 300) throw new ApiError(status, (data ?? {}) as Record<string, unknown>);
+  return data as T;
+}
+
 export async function api<T>(method: Method, path: string, body?: unknown): Promise<T> {
   const isForm = body instanceof FormData;
   const started = performance.now();
@@ -73,23 +96,58 @@ export async function api<T>(method: Method, path: string, body?: unknown): Prom
     response = await fetch(`/api${path}`, {
       method,
       credentials: "same-origin",
-      headers: {
-        Accept: "application/json",
-        ...(method === "GET" ? {} : { "X-CSRFToken": csrfToken() }),
-        ...(body === undefined || isForm ? {} : { "Content-Type": "application/json" }),
-      },
+      headers: requestHeaders(method, body !== undefined && !isForm),
       body: body === undefined ? undefined : isForm ? body : JSON.stringify(body),
     });
   } catch (error) {
     logResponse(method, path, "network error", started, error);
     throw error;
   }
-  if (response.status === 204) {
-    logResponse(method, path, 204, started);
-    return undefined as T;
-  }
-  const data = await response.json().catch(() => ({}));
-  logResponse(method, path, response.status, started, data);
-  if (!response.ok) throw new ApiError(response.status, data as Record<string, unknown>);
-  return data as T;
+  const data = response.status === 204 ? undefined : await response.json().catch(() => ({}));
+  return settle<T>(method, path, response.status, started, data);
+}
+
+/**
+ * Uploads one file (multipart field "file") as api() would, reporting how much of it has been sent
+ * (0 to 1). XMLHttpRequest rather than fetch: only it reports an upload's progress.
+ */
+export function uploadWithProgress<T>(path: string, file: File, onProgress?: (share: number) => void): Promise<T> {
+  const started = performance.now();
+  return new Promise<T>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api${path}`);
+    xhr.withCredentials = true;
+    for (const [name, value] of Object.entries(requestHeaders("POST", false))) xhr.setRequestHeader(name, value);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress?.(e.loaded / e.total);
+    };
+    // Failed, cut off, or timed out: each settles the upload as a network error, so nothing waits
+    // on it for ever.
+    const failed = (what: string) => () => {
+      const error = new TypeError(`Network error (${what})`);
+      logResponse("POST", path, "network error", started, error);
+      reject(error);
+    };
+    xhr.onerror = failed("failed");
+    xhr.onabort = failed("aborted");
+    xhr.ontimeout = failed("timed out");
+    xhr.onload = () => {
+      let data: unknown;
+      try {
+        data = xhr.status === 204 ? undefined : xhr.responseText ? JSON.parse(xhr.responseText) : {};
+      } catch {
+        data = {};
+      }
+      try {
+        const result = settle<T>("POST", path, xhr.status, started, data);
+        onProgress?.(1);
+        resolve(result);
+      } catch (error) {
+        reject(error);
+      }
+    };
+    const body = new FormData();
+    body.append("file", file);
+    xhr.send(body);
+  });
 }

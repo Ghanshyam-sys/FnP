@@ -13,6 +13,8 @@ from .models import Answer, AnswerType, Assessment, EvidenceRule, Question, Ques
 CV_QID = "CV"
 # The formats a CV may be uploaded in.
 CV_FILE_TYPES = ["pdf", "docx"]
+# Formats the reviewer may allow on a question; all are formats the engine reads.
+CONFIGURABLE_FILE_TYPES = ["pdf", "xlsx", "csv", "jpg", "png", "docx"]
 # The engine files the CV's options under this key; the API serves them as "CV".
 _ENGINE_CV_KEY = "cv_verification"
 _OPTIONS_CACHE_KEY = "catalogue:evidence-options"

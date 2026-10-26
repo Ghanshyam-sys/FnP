@@ -10,6 +10,7 @@ from django.contrib.postgres.indexes import BrinIndex
 from django.db import models
 from django.db.models import F, Q
 from django.db.models.functions import Lower, Upper
+from django.utils import timezone
 
 from .fields import EncryptedTextField
 
@@ -299,6 +300,10 @@ class Assessment(models.Model):
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # When the stage last changed, for how long a case has waited where it is ("Waiting 3 days"):
+    # updated_at moves with every action on the case. Set by workflow.set_stage, which every stage
+    # change goes through.
+    stage_changed_at = models.DateTimeField(default=timezone.now)
     submitted_at = models.DateTimeField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 
@@ -321,6 +326,7 @@ class Assessment(models.Model):
 
     def __str__(self) -> str:
         return self.public_id
+
 
 
 class ApplicantProfile(models.Model):
@@ -361,9 +367,42 @@ def _evidence_path(instance: "EvidenceFile", filename: str) -> str:
     return f"evidence/{instance.assessment_id}/{uuid.uuid7().hex}"
 
 
+class CaseDocument(models.Model):
+    """A document the applicant uploaded to their application's library ("Your documents"),
+    attached to questions from there (each attachment is an EvidenceFile sharing its stored file).
+    Detaching leaves it here; deleting it here detaches it everywhere."""
+
+    public_id = models.UUIDField(default=uuid.uuid7, unique=True, editable=False)
+    assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="library")
+    file = models.FileField(upload_to=_evidence_path, max_length=200)
+    original_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=120)
+    size_bytes = models.PositiveBigIntegerField()
+    sha256 = models.CharField(max_length=64)
+    uploaded_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="+")
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "case_document"
+        constraints = [
+            # The same file uploaded twice is one document.
+            models.UniqueConstraint(fields=["assessment", "sha256"], name="case_document_once"),
+        ]
+        # Whether a stored file is still used before it is deleted (shared with its attachments).
+        indexes = [models.Index(fields=["file"], name="case_document_by_file")]
+
+    def __str__(self) -> str:
+        return self.original_name
+
+
 class EvidenceFile(models.Model):
     public_id = models.UUIDField(default=uuid.uuid7, unique=True, editable=False)
     assessment = models.ForeignKey(Assessment, on_delete=models.CASCADE, related_name="evidence")
+    # The library document it attaches (sharing its stored file); null for one attached before the
+    # library existed.
+    document = models.ForeignKey(
+        CaseDocument, null=True, blank=True, on_delete=models.SET_NULL, related_name="attachments"
+    )
     # The question's code, or "CV" for the CV, which sits outside the 15 questions.
     qid = models.CharField(max_length=10)
     option_code = models.CharField(max_length=60)
@@ -384,6 +423,9 @@ class EvidenceFile(models.Model):
         db_table = "evidence_file"
         constraints = [_in_choices("role", EvidenceRole, "evidence_role_valid")]
         indexes = [
+            # Whether a stored file is still used before it is deleted (a file is shared with the
+            # library, and kept for the submissions that sent it).
+            models.Index(fields=["file"], name="evidence_file_by_file"),
             models.Index(
                 fields=["assessment", "qid"],
                 condition=Q(superseded_at__isnull=True),
@@ -393,6 +435,13 @@ class EvidenceFile(models.Model):
 
     def __str__(self) -> str:
         return self.original_name
+
+    @property
+    def identity(self) -> tuple[str, str]:
+        """What makes it the same document as one sent before: its contents and its document type.
+        The same file filed as another type is new (the engine checks it as that type); attached
+        again as the same type, as another role, or with its description reworded, it is not."""
+        return (self.sha256, self.option_code)
 
 
 # ---------------------------------------------------------------------------------------------

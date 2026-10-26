@@ -4,7 +4,7 @@ import { useAssessments, useDepartments, useRemoveAssessment } from "../api/quer
 import { ApiError } from "../api/client";
 import Modal from "../components/Modal";
 import { daysSince, formatDate } from "../utils/format";
-import { QUEUE_ORDER, STAGE_LABELS, needsReviewer } from "../state/caseLabels";
+import { STAGE_ORDER, STAGE_LABELS, needsReviewer } from "../state/caseLabels";
 import { rememberQueueSearch } from "../state/queueReturn";
 import { Loading, LoadError } from "../components/LoadState";
 import EmptyState from "../components/EmptyState";
@@ -35,7 +35,7 @@ interface QueueRow {
  * "need your attention" count always agree.
  */
 const GROUPS = {
-  NEEDS_ACTION: { label: "Needs your action", stages: QUEUE_ORDER.filter(needsReviewer) },
+  NEEDS_ACTION: { label: "Needs your action", stages: STAGE_ORDER.filter(needsReviewer) },
   IN_PROGRESS: { label: "In progress", stages: ["AUTH_RUNNING", "SCORING"] },
   DECIDED: { label: "Decided", stages: ["ACCEPTED", "REJECTED"] },
 } satisfies Record<string, { label: string; stages: Stage[] }>;
@@ -44,7 +44,7 @@ type Status = Stage | Group | "";
 
 /** The status filter in the address, if it is one the queue offers ("" otherwise). */
 const toStatus = (value: string | null): Status =>
-  value && (value in GROUPS || (QUEUE_ORDER as string[]).includes(value)) ? (value as Status) : "";
+  value && (value in GROUPS || (STAGE_ORDER as string[]).includes(value)) ? (value as Status) : "";
 
 const statusLabel = (status: Exclude<Status, "">) =>
   status in GROUPS ? GROUPS[status as Group].label : STAGE_LABELS[status as Stage].reviewer;
@@ -106,22 +106,28 @@ export default function ReviewerQueuePage() {
   // The application the reviewer asked to remove, while they confirm it.
   const [toRemove, setToRemove] = useState<Assessment | null>(null);
   // Refreshes itself while any listed case is still with the engine.
-  const list = useAssessments(department, status, search);
+  const list = useAssessments(department, status, search, { live: true });
 
   if (list.isPending) return <Loading />;
   if (list.isError && !list.data) return <LoadError error={list.error} onRetry={() => list.refetch()} />;
 
-  // In the server's order: cases needing the reviewer first, then work in flight, then settled
-  // ones, newest activity first within each. "Show more" therefore adds rows at the end, never
-  // among the ones already on screen.
+  // In the server's order: the case acted on most recently first, whatever its stage. "Show more"
+  // therefore adds rows at the end, never among the ones already on screen.
+  // A case that moved up while the pages were read can be in two of them: it shows once, where it
+  // is now (the earlier page).
+  const seen = new Set<string>();
   const rows: QueueRow[] = list.data.pages
     .flatMap((p) => p.results)
+    .filter((a) => !seen.has(a.id) && Boolean(seen.add(a.id)))
     .map((assignment) => ({ assignment, stage: assignment.stage }));
 
   // The whole queue's counts, not just the pages loaded so far (they come with the first page).
   const first = list.data.pages[0];
   const total = first?.total ?? rows.length;
   const actionable = first?.actionable ?? rows.filter((r) => needsReviewer(r.stage)).length;
+  // The queue lists the latest activity first, so a case needing the reviewer that has not moved in
+  // a while can be further down than the rows loaded: say so, with a way to list just those.
+  const actionableBelow = actionable - rows.filter((r) => needsReviewer(r.stage)).length;
   const departmentName = departments.data?.find((d) => d.key === department)?.name;
   const stageCounts = first?.stageCounts ?? {};
   const tileCount = (tile: (typeof TILES)[number]) =>
@@ -231,7 +237,7 @@ export default function ReviewerQueuePage() {
             ))}
           </optgroup>
           <optgroup label="Stage">
-            {QUEUE_ORDER.filter((s) => s !== "NOT_SUBMITTED").map((s) => (
+            {STAGE_ORDER.filter((s) => s !== "NOT_SUBMITTED").map((s) => (
               <option key={s} value={s}>
                 {STAGE_LABELS[s].reviewer}
               </option>
@@ -256,6 +262,21 @@ export default function ReviewerQueuePage() {
           ))}
         </select>
       </div>
+
+      {!stale && !status && actionableBelow > 0 && (
+        <div className="notice notice-warning" role="status">
+          <AlertTriangleIcon size={17} />
+          <div>
+            <strong>
+              {actionableBelow} more need{actionableBelow === 1 ? "s" : ""} your action
+            </strong>{" "}
+            further down the queue.{" "}
+            <button type="button" className="link-button" onClick={() => setFilter("status", "NEEDS_ACTION")}>
+              Show only those needing your action
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className={`queue-results${stale ? " is-stale" : ""}`} aria-busy={stale || undefined}>
         {rows.length === 0 ? (
@@ -288,6 +309,7 @@ export default function ReviewerQueuePage() {
             {rows.map((row) => {
               const { assignment, stage } = row;
               const label = STAGE_LABELS[stage];
+              const waited = daysSince(assignment.stageSince ?? assignment.updatedAt);
               return (
                 <div className="case-card-wrap" key={assignment.id}>
                   <button className="case-card" onClick={() => openCase(row)}>
@@ -308,9 +330,9 @@ export default function ReviewerQueuePage() {
                       {assignment.position} · {assignment.entity}
                     </p>
   
-                    {needsReviewer(stage) && daysSince(assignment.updatedAt) >= 1 && (
-                      <p className={`case-age${daysSince(assignment.updatedAt) >= 3 ? " is-late" : ""}`}>
-                        Waiting {daysSince(assignment.updatedAt)} day{daysSince(assignment.updatedAt) === 1 ? "" : "s"}
+                    {needsReviewer(stage) && waited >= 1 && (
+                      <p className={`case-age${waited >= 3 ? " is-late" : ""}`}>
+                        Waiting {waited} day{waited === 1 ? "" : "s"}
                       </p>
                     )}
   
@@ -362,8 +384,18 @@ export default function ReviewerQueuePage() {
 
         {list.hasNextPage && (
           <div className="queue-more">
-            <button className="btn btn-ghost" disabled={list.isFetchingNextPage} onClick={() => list.fetchNextPage()}>
-              {list.isFetchingNextPage ? "Loading…" : "Show more"}
+            <button
+              className="btn btn-ghost"
+              disabled={list.isFetching}
+              onClick={async () => {
+                // The list is in order of the latest action: a case acted on since these pages were
+                // read has moved up, past where the next page starts. Reading them again first
+                // brings it to the top rather than leaving it out.
+                await list.refetch();
+                await list.fetchNextPage();
+              }}
+            >
+              {list.isFetching ? "Loading…" : "Show more"}
             </button>
           </div>
         )}

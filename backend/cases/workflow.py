@@ -131,16 +131,29 @@ def evidence_rule_breaks(questions: dict, evidence: list[EvidenceFile]) -> list[
     return breaks
 
 
+def set_stage(row: Assessment, stage: Stage) -> list[str]:
+    """Moves a case to a stage, recording when it got there (stage_changed_at) if that is a change.
+    Every stage change goes through here. Returns the fields to save."""
+    if row.stage != stage:
+        row.stage_changed_at = timezone.now()
+    row.stage = stage
+    return ["stage", "stage_changed_at", "updated_at"]
+
+
 def unreplaced_rejections(row: Assessment, evidence: list[EvidenceFile], latest: Submission | None = None) -> list[str]:
     """Answers the reviewer sent back that have no new document since the run they were rejected
-    in: resubmitting them unchanged would only send the engine the same documents again. (Pass
-    the latest run as `latest` if already loaded.)"""
+    in: resubmitting them unchanged would only send the engine the same documents again. A document
+    is new unless the same file was sent as the same type (EvidenceFile.identity). (Pass the latest
+    run as `latest` if already loaded.)"""
     last = latest or latest_submission(row)
     if last is None:
         return []
-    sent = {e.pk for e in last.evidence_files.all()}
+    sent = {(e.qid, e.identity) for e in last.evidence_files.all()}
     rejected = rejected_qids(row, last)
-    return sorted(qid for qid in rejected if not any(e.qid == qid and e.pk not in sent for e in evidence))
+    return sorted(
+        qid for qid in rejected
+        if not any(e.qid == qid and (e.qid, e.identity) not in sent for e in evidence)
+    )
 
 
 def _start_run(assessment: Assessment, actor: User, action: str, *from_stages: Stage) -> Submission:
@@ -207,10 +220,10 @@ def _start_run(assessment: Assessment, actor: User, action: str, *from_stages: S
             assessment=row, attempt_no=(last.attempt_no + 1) if last else 1, version=version, payload=payload
         )
         submission.evidence_files.set(evidence)
-        row.stage = Stage.AUTH_RUNNING
+        moved = set_stage(row, Stage.AUTH_RUNNING)
         row.version = version
         row.submitted_at = row.submitted_at or timezone.now()
-        row.save(update_fields=["stage", "version", "submitted_at", "updated_at"])
+        row.save(update_fields=[*moved, "version", "submitted_at"])
         audit.record(actor, action, assessment_ref=row.public_id, target_type="submission",
                      target_id=submission.attempt_no)
 
@@ -280,8 +293,7 @@ def _fail(submission: Submission, error: str) -> None:
             return
         if latest_submission(row).pk != submission.pk:
             return
-        row.stage = Stage.AUTH_FAILED
-        row.save(update_fields=["stage", "updated_at"])
+        row.save(update_fields=set_stage(row, Stage.AUTH_FAILED))
         audit.record(None, "case.auth_failed", assessment_ref=row.public_id, target_type="submission",
                      target_id=submission.attempt_no)
 
@@ -552,8 +564,7 @@ def _finish_run(submission: Submission) -> None:
 
 
 def _move(assessment: Assessment, stage: Stage, action: str, actor: User | None = None) -> None:
-    assessment.stage = stage
-    assessment.save(update_fields=["stage", "updated_at"])
+    assessment.save(update_fields=set_stage(assessment, stage))
     audit.record(actor, action, assessment_ref=assessment.public_id)
 
 
@@ -579,6 +590,8 @@ def rule(assessment: Assessment, qid: str, verdict: str, comment: str, reviewer:
         Ruling.objects.update_or_create(
             submission=submission, qid=qid, defaults={"verdict": verdict, "comment": comment, "reviewer": reviewer}
         )
+        # An action on the case: it comes to the top of the reviewer's queue.
+        row.save(update_fields=["updated_at"])
         audit.record(reviewer, "case.rule", assessment_ref=row.public_id, target_type="question", target_id=qid,
                      metadata={"verdict": verdict})
 
@@ -710,8 +723,7 @@ def _force_failed(submission: Submission, reason: str, actor: User | None) -> No
         row = Assessment.objects.select_for_update().get(pk=submission.assessment_id)
         if row.stage != Stage.SCORING or latest_submission(row).pk != submission.pk:
             return
-        row.stage = Stage.DECISION_PENDING
-        row.save(update_fields=["stage", "updated_at"])
+        row.save(update_fields=set_stage(row, Stage.DECISION_PENDING))
         audit.record(actor, "case.force_score_failed", assessment_ref=row.public_id, metadata={"reason": reason[:200]})
 
 
@@ -750,6 +762,7 @@ def undo_ruling(assessment: Assessment, qid: str, reviewer: User) -> None:
         deleted, _ = latest_submission(row).rulings.filter(qid=qid).delete()
         if not deleted:
             raise TransitionError("There is no ruling on this answer.")
+        row.save(update_fields=["updated_at"])
         audit.record(reviewer, "case.undo_ruling", assessment_ref=row.public_id, target_type="question", target_id=qid)
 
 
@@ -757,7 +770,7 @@ def decide(assessment: Assessment, verdict: str, remarks: str, reviewer: User) -
     with transaction.atomic():
         row = _locked(assessment, Stage.DECISION_PENDING)
         Decision.objects.create(assessment=row, verdict=verdict, remarks=remarks, reviewer=reviewer)
-        row.stage = Stage.ACCEPTED if verdict == Verdict.ACCEPTED else Stage.REJECTED
+        moved = set_stage(row, Stage.ACCEPTED if verdict == Verdict.ACCEPTED else Stage.REJECTED)
         row.decided_at = timezone.now()
-        row.save(update_fields=["stage", "decided_at", "updated_at"])
+        row.save(update_fields=[*moved, "decided_at"])
         audit.record(reviewer, "case.decide", assessment_ref=row.public_id, metadata={"verdict": verdict})

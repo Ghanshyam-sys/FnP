@@ -29,6 +29,7 @@ from cases.models import (
     Assessment,
     AuditEvent,
     Decision,
+    CaseDocument,
     EvidenceFile,
     QuestionResult,
     Ruling,
@@ -72,6 +73,7 @@ class Command(BaseCommand):
             ("saved answers", AnswerValue.objects.count()),
             ("applicant profiles", ApplicantProfile.objects.count()),
             ("uploaded documents (records)", EvidenceFile.objects.count()),
+            ("documents in applicants' libraries", CaseDocument.objects.count()),
             ("uploaded documents (files on disk)", len(files)),
             ("engine runs", Submission.objects.count()),
             ("per-question results", QuestionResult.objects.count()),
@@ -94,7 +96,10 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING("Nothing was changed. Run again with --confirm to remove it."))
             return
 
-        names = list(EvidenceFile.objects.values_list("file", flat=True))
+        names = sorted(
+            set(EvidenceFile.objects.values_list("file", flat=True))
+            | set(CaseDocument.objects.values_list("file", flat=True))
+        )
         with transaction.atomic():
             # Records that protect the ones they point to go first.
             AuditEvent.objects.all().delete()
@@ -107,6 +112,7 @@ class Command(BaseCommand):
             Submission.evidence_files.through.objects.all().delete()
             Submission.objects.all().delete()
             EvidenceFile.objects.all().delete()
+            CaseDocument.objects.all().delete()
             AnswerValue.objects.all().delete()
             ApplicantProfile.objects.all().delete()
             Assessment.objects.all().delete()

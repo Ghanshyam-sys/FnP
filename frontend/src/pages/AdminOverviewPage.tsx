@@ -3,7 +3,7 @@ import { useAdminOverview } from "../api/queries";
 import AdminHeader from "../components/AdminHeader";
 import { Loading, LoadError } from "../components/LoadState";
 import { AlertTriangleIcon, ArrowLeftIcon, ArrowRightIcon } from "../components/icons";
-import { STAGE_LABELS, queueRank } from "../state/caseLabels";
+import { STAGE_LABELS, stageRank } from "../state/caseLabels";
 import { formatBytes, formatDateTime } from "../utils/format";
 import { routes } from "../routes";
 import { queueUrl } from "../state/queueReturn";
@@ -54,7 +54,7 @@ export default function AdminOverviewPage() {
   const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   const stages = (Object.keys(assessments.byStage) as Stage[])
-    .sort((a, b) => queueRank(a) - queueRank(b))
+    .sort((a, b) => stageRank(a) - stageRank(b))
     .map((stage) => ({ key: stage, label: STAGE_LABELS[stage].reviewer, count: assessments.byStage[stage] }));
   const departments = assessments.byDepartment.map((d) => ({ key: d.key, label: d.name, count: d.count }));
 

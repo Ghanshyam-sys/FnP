@@ -137,6 +137,10 @@ STORAGES = {
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 EVIDENCE_MAX_BYTES = int(env("EVIDENCE_MAX_BYTES", str(15 * 1024 * 1024)))
+# How many documents one application's library ("Your documents") holds beyond a place for every
+# document its form takes (documents replaced at a question stay in it), so a draft cannot grow
+# without bound. See views.evidence.library_limit.
+EVIDENCE_LIBRARY_MAX_FILES = int(env("EVIDENCE_LIBRARY_MAX_FILES", "30"))
 FILE_UPLOAD_PERMISSIONS = 0o600
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024  # JSON bodies; files stream to disk instead.
 

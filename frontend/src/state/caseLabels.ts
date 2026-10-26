@@ -25,8 +25,12 @@ export const STAGE_LABELS: Record<Stage, { reviewer: string; applicant: string; 
   REJECTED: { reviewer: "Rejected", applicant: "Rejected", tone: "critical" },
 };
 
-/** Cases needing the reviewer's hands come first, then work in flight, then settled ones. */
-export const QUEUE_ORDER: Stage[] = [
+/**
+ * The stages in the order they are listed (the status filter, the admin overview): those needing the
+ * reviewer's hands first, then work in flight, then settled ones. Not the queue's order: the
+ * queue lists the case acted on most recently first, whatever its stage.
+ */
+export const STAGE_ORDER: Stage[] = [
   "REVIEW_PENDING",
   "DECISION_PENDING",
   "AUTH_FAILED",
@@ -38,9 +42,9 @@ export const QUEUE_ORDER: Stage[] = [
   "NOT_SUBMITTED",
 ];
 
-export function queueRank(stage: Stage): number {
-  const index = QUEUE_ORDER.indexOf(stage);
-  return index === -1 ? QUEUE_ORDER.length : index;
+export function stageRank(stage: Stage): number {
+  const index = STAGE_ORDER.indexOf(stage);
+  return index === -1 ? STAGE_ORDER.length : index;
 }
 
 /** True when the stage is one the reviewer has to act on (a failed run can be retried). */

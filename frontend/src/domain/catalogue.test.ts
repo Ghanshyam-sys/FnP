@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { customCode, customName, documentLabel, fileProblem, sizeHint, withFormOptions } from "./catalogue";
+import { customCode, customName, documentLabel, fileProblem, sameFormat, sizeHint, withFormOptions } from "./catalogue";
 import type { Catalogue, Form } from "../api/types";
 
 const MB = 1024 * 1024;
@@ -55,5 +55,18 @@ describe("document types named in the question configuration", () => {
     const empty = { evidenceOptions: {} } as unknown as Catalogue;
     const file = { option_code: customCode("Board minutes"), doc_type: "other", description: "Board minutes" };
     expect(documentLabel(empty, file as never, "N1")).toBe("Board minutes");
+  });
+});
+
+describe("formats named two ways", () => {
+  it("are the same format", () => {
+    expect(["jpeg", "tiff", "heif", "pdf"].map(sameFormat)).toEqual(["jpg", "tif", "heic", "pdf"]);
+  });
+
+  it("word a refused format for where it is uploaded", () => {
+    const exe = new File(["x"], "setup.exe");
+    expect(fileProblem(exe, ["pdf"], 1024)).toBe("This question accepts PDF files.");
+    expect(fileProblem(exe, ["pdf", "docx"], 1024, "Upload")).toBe("Upload PDF, DOCX files.");
+    expect(fileProblem(new File(["x"], "scan.tiff"), ["tif"], 1024)).toBeNull();
   });
 });

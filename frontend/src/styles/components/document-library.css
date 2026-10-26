@@ -1,0 +1,570 @@
+/* ---- "Your documents": uploaded first, attached to questions after ---- */
+
+.doc-library {
+  display: grid;
+  gap: 0.9rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.doc-library-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.doc-library-head h2 {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+}
+
+.doc-library-sub {
+  margin: 0.3rem 0 0;
+  max-width: 62ch;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--ink-3);
+}
+
+.doc-library-count {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+/* The drop zone: dashed until a file is dragged over it. */
+.doc-drop {
+  display: grid;
+  justify-items: center;
+  gap: 0.3rem;
+  padding: 1.1rem 1rem;
+  border: 1.5px dashed var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface-sunken);
+  text-align: center;
+  color: var(--ink-3);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.doc-drop.is-dragging {
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  color: var(--accent-ink);
+}
+
+.doc-drop p {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--ink);
+}
+
+.doc-drop .link-button {
+  color: var(--accent);
+}
+
+.doc-drop-hint {
+  font-size: var(--fs-xs);
+}
+
+.doc-library-note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+}
+
+/* Uploads in progress, and the documents uploaded: one row each. */
+.doc-queue,
+.doc-list {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-row {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.doc-row.is-failed {
+  border-color: var(--critical);
+  background: var(--critical-wash);
+}
+
+.doc-row-icon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--surface-sunken);
+  color: var(--ink-3);
+}
+
+.doc-row.is-used .doc-row-icon {
+  background: var(--good-wash);
+  color: var(--good-ink);
+}
+
+.doc-row-main {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-row-name {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+a.doc-row-name:hover {
+  text-decoration: underline;
+}
+
+.doc-row-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.doc-used {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  color: var(--good-ink);
+}
+
+.doc-unused {
+  font-weight: 600;
+  color: var(--warning-ink);
+}
+
+.doc-row-state {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.doc-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: none;
+}
+
+/* An upload's progress, filling as it is sent. */
+.doc-progress {
+  display: block;
+  height: 0.35rem;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  overflow: hidden;
+}
+
+.doc-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+
+.doc-confirm {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 0.3rem;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+}
+
+.doc-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+/* In a question's upload box: choosing one of "Your documents" instead of a new file. */
+.evidence-from-library {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.evidence-from-library-row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.evidence-from-library-row .input {
+  flex: 1;
+  min-width: 0;
+}
+
+.evidence-from-library-row .btn {
+  flex: none;
+  min-height: var(--control-height);
+}
+
+.evidence-from-library-row .btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 540px) {
+  .doc-library {
+    padding: 1rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-drop,
+  .doc-progress > span {
+    transition: none;
+  }
+}
+
+/* ---- "Required documents": what the current answers ask for ---- */
+.doc-needed {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+.doc-needed-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.doc-needed-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: var(--r-xs);
+}
+
+.doc-needed-title {
+  font-size: var(--fs-md);
+  font-weight: 700;
+}
+
+.doc-needed-count {
+  margin-left: auto;
+  padding: 0.1rem 0.5rem;
+  border-radius: var(--r-pill);
+  background: var(--surface-sunken);
+  color: var(--ink-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.doc-needed-chevron {
+  display: inline-flex;
+  color: var(--ink-3);
+  transition: transform 0.18s ease;
+}
+
+.doc-needed-toggle[aria-expanded="true"] .doc-needed-chevron {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-needed-chevron {
+    transition: none;
+  }
+}
+
+.doc-needed-sub {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+}
+
+.doc-needed-list {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.doc-needed-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.doc-needed-main {
+  display: grid;
+  gap: 0.15rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.doc-needed-question {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.doc-needed-question .qid {
+  flex: none;
+}
+
+.doc-needed-text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.doc-needed-types {
+  font-size: var(--fs-xs);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
+/* A document from "Your documents" can be dragged onto a question. */
+.doc-list .doc-row[draggable="true"] {
+  cursor: grab;
+}
+
+.doc-list .doc-row[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+/* A question's upload box while a file or document is dragged over it. */
+.evidence-pending.is-drop-target {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--accent-wash);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.evidence-pending-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.evidence-drop-note {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent-ink);
+}
+
+
+/* ============================================================
+   Side by side: the questions, and "Your documents" beside them
+   ============================================================ */
+.apply-layout {
+  display: grid;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+.apply-main {
+  min-width: 0;
+}
+
+.apply-side {
+  min-width: 0;
+}
+
+/* From a tablet up, the documents sit beside the questions and stay in view while they scroll,
+   below the sticky header and stepper. The action bar spans the questions only, so it never covers
+   the documents. */
+@media (min-width: 768px) {
+  .page-apply {
+    --apply-top: 7rem;
+    --apply-side: clamp(16rem, 36%, 26rem);
+    --apply-gap: 1.25rem;
+  }
+
+  .apply-layout {
+    grid-template-columns: minmax(0, 1fr) var(--apply-side);
+    gap: var(--apply-gap);
+  }
+
+  .page-apply > .actionbar {
+    margin-right: calc(var(--apply-side) + var(--apply-gap));
+  }
+
+  .apply-main {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .apply-side {
+    grid-column: 2;
+    grid-row: 1;
+    position: sticky;
+    top: var(--apply-top);
+    max-height: calc(100vh - var(--apply-top) - 1rem);
+    max-height: calc(100dvh - var(--apply-top) - 1rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    border-radius: var(--r-lg);
+    scrollbar-width: thin;
+  }
+
+  .apply-side .doc-library {
+    margin: 0;
+    padding: 1rem;
+    gap: 0.75rem;
+  }
+
+  .apply-side .doc-drop {
+    padding: 0.85rem 0.75rem;
+  }
+}
+
+/* A document card's drag handle. */
+.doc-row-grip {
+  flex: none;
+  margin-right: -0.25rem;
+  font-size: 0.95rem;
+  line-height: 1;
+  color: var(--ink-3);
+  cursor: grab;
+  user-select: none;
+}
+
+/* ---- While something is dragged across the form ---- */
+
+/* A question that takes it: outlined, inviting the drop. */
+.evidence-pending.is-drop-ready,
+.evidence-replace.is-drop-ready {
+  border-style: dashed;
+  border-color: var(--accent);
+  background: var(--accent-wash);
+}
+
+/* One that does not (wrong format, or already there): set back. */
+.evidence-pending.is-drop-blocked,
+.evidence-replace.is-drop-blocked {
+  opacity: 0.55;
+  border-style: dashed;
+  border-color: var(--hairline);
+  background: var(--surface-sunken);
+}
+
+.evidence-drop-ready,
+.evidence-drop-blocked {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.evidence-drop-ready {
+  color: var(--accent-ink);
+}
+
+.evidence-drop-blocked {
+  color: var(--ink-3);
+}
+
+/* Replace the document a question has, by dropping on it. */
+.evidence-replace {
+  border-style: dashed;
+}
+
+/* A document held over a question: its types, to drop on the right one. */
+.drop-types {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.drop-types-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.drop-types ul {
+  display: grid;
+  gap: 0.3rem;
+  max-height: 16rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.drop-type {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--hairline);
+  border-radius: var(--r-sm);
+  background: var(--surface);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  cursor: copy;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.drop-type.is-over {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+}
+
+/* A closed section, under a dragged document: it opens if held there. */
+.section-head.is-spring {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-type {
+    transition: none;
+  }
+}
+
+/* A refused replacement, with a way to dismiss it. */
+.evidence-replace-error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}

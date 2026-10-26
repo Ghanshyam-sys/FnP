@@ -7,17 +7,13 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import (
     BooleanField,
-    Case,
     Count,
     Exists,
-    IntegerField,
     OuterRef,
     Prefetch,
     Q,
     QuerySet,
     Subquery,
-    Value,
-    When,
 )
 from django.db.models.expressions import RawSQL
 from django.utils import timezone
@@ -32,6 +28,7 @@ from ..models import (
     AnswerValue,
     ApplicantProfile,
     Assessment,
+    CaseDocument,
     Decision,
     Department,
     EvidenceFile,
@@ -56,20 +53,6 @@ MAX_OPEN_DRAFTS = 3
 # rest are picked up by the next poll, a few seconds on.
 SYNC_PER_REQUEST = 1
 
-# The reviewer queue's order: cases needing the reviewer first, then work in flight, then settled
-# ones. The queue is paged in this order, so every case needing the reviewer is on the first pages
-# however long ago it last changed. The frontend's queueRank (state/caseLabels.ts) is the same list.
-QUEUE_ORDER = [
-    Stage.REVIEW_PENDING,
-    Stage.DECISION_PENDING,
-    Stage.AUTH_FAILED,
-    Stage.AWAITING_APPLICANT,
-    Stage.SCORING,
-    Stage.AUTH_RUNNING,
-    Stage.ACCEPTED,
-    Stage.REJECTED,
-    Stage.NOT_SUBMITTED,
-]
 # Stages the reviewer has to act on (frontend: needsReviewer).
 NEEDS_REVIEWER = [Stage.REVIEW_PENDING, Stage.DECISION_PENDING, Stage.AUTH_FAILED]
 # Groups the queue's status filter offers besides each single stage (?stage=NEEDS_ACTION, say).
@@ -123,11 +106,6 @@ def document_progress(drafts: list[Assessment]) -> dict[int, dict]:
             ),
         }
     return progress
-QUEUE_RANK = Case(
-    *(When(stage=stage, then=Value(rank)) for rank, stage in enumerate(QUEUE_ORDER)),
-    default=Value(len(QUEUE_ORDER)),
-    output_field=IntegerField(),
-)
 
 
 def with_queue_summary(qs):
@@ -141,6 +119,8 @@ def with_queue_summary(qs):
         Exists(AnswerValue.objects.filter(assessment=OuterRef("pk")))
         | Exists(EvidenceFile.objects.filter(assessment=OuterRef("pk")))
         | Exists(ApplicantProfile.objects.filter(assessment=OuterRef("pk")))
+        # Documents uploaded to "Your documents" first, before any answer: started too.
+        | Exists(CaseDocument.objects.filter(assessment=OuterRef("pk")))
     )
     return qs.annotate(has_draft=started).select_related("department", "applicant", "decision").prefetch_related(
         Prefetch(
@@ -197,6 +177,8 @@ def assessment_payload(a: Assessment, viewer: User) -> dict:
         "submittedAt": a.submitted_at,
         "decidedAt": a.decided_at,
         "updatedAt": a.updated_at,
+        # When the case reached its stage: how long it has waited there.
+        "stageSince": a.stage_changed_at,
         "removable": removable_by(viewer, a),
         # The viewer's own application: a reviewer never rules on or decides it.
         "ownApplication": a.applicant_id == viewer.id,
@@ -209,20 +191,17 @@ def assessment_payload(a: Assessment, viewer: User) -> dict:
 
 
 def _encode_cursor(a: Assessment) -> str:
-    return base64.urlsafe_b64encode(f"{a.queue_rank}|{a.updated_at.isoformat()}|{a.pk}".encode()).decode()
+    return base64.urlsafe_b64encode(f"{a.updated_at.isoformat()}|{a.pk}".encode()).decode()
 
 
-def _decode_cursor(cursor: str) -> tuple[int, datetime.datetime, int]:
+def _decode_cursor(cursor: str) -> tuple[datetime.datetime, int]:
     try:
-        rank, stamp, pk = base64.urlsafe_b64decode(cursor.encode()).decode().split("|")
-        rank = int(rank)
-        if not 0 <= rank <= len(QUEUE_ORDER):
-            raise ValueError("cursor rank out of range")
+        stamp, pk = base64.urlsafe_b64decode(cursor.encode()).decode().split("|")
         moment = datetime.datetime.fromisoformat(stamp)
         if moment.tzinfo is None:
             raise ValueError("cursor time without a zone")
         # Normalised here so an out-of-range offset fails as a bad cursor, not in the database.
-        return rank, moment.astimezone(datetime.UTC), int(pk)
+        return moment.astimezone(datetime.UTC), int(pk)
     except (ValueError, UnicodeDecodeError, OverflowError):
         raise ValidationError({"cursor": "Invalid cursor."}) from None
 
@@ -278,9 +257,9 @@ class ReviewerNewAssessmentSerializer(NewAssessmentSerializer):
 
 class AssessmentListView(APIView):
     """GET: an applicant's own assessments, newest activity first; or for the reviewer the queue of
-    submitted assessments (optionally one stage and/or one department), in QUEUE_ORDER and newest
-    activity first within a stage, keyset-paginated, with the queue's totals across every page. POST: the reviewer opens
-    an assessment for an applicant, or an applicant starts their own."""
+    submitted assessments (optionally one stage and/or one department), the one acted on most
+    recently first, keyset-paginated, with the queue's totals across every page. POST: the reviewer
+    opens an assessment for an applicant, or an applicant starts their own."""
 
     def get_throttles(self):
         # Opening assessments is rate limited; listing them (polled while engines run) is not.
@@ -333,15 +312,17 @@ class AssessmentListView(APIView):
             visible = visible.filter(stage__in=stages)
         # The stages listed, as the two filters above leave them.
         shown_stages = {str(s) for s in stages} if stages else set(Stage.values) - {Stage.NOT_SUBMITTED.value}
-        qs = with_queue_summary(visible).annotate(queue_rank=QUEUE_RANK).order_by("queue_rank", "-updated_at", "-id")
+        # The case acted on most recently first, whatever its stage: any action on it (a submission,
+        # a ruling, a decision, the engine finishing) brings it to the top.
+        qs = with_queue_summary(visible).order_by("-updated_at", "-id")
         if cursor:
-            rank, stamp, pk = _decode_cursor(cursor)
-            # Within the cursor's stage group, a row comparison, so the database starts reading at
-            # the cursor rather than reading every earlier row and discarding it.
-            after_in_group = RawSQL(
+            stamp, pk = _decode_cursor(cursor)
+            # A row comparison, so the database starts reading at the cursor rather than reading
+            # every earlier row and discarding it.
+            after = RawSQL(
                 '("assessment"."updated_at", "assessment"."id") < (%s, %s)', (stamp, pk), output_field=BooleanField()
             )
-            qs = qs.filter(Q(queue_rank__gt=rank) | (Q(queue_rank=rank) & Q(after_in_group)))
+            qs = qs.filter(after)
         page = list(qs[: PAGE_SIZE + 1])
         more = len(page) > PAGE_SIZE
         page = page[:PAGE_SIZE]
@@ -592,7 +573,10 @@ class AssessmentDetailView(APIView):
             if not removable_by(request.user, row):
                 raise Conflict(refused)
             record = _removal_record(row)
-            files = [e.file.name for e in row.evidence.all()]
+            # The files attached and those in "Your documents" (often the same ones).
+            files = sorted(
+                {e.file.name for e in row.evidence.all()} | {d.file.name for d in row.library.all()}
+            )
             _delete_with_history(row)
             audit.record(request.user, "assessment.remove", assessment_ref=public_id, metadata=record)
             transaction.on_commit(lambda: delete_files(files))

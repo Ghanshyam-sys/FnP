@@ -79,4 +79,16 @@ def test_a_reset_that_fails_partway_leaves_the_existing_cases_and_files_untouche
     assert sorted(EvidenceFile.objects.values_list("file", flat=True)) == before
     assert all(default_storage.exists(name) for name in before)
     stored = [p for p in (conf.MEDIA_ROOT / "evidence").rglob("*") if p.is_file()]
-    assert len(stored) == len(before)  # nothing left behind by the failed reload
+    # Nothing left behind by the failed reload (a file used by several questions is stored once).
+    assert len(stored) == len(set(before))
+
+
+def test_seeded_documents_are_in_your_documents():
+    """Seeded like uploads at a question: each file is in the library once, and every attachment
+    shares its library document's stored file."""
+    from cases.models import CaseDocument
+
+    seed()
+    evidence = list(EvidenceFile.objects.select_related("document"))
+    assert evidence and all(e.document_id and e.file.name == e.document.file.name for e in evidence)
+    assert CaseDocument.objects.count() == len({(e.assessment_id, e.sha256) for e in evidence})

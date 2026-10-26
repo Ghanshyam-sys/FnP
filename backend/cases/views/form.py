@@ -12,7 +12,14 @@ from ..models import (
 )
 from ..permissions import assessment_for
 from .common import lock, require_editable, require_owner
-from .evidence import evidence_payload, remove_files
+from .evidence import (
+    LIBRARY_FILE_TYPES,
+    evidence_payload,
+    library_limit,
+    library_payload,
+    remove_documents,
+    remove_files,
+)
 
 def _own_options(questions: dict) -> dict[str, list[dict]]:
     """The document types this form's version gives its questions, where the catalogue (which lists
@@ -43,13 +50,16 @@ def _own_options(questions: dict) -> dict[str, list[dict]]:
     }
 
 
-def form_payload(assessment: Assessment) -> dict:
+def form_payload(assessment: Assessment, viewer) -> dict:
     """The form as the applicant fills it in. A question with no saved answer reads "No", which is
-    what a blank form starts from."""
+    what a blank form starts from. `viewer`: who reads it; anyone but the applicant sees only the
+    documents attached to a question."""
     questions = catalogue.questions(catalogue.version_for(assessment).pk)
     saved = dict(assessment.answers.values_list("qid", "value"))
     own = _own_options(questions)
-    evidence = assessment.evidence.filter(superseded_at__isnull=True).order_by("uploaded_at")
+    evidence = list(
+        assessment.evidence.filter(superseded_at__isnull=True).select_related("document").order_by("uploaded_at")
+    )
     return {
         "locked": assessment.stage != Stage.NOT_SUBMITTED,
         # Personal details (date of birth, ID number and the like) are not collected or shown.
@@ -79,6 +89,11 @@ def form_payload(assessment: Assessment) -> dict:
             for qid, q in questions.items()
         ],
         "evidence": [evidence_payload(assessment, e) for e in evidence],
+        # "Your documents": everything uploaded, each with the questions it is attached to now.
+        "documents": library_payload(assessment, evidence, attached_only=viewer.id != assessment.applicant_id),
+        "documentsMax": library_limit(assessment, questions),
+        # The formats "Your documents" takes, as the upload there checks them.
+        "documentsFileTypes": LIBRARY_FILE_TYPES,
     }
 
 
@@ -123,7 +138,7 @@ class FormView(APIView):
         return assessment_for(request.user, public_id, queryset=Assessment.objects.select_related("applicant"))
 
     def get(self, request, public_id):
-        return Response(form_payload(self._assessment(request, public_id)))
+        return Response(form_payload(self._assessment(request, public_id), request.user))
 
     def patch(self, request, public_id):
         assessment = self._assessment(request, public_id)
@@ -152,7 +167,7 @@ class FormView(APIView):
             if no_longer_needed:
                 remove_files(EvidenceFile.objects.filter(assessment=assessment, qid__in=no_longer_needed))
             assessment.save(update_fields=["updated_at"])
-        return Response(form_payload(assessment))
+        return Response(form_payload(assessment, request.user))
 
 
 class FormResetView(APIView):
@@ -166,7 +181,10 @@ class FormResetView(APIView):
             require_editable(lock(assessment))
             assessment.answers.all().delete()
             ApplicantProfile.objects.filter(pk=assessment.pk).delete()
-            remove_files(assessment.evidence.all())
+            # Starting over clears "Your documents", and every document attached from it; then any
+            # attached before the library existed (in none).
+            remove_documents(assessment.library.all())
+            remove_files(assessment.evidence.filter(document__isnull=True))
             assessment.save(update_fields=["updated_at"])
             audit.record(request.user, "form.reset", assessment_ref=assessment.public_id)
-        return Response(form_payload(assessment), status=status.HTTP_200_OK)
+        return Response(form_payload(assessment, request.user), status=status.HTTP_200_OK)

@@ -25,13 +25,6 @@ const VERDICT_TONE: Record<string, string> = {
   REJECT: "critical",
 };
 
-/** "1 Oct 2026, 09:53", as dates read everywhere else in the app. */
-function formatGeneratedAt(value: string): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" });
-}
-
 /** "3 Oct 2026" from a timestamp. */
 function formatDay(value: string): string {
   const date = new Date(value);
@@ -109,15 +102,15 @@ function ReviewerDecision({ decision }: { decision: Case["decision"] }) {
   if (!decision) {
     return (
       <section className="pane-section pane-decision is-pending">
-        <h3>Reviewer decision</h3>
-        <p className="pane-prose">Not decided yet. The reviewer's decision and feedback appear here once given.</p>
+        <h3>Reviewer's Feedback</h3>
+        <p className="pane-prose">Not decided yet. The reviewer's feedback will appear here once given.</p>
       </section>
     );
   }
   const accepted = decision.verdict === "accepted";
   return (
     <section className="pane-section pane-decision">
-      <h3>Reviewer decision</h3>
+      <h3>Reviewer's Feedback</h3>
       <div className="pane-decision-head">
         <span className={`chip chip-${accepted ? "low" : "critical"}`}>
           {accepted ? <CheckCircleIcon size={12} /> : <AlertTriangleIcon size={12} />}
@@ -219,8 +212,6 @@ export default function AssessmentSummaryPane({
   const strengths = assessment?.strengths ?? [];
   const forSupervisor = assessment?.for_supervisor ?? [];
   const outcomes = assessment?.questions ?? {};
-  const evidence = assessment?.evidence;
-  const meta = assessment?.assessment;
   const override = determination?.authentication_override;
   // Each concern shows once, under its question in "Where the risk comes from". Only one with no
   // question there (or every one, when there is no score to break down) is listed on its own.
@@ -432,22 +423,6 @@ export default function AssessmentSummaryPane({
                 )}
               </section>
 
-              <footer className="pane-meta">
-                {evidence && (
-                  <span>
-                    {evidence.documents_read ?? 0} documents read · {evidence.questions_verified ?? 0} questions
-                    verified<span className="pane-explain-inline"> (checked against a document)</span> ·{" "}
-                    {evidence.questions_self_declared ?? 0} self-declared
-                    <span className="pane-explain-inline"> (taken as answered, with no document)</span>
-                  </span>
-                )}
-                {meta && (
-                  <span>
-                    Assessment v{meta.version} · rules v{meta.rules_version}
-                    {meta.generated_at && <> · generated {formatGeneratedAt(meta.generated_at)}</>}
-                  </span>
-                )}
-              </footer>
             </>
           )}
         </div>

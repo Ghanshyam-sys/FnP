@@ -34,14 +34,16 @@ class RunHistory:
     version: this submission's number (1 for the first; a retry resends a run, so it adds none).
     reviews: the reviewer's ruling on each question flagged in the latest run, accepted or
         rejected, with its comment (the latest round only).
-    sent: for each question, the sets of documents earlier runs carried, one per change.
+    sent: for each question, the sets of documents earlier runs carried (each by
+        EvidenceFile.identity, so the same file attached again as the same type is the same
+        document), one per change.
     previous_request_id: the engine's id for the latest run (the one the reviewer ruled on); None
         before any run.
     """
 
     version: int = 1
     reviews: dict[str, dict] = field(default_factory=dict)
-    sent: dict[str, list[frozenset[int]]] = field(default_factory=dict)
+    sent: dict[str, list[frozenset[tuple]]] = field(default_factory=dict)
     previous_request_id: str | None = None
 
 
@@ -53,11 +55,11 @@ def run_history(previous: list[Submission]) -> RunHistory:
         return RunHistory()
     version = len({run.payload.get("submitted_at") for run in previous}) + 1
     reviews = {r.qid: {"verdict": r.verdict, "comment": r.comment} for r in previous[-1].rulings.all()}
-    sent: dict[str, list[frozenset[int]]] = {}
+    sent: dict[str, list[frozenset[tuple]]] = {}
     for run in previous:
-        by_qid: dict[str, set[int]] = {}
+        by_qid: dict[str, set[tuple]] = {}
         for e in run.evidence_files.all():
-            by_qid.setdefault(e.qid, set()).add(e.pk)
+            by_qid.setdefault(e.qid, set()).add(e.identity)
         for qid, pks in by_qid.items():
             versions = sent.setdefault(qid, [])
             if not versions or versions[-1] != frozenset(pks):
@@ -77,7 +79,7 @@ def _evidence_version(history: RunHistory, qid: str, files: list[EvidenceFile]) 
     if not files:
         return None
     versions = history.sent.get(qid, [])
-    now = frozenset(e.pk for e in files)
+    now = frozenset(e.identity for e in files)
     if versions and versions[-1] == now:
         return len(versions)
     return len(versions) + 1
