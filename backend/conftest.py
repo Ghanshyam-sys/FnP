@@ -15,9 +15,10 @@ def engine_fixture(name: str) -> dict:
 
 @pytest.fixture(autouse=True)
 def _isolated(settings, tmp_path):
-    """Every test gets an empty cache, its own media folder, and no rate limits, and can never
-    reach the real engine."""
+    """Every test gets an empty cache, its own media folder, and no rate limits, can never reach
+    the real engine, and writes nothing to the API call log."""
     cache.clear()
+    settings.API_LOG = False
     settings.MEDIA_ROOT = tmp_path / "media"
     settings.ENGINE_BASE_URL = "http://engine.invalid"
     settings.REST_FRAMEWORK = {**settings.REST_FRAMEWORK, "DEFAULT_THROTTLE_CLASSES": []}

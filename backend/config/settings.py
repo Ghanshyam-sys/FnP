@@ -74,6 +74,8 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Last, so it sees who is signed in and the response as sent. Writes only while API_LOG is on.
+    "cases.middleware.ApiLogMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -231,12 +233,42 @@ CACHES = {
 }
 
 # Requests are logged by method, path and status only: bodies carry personal data.
+# Every /api/ call, with the JSON sent and returned (cases.middleware.ApiLogMiddleware): to the
+# console and to API_LOG_FILE ("" for the console only). On by default only while debugging, as it
+# holds personal data; API_LOG=true turns it on elsewhere. Bodies longer than API_LOG_MAX_CHARS are cut.
+API_LOG = env_bool("API_LOG", DEBUG)
+API_LOG_FILE = env("API_LOG_FILE", str(BASE_DIR / "logs" / "api.log"))
+API_LOG_MAX_CHARS = int(env("API_LOG_MAX_CHARS", "4000"))
+_api_handlers = ["api_console"]
+if API_LOG and API_LOG_FILE:
+    Path(API_LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
+    _api_handlers.append("api_file")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "formatters": {"api": {"format": "[%(asctime)s] %(message)s", "datefmt": "%Y-%m-%d %H:%M:%S"}},
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+        "api_console": {"class": "logging.StreamHandler", "formatter": "api"},
+        **(
+            {
+                "api_file": {
+                    "class": "logging.handlers.RotatingFileHandler",
+                    "filename": API_LOG_FILE,
+                    "maxBytes": 5 * 1024 * 1024,
+                    "backupCount": 3,
+                    "encoding": "utf-8",
+                    "formatter": "api",
+                }
+            }
+            if API_LOG and API_LOG_FILE
+            else {}
+        ),
+    },
     "root": {"handlers": ["console"], "level": "WARNING"},
     "loggers": {
+        "cases.api": {"handlers": _api_handlers, "level": "INFO" if API_LOG else "WARNING", "propagate": False},
         "cases": {"level": "INFO"},
         "engine": {"level": "INFO"},
         # One line per call to the AI engine (method, URL, status), e.g. in `journalctl -u

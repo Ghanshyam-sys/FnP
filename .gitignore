@@ -13,3 +13,6 @@ __pycache__/
 .pytest_cache/
 backend/media/
 backend/staticfiles/
+
+# API call log (API_LOG)
+backend/logs/
