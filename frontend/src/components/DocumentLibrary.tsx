@@ -1,26 +1,11 @@
 import { useRef, useState } from "react";
 import { ApiError } from "../api/client";
 import { acceptAttribute, fileProblem, formatHint, sizeHint } from "../domain/catalogue";
-import { CheckCircleIcon, ChevronDownIcon, FileTextIcon, UploadIcon, XIcon } from "./icons";
+import { CheckCircleIcon, FileTextIcon, UploadIcon, XIcon } from "./icons";
 import { DOCUMENT_DRAG } from "../domain/attachSource";
 import { leftFor, useDocumentDrag, useDragOver } from "../state/documentDrag";
 import type { LibraryDocument } from "../api/types";
 import { formatBytes } from "../utils/format";
-
-/** A document the current answers ask for: which question, and what it accepts. */
-export interface NeededDocument {
-  qid: string;
-  question: string;
-  /** The document types it accepts, in words ("Other" left out). */
-  types: string[];
-}
-
-/** "Passport, National identity card or Driving licence", the rest behind "+ 5 more". */
-function typesText(types: string[]): string {
-  if (types.length === 0) return "Any document that answers it";
-  if (types.length <= 3) return types.length === 1 ? types[0] : `${types.slice(0, -1).join(", ")} or ${types[types.length - 1]}`;
-  return `${types.slice(0, 3).join(", ")} + ${types.length - 3} more`;
-}
 
 /** How many files are sent at once: enough to be quick, few enough not to trip the upload limit. */
 const AT_ONCE = 3;
@@ -71,7 +56,6 @@ export default function DocumentLibrary({
   max,
   fileTypes,
   maxBytes,
-  needed = [],
   qidLabel,
   onUpload,
   onRemove,
@@ -83,8 +67,6 @@ export default function DocumentLibrary({
   /** Every format a question or the CV accepts. */
   fileTypes: string[];
   maxBytes: number;
-  /** The documents the current answers ask for, in the form's order. */
-  needed?: NeededDocument[];
   /** "A1" -> how the question is named in a chip ("CV" stays "CV"). */
   qidLabel: (qid: string) => string;
   onUpload: (file: File, onProgress: (share: number) => void) => Promise<LibraryDocument>;
@@ -106,10 +88,6 @@ export default function DocumentLibrary({
   const [confirming, setConfirming] = useState<string | null>(null);
   const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  // Open while nothing is uploaded (what to gather); folded once documents are, so they stay in
-  // view to drag. Either way, the applicant's own choice wins.
-  const [neededChoice, setNeededChoice] = useState<boolean | null>(null);
-  const showNeeded = neededChoice ?? documents.length === 0;
   const drag = useDocumentDrag();
   // The queue as the running uploads see it (state updates arrive later than they read it).
   const running = useRef(0);
@@ -230,49 +208,6 @@ export default function DocumentLibrary({
           </span>
         )}
       </header>
-
-      {needed.length > 0 && (
-        <div className="doc-needed">
-          <button
-            type="button"
-            className="doc-needed-toggle"
-            aria-expanded={showNeeded}
-            aria-controls="doc-needed-list"
-            onClick={() => setNeededChoice(!showNeeded)}
-          >
-            <span className="doc-needed-title">Required documents</span>
-            <span className="doc-needed-count">{needed.length}</span>
-            <span className="doc-needed-chevron" aria-hidden="true">
-              <ChevronDownIcon size={14} />
-            </span>
-          </button>
-          {showNeeded && (
-            <>
-              <p className="doc-needed-sub">
-                What your answers below ask for. Answering Yes to some questions asks for a document,
-                so this list follows your answers.
-              </p>
-              <ul className="doc-needed-list" id="doc-needed-list">
-                {needed.map((n) => (
-                  <li key={n.qid} className="doc-needed-item">
-                    <span className="doc-needed-main">
-                      <span className="doc-needed-question">
-                        <span className="qid">{qidLabel(n.qid)}</span>
-                        <span className="doc-needed-text" title={n.question}>
-                          {n.question}
-                        </span>
-                      </span>
-                      <span className="doc-needed-types" title={n.types.join(", ")}>
-                        One of: {typesText(n.types)}
-                      </span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </div>
-      )}
 
       <div
         className={`doc-drop${dragging ? " is-dragging" : ""}`}

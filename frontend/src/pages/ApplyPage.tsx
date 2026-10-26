@@ -17,7 +17,7 @@ import QuestionCard from "../components/QuestionCard";
 import LeaveLockedPage from "../components/LeaveLockedPage";
 import EvidenceBlock from "../components/EvidenceBlock";
 import { sourceFields, type AttachSource } from "../domain/attachSource";
-import DocumentLibrary, { type NeededDocument } from "../components/DocumentLibrary";
+import DocumentLibrary from "../components/DocumentLibrary";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
 import { Loading, LoadError } from "../components/LoadState";
 import { ArrowRightIcon, AlertTriangleIcon, ChevronDownIcon } from "../components/icons";
@@ -25,7 +25,6 @@ import { documentRuleBreaks, evidenceGaps, hasMissingMandatoryEvidence } from ".
 import {
   CV_QID,
   DEFAULT_MAX_UPLOAD_BYTES,
-  OTHER_CODE,
   defaultOptionCode,
   documentLabel,
   optionsFor,
@@ -149,17 +148,6 @@ export default function ApplyPage() {
   // every format a question or the CV takes).
   const libraryTypes =
     raw.documentsFileTypes ?? Array.from(new Set([...raw.answers.flatMap((a) => a.fileTypes), ...catalogue.cvFileTypes]));
-  // What the current answers ask for, listed in "Your documents".
-  const typeLabels = (qid: string) =>
-    optionsFor(catalogue, qid)
-      .filter((o) => o.code !== OTHER_CODE)
-      .map((o) => o.label);
-  const needed: NeededDocument[] = [
-    ...form.responses
-      .filter((r) => r.evidence_required)
-      .map((r) => ({ qid: r.qid, question: r.question, types: typeLabels(r.qid) })),
-    ...(cv ? [{ qid: CV_QID, question: "Curriculum vitae", types: typeLabels(CV_QID) }] : []),
-  ];
 
   return (
     <DocumentDragContext.Provider value={drag}>
@@ -196,7 +184,6 @@ export default function ApplyPage() {
               max={raw.documentsMax ?? 30}
               fileTypes={libraryTypes}
               maxBytes={maxBytes}
-              needed={needed}
               qidLabel={(qid) => qid}
               onUpload={(file, onProgress) => settled(uploadDocument.mutateAsync({ file, onProgress }))}
               onRemove={(documentId) => settled(removeDocument.mutateAsync(documentId))}

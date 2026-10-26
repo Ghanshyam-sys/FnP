@@ -273,7 +273,6 @@ function Picker({
   const isOther = optionCode === OTHER_CODE;
   const canAttach = optionCode !== "" && (!isOther || description.trim() !== "") && !uploading;
   const selectId = `evidence-type-${role}-${qid}`;
-  const libraryId = `evidence-library-${role}-${qid}`;
   const accepted = fileTypes.map(sameFormat);
   const formats = fileTypes.map((t) => t.toUpperCase()).join(", ");
   // The chosen document is gone (removed in "Your documents"): nothing is chosen.
@@ -456,45 +455,6 @@ function Picker({
               />
             )}
 
-            {library.length > 0 && (
-              <div className="evidence-from-library">
-                <label className="field-label" htmlFor={libraryId}>
-                  From your documents
-                </label>
-                <div className="evidence-from-library-row">
-                  <select
-                    id={libraryId}
-                    className="input"
-                    value={chosen ? documentId : ""}
-                    onChange={(e) => {
-                      setDocumentId(e.target.value);
-                      setDropHeld(false);
-                      setError("");
-                    }}
-                  >
-                    <option value="">Choose a document you uploaded…</option>
-                    {library.map((d) => {
-                      const fits = accepted.includes(sameFormat(d.format));
-                      return (
-                        <option key={d.id} value={d.id} disabled={!fits}>
-                          {d.fileName}
-                          {fits ? "" : ` (${d.format.toUpperCase()}: this question takes ${formats})`}
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <button
-                    type="button"
-                    className="btn btn-primary btn-sm"
-                    disabled={!canAttach || !chosen}
-                    onClick={() => chosen && void send({ documentId: chosen.id })}
-                  >
-                    {sending === "doc" && !heldDoc ? "Attaching…" : "Attach"}
-                  </button>
-                </div>
-              </div>
-            )}
-
             {heldName && (
               <span className="evidence-pending-file">
                 Ready to attach: <strong>{heldName}</strong>
@@ -562,14 +522,12 @@ function Picker({
             : sending === "doc" && heldDoc
               ? "Attaching…"
               : pendingFile
-              ? "Attach dropped file"
-              : heldDoc
-                ? "Attach dropped document"
-              : library.length > 0
-                ? "Upload a new file"
-                : isSupporting
-                  ? "Attach supporting"
-                  : "Attach document"}
+                ? "Attach dropped file"
+                : heldDoc
+                  ? "Attach dropped document"
+                  : isSupporting
+                    ? "Attach supporting"
+                    : "Attach document"}
         </button>
       )}
     </div>
