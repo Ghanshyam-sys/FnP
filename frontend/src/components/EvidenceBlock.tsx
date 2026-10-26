@@ -244,7 +244,7 @@ function Picker({
   options: EvidenceOption[];
   defaultCode: string;
   fileTypes: string[];
-  /** "Your documents" not already on this question, to attach one from there. */
+  /** "Your documents" not already on this question: the ones that can be dropped on it. */
   library: LibraryDocument[];
   /** The library documents already on this question. */
   attachedHere: string[];
@@ -254,11 +254,10 @@ function Picker({
   const drag = useDocumentDrag();
   const [optionCode, setOptionCode] = useState(() => (isSupporting ? "" : defaultCode));
   const [description, setDescription] = useState("");
-  const [documentId, setDocumentId] = useState("");
   // A file dropped here before the document type was chosen: attached once it is.
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  // The same for a document dropped from "Your documents" (documentId says which).
-  const [dropHeld, setDropHeld] = useState(false);
+  // The same for a document dropped from "Your documents": its id.
+  const [heldId, setHeldId] = useState("");
   const [dropOver, setDropOver] = useDragOver();
   const [hint, setHint] = useState("");
   // What is being sent: a new file, or a document from "Your documents".
@@ -275,8 +274,6 @@ function Picker({
   const selectId = `evidence-type-${role}-${qid}`;
   const accepted = fileTypes.map(sameFormat);
   const formats = fileTypes.map((t) => t.toUpperCase()).join(", ");
-  // The chosen document is gone (removed in "Your documents"): nothing is chosen.
-  const chosen = library.find((d) => d.id === documentId);
   const describeId = `evidence-describe-${role}-${qid}`;
   const errorId = `evidence-error-${role}-${qid}`;
   const fit = dragFit(drag, library, attachedHere, accepted, formats);
@@ -290,9 +287,8 @@ function Picker({
       await onAttach(code, role, source, code === OTHER_CODE ? words.trim() : undefined);
       setOptionCode(isSupporting ? "" : defaultCode);
       setDescription("");
-      setDocumentId("");
+      setHeldId("");
       setPendingFile(null);
-      setDropHeld(false);
       setHint("");
     } catch (err) {
       setError(uploadMessage(err));
@@ -315,11 +311,9 @@ function Picker({
   const holdFor = (dropped: { doc: LibraryDocument } | { file: File }, message: string) => {
     if ("doc" in dropped) {
       setPendingFile(null);
-      setDocumentId(dropped.doc.id);
-      setDropHeld(true);
+      setHeldId(dropped.doc.id);
     } else {
-      setDocumentId("");
-      setDropHeld(false);
+      setHeldId("");
       setPendingFile(dropped.file);
     }
     setHint(message);
@@ -352,12 +346,12 @@ function Picker({
 
   const draggedName = drag.doc?.fileName;
   // What was dropped and waits for its type: attached by the main button once the type is chosen.
-  const heldDoc = dropHeld ? chosen : undefined;
+  // A held document removed meanwhile from "Your documents" is no longer held.
+  const heldDoc = library.find((d) => d.id === heldId);
   const heldName = pendingFile?.name ?? heldDoc?.fileName;
   const letGo = () => {
     setPendingFile(null);
-    if (heldDoc) setDocumentId("");
-    setDropHeld(false);
+    setHeldId("");
     setHint("");
   };
   // Held over the box: its types open to drop on (with one type, the box itself is the target).
@@ -519,7 +513,7 @@ function Picker({
         >
           {sending === "file"
             ? "Uploading…"
-            : sending === "doc" && heldDoc
+            : sending === "doc"
               ? "Attaching…"
               : pendingFile
                 ? "Attach dropped file"
@@ -672,7 +666,7 @@ export default function EvidenceBlock({
   /** Whether a second, supporting document may be added. */
   allowSupporting: boolean;
   labelFor: (file: EvidenceRef) => string;
-  /** "Your documents", to attach one from there as well as a new file. */
+  /** "Your documents": the ones not on this question yet can be dropped on it. */
   library?: LibraryDocument[];
   onAttach: AttachHandler;
   /** Settles once the document is removed; rejects if it was not, and the row says why. */
