@@ -2,7 +2,7 @@
 
     NOT_SUBMITTED --submit--> AUTH_RUNNING --CLEAR--> SCORING (engine) --> DECISION_PENDING --> ACCEPTED / REJECTED
                                    |                                          ^
-                                   +--RETURN_TO_FILER--> REVIEW_PENDING --every flag ruled, all accepted, reviewer sends it on--> SCORING (forced)
+                                   +--RETURN_TO_FILER or REVIEW--> REVIEW_PENDING --every flag ruled, all accepted, reviewer sends it on--> SCORING (forced)
                                    |       (no answer flagged: straight to DECISION_PENDING, unscored)
                                    |                         +--every flag ruled, any rejected, reviewer returns it--> AWAITING_APPLICANT --resubmit--> AUTH_RUNNING
                                    +--engine failure--> AUTH_FAILED --retry--> AUTH_RUNNING

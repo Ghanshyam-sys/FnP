@@ -86,8 +86,15 @@ class RunStatus(models.TextChoices):
 
 
 class Outcome(models.TextChoices):
+    """How the engine's authentication of a run came out. Anything but CLEAR goes to the reviewer
+    (to rule on the flagged answers, or straight to the decision when none is flagged), and is
+    scored only if the reviewer asks for it."""
+
     CLEAR = "CLEAR"
     RETURN_TO_FILER = "RETURN_TO_FILER"
+    # Given by the engine (on a resubmission, so far) where a person must look at the answers;
+    # handled as RETURN_TO_FILER is.
+    REVIEW = "REVIEW"
 
 
 class ResultStatus(models.TextChoices):

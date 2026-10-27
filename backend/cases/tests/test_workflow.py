@@ -1303,3 +1303,46 @@ def test_the_engines_submission_version_is_read_from_its_answer(monkeypatch, tmp
     with doc.open("rb") as fh:
         accepted = client.submit({"application_id": "X"}, [("a.pdf", fh, "application/pdf", "passport")])
     assert (accepted.request_id, accepted.submission_version) == ("r1", "V002")
+
+
+# ---- The engine's REVIEW outcome: to the reviewer, as RETURN_TO_FILER ----------------------------
+
+def _review_result():
+    result = engine_fixture("result-APP004-return.json")
+    result["data_authentication_summary"]["outcome"] = "REVIEW"
+    return result
+
+
+def test_a_review_outcome_goes_to_the_reviewer_with_its_flags(monkeypatch, no_poll_delay, applicant, case):
+    fake = FakeEngine(monkeypatch, "APP004-return")
+    monkeypatch.setattr(client, "result", lambda rid: _review_result())
+    applicant.post(f"/api/assessments/{case}/submit")
+    fake.finish()
+    body = applicant.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "REVIEW_PENDING" and body["flags"] == ["PC1"] and body["score"] is None
+    assert Submission.objects.get().outcome == "REVIEW" and not Submission.objects.get().error
+
+
+def test_a_review_outcome_with_nothing_flagged_goes_to_the_decision(monkeypatch, no_poll_delay, applicant, case):
+    original = adapt.question_results
+    monkeypatch.setattr(adapt, "question_results", lambda result: [
+        {**r, "status": "authenticated" if r["status"] == "issue" else r["status"]} for r in original(result)
+    ])
+    fake = FakeEngine(monkeypatch, "APP004-return")
+    monkeypatch.setattr(client, "result", lambda rid: _review_result())
+    applicant.post(f"/api/assessments/{case}/submit")
+    fake.finish()
+    body = applicant.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "DECISION_PENDING" and body["flags"] == [] and body["score"] is None
+
+
+def test_a_resubmission_coming_back_for_review_goes_to_the_reviewer(monkeypatch, no_poll_delay, reviewer, applicant, case):
+    """As FNP-2026-1041: the resubmission, under the case's request id and V001, authenticated REVIEW."""
+    fake = _sent_back(monkeypatch, reviewer, applicant, case)
+    assert applicant.post(f"/api/assessments/{case}/resubmit").json()["stage"] == "AUTH_RUNNING"
+    monkeypatch.setattr(client, "result", lambda rid: _review_result())
+    fake.finish()
+    body = applicant.get(f"/api/assessments/{case}/case").json()
+    assert body["stage"] == "REVIEW_PENDING" and body["run"]["attempt"] == 2
+    again = Submission.objects.get(assessment__public_id=case, attempt_no=2)
+    assert (again.engine_request_id, again.engine_submission_version, again.outcome) == ("req1", "V001", "REVIEW")
