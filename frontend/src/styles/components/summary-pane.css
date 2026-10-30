@@ -361,6 +361,18 @@
   color: var(--warning);
 }
 
+/* The executive summary's points: a plain bullet where the other lists carry an icon. */
+.pane-list-points li::before {
+  content: "";
+  flex: none;
+  width: 0.4rem;
+  height: 0.4rem;
+  /* Level with the middle of the first line. */
+  margin-top: 0.5rem;
+  border-radius: 50%;
+  background: var(--ink-3);
+}
+
 .pane-qsplit {
   display: flex;
   flex-direction: column;
