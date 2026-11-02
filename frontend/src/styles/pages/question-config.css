@@ -586,6 +586,27 @@ button.weight-legend-item:hover {
   box-shadow: inset 3px 0 0 var(--critical);
 }
 
+/* A follow-up question: set in under the question that asks it, with a rule down its side. */
+.qrow.is-follow-up {
+  margin-left: 1.25rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--accent-wash);
+}
+
+.qrow-no-weight {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--ink-3);
+  align-self: center;
+}
+
+.qrow-follow-up {
+  margin: 0 0 0.2rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
 .qrow-main {
   display: flex;
   align-items: flex-start;

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Count, Max
+from django.db.models import Count, Max, Q
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
@@ -43,6 +43,9 @@ def _question_payload(q: Question) -> dict:
         "allowedAnswers": q.allowed_answers,
         "fileTypes": q.file_types,
         "maxFiles": q.max_files,
+        # A follow-up question: the question it follows on from, and the answer that asks it.
+        "parentQid": catalogue.parent_qid(q),
+        "showWhen": q.show_when or None,
     }
 
 
@@ -171,6 +174,9 @@ class QuestionnaireView(APIView):
             # The checks a question's documents can be given (the engine runs them on submission).
             "checkChoices": catalogue.check_choices(),
             "defaultChecks": catalogue.DEFAULT_CHECKS,
+            # Every question code ever used, so the editor can show the code a question it adds
+            # will be given (codes are never reused: see _NewCodes).
+            "codesUsed": sorted(_codes_ever_used()),
         })
 
 
@@ -201,10 +207,22 @@ class QuestionnaireView(APIView):
                     "file_types": [t for t in catalogue.CONFIGURABLE_FILE_TYPES if t in v["fileTypes"]],
                     "max_files": v["maxFiles"],
                 }
-                if "weight" in v:
+                # A follow-up has no weight of its own (it counts under its parent's): it stays 0.
+                if "weight" in v and not questions[qid].parent_id:
                     changes[qid]["weight"] = v["weight"]
             else:
                 errors[qid] = data.errors
+        # A follow-up is asked on one of its parent's answers: that answer stays offered.
+        for qid, q in questions.items():
+            if not q.parent_id:
+                continue
+            parent = catalogue.parent_qid(q)
+            offered = changes.get(parent, {}).get("allowed_answers", questions[parent].allowed_answers)
+            if q.show_when not in offered:
+                errors[parent] = (
+                    f"Follow-up {qid} is asked when {parent} is answered {q.show_when}: keep {q.show_when} "
+                    f"among {parent}'s answers, or change the follow-up first."
+                )
         if errors:
             raise ValidationError(errors)
         current_sections = list(QuestionSection.objects.filter(version=current).order_by("position"))
@@ -228,7 +246,7 @@ class QuestionnaireView(APIView):
                 s.pk: QuestionSection.objects.create(version=new, name=s.name, weight=s.weight, position=s.position)
                 for s in current_sections
             }
-            Question.objects.bulk_create([
+            _create_questions([
                 Question(
                     version=new, section=sections[q.section_id], qid=q.qid, text=q.text, polarity=q.polarity,
                     weight=changes.get(q.qid, {}).get("weight", q.weight), is_knockout=q.is_knockout, evidence_required=q.evidence_required,
@@ -237,10 +255,10 @@ class QuestionnaireView(APIView):
                     allowed_answers=changes.get(q.qid, {}).get("allowed_answers", q.allowed_answers),
                     file_types=changes.get(q.qid, {}).get("file_types", q.file_types),
                     max_files=changes.get(q.qid, {}).get("max_files", q.max_files),
-                    position=q.position,
+                    position=q.position, show_when=q.show_when,
                 )
                 for q in questions.values()
-            ])
+            ], {qid: catalogue.parent_qid(q) for qid, q in questions.items()})
             _make_active(current, new)
             audit.record(
                 request.user, "questionnaire.publish", target_type="questionnaire", target_id=new.label,
@@ -277,7 +295,7 @@ class QuestionnaireImpactView(APIView):
 
 # ---- Editing the whole questionnaire: sections and questions added, changed or deleted --------
 
-class QuestionEditSerializer(serializers.Serializer):
+class _QuestionFields(serializers.Serializer):
     # An existing question's code; left out (or null) for a question added in this edit.
     qid = serializers.CharField(max_length=10, required=False, allow_null=True, allow_blank=True)
     text = serializers.CharField(max_length=2000, trim_whitespace=True)
@@ -291,6 +309,18 @@ class QuestionEditSerializer(serializers.Serializer):
     evidenceOptions = serializers.ListField(child=serializers.CharField(max_length=60), default=list)
     # The checks the engine runs on its documents. Left out, the question keeps the ones it has.
     checks = serializers.ListField(child=serializers.CharField(max_length=200, allow_blank=True), required=False, max_length=40)
+
+
+class FollowUpEditSerializer(_QuestionFields):
+    """A follow-up question: everything a question has, and the parent's answer that asks it. It
+    has no follow-ups of its own (one level only)."""
+
+    showWhen = serializers.ChoiceField(choices=Answer.values)
+
+
+class QuestionEditSerializer(_QuestionFields):
+    # The follow-up questions asked under this one, in order (a Yes/No question only).
+    followUps = serializers.ListField(child=FollowUpEditSerializer(), default=list, max_length=20)
 
 
 class SectionEditSerializer(serializers.Serializer):
@@ -307,17 +337,41 @@ def _number(d: Decimal) -> str:
     return f"{d.normalize():f}"
 
 
-def _new_qids(count: int) -> list[str]:
-    """Codes for questions added now: N1, N2 ... numbered on from every code ever used, so a deleted
-    question's code is never given to another (answers and past cases are filed under codes)."""
-    every = set(Question.objects.values_list("qid", flat=True).distinct())
-    used = [int(m[1]) for qid in every if (m := re.fullmatch(r"N(\d+)", qid))]
-    codes, n = [], max(used, default=0)
-    while len(codes) < count:
-        n += 1
-        if f"N{n}" not in every:
-            codes.append(f"N{n}")
-    return codes
+def _codes_ever_used() -> set[str]:
+    """Every question code in any version, deleted questions' included."""
+    return set(Question.objects.values_list("qid", flat=True).distinct())
+
+
+class _NewCodes:
+    """Codes for the questions added in one edit, numbered on from every code ever used, so a
+    deleted question's code is never given to another (answers and past cases are filed under
+    codes): N1, N2 ... for a question, and its parent's code with -1, -2 ... for a follow-up (A1-1,
+    A1-2). A follow-up code too long to store (a parent with a long code) takes an N code instead."""
+
+    def __init__(self):
+        self.taken = _codes_ever_used()
+        used = [int(m[1]) for qid in self.taken if (m := re.fullmatch(r"N(\d+)", qid))]
+        self.n = max(used, default=0)
+
+    def question(self) -> str:
+        self.n += 1
+        while f"N{self.n}" in self.taken:
+            self.n += 1
+        return self._take(f"N{self.n}")
+
+    def follow_up(self, parent: str) -> str:
+        own = re.compile(rf"{re.escape(parent)}-(\d+)")
+        n = max((int(m[1]) for qid in self.taken if (m := own.fullmatch(qid))), default=0) + 1
+        code = f"{parent}-{n}"
+        return self._take(code) if len(code) <= QID_MAX_LENGTH else self.question()
+
+    def _take(self, code: str) -> str:
+        self.taken.add(code)
+        return code
+
+
+# The longest question code stored (Question.qid, and every table filed under codes).
+QID_MAX_LENGTH = Question._meta.get_field("qid").max_length
 
 
 def _own_options(codes: list[str], engine_codes: set[str] | None) -> tuple[list[str], str | None]:
@@ -412,24 +466,51 @@ def _publish_structure(request, body: dict):
     seen: set[str] = set()
     # Existing questions whose answer type changes: their saved draft answers are cleared.
     retyped: list[str] = []
-    added = sum(1 for section in data for q in section["questions"] if not q.get("qid"))
-    fresh = iter(_new_qids(added))
+    # Each section's questions in form order, each followed by its follow-ups: (question, the
+    # question it follows on from or None, its label for errors).
+    flat: dict[str, list[tuple[dict, dict | None, str]]] = {}
+    for section in data:
+        flat[section["name"]] = []
+        for position, q in enumerate(section["questions"], start=1):
+            label = q.get("qid") or f"question {position} in {section['name']} (new)"
+            flat[section["name"]].append((q, None, label))
+            for n, f in enumerate(q.get("followUps") or [], start=1):
+                flat[section["name"]].append((f, q, f.get("qid") or f"follow-up {n} of {label}"))
+    codes = _NewCodes()
+    # The code each question in this edit is published under (a new one's is assigned here).
+    published_as: dict[int, str] = {}
     try:
         engine_codes = None
         rows = []
         for section in data:
-            sum_q = sum((q["weight"] for q in section["questions"]), Decimal(0))
+            # A section's weight is shared by its questions; a follow-up has no weight of its own
+            # (it counts under its parent's), so it takes no share.
+            sum_q = sum((q["weight"] for q, parent, _ in flat[section["name"]] if parent is None), Decimal(0))
             if sum_q != section["weight"]:
                 section_errors[section["name"]] = (
                     f"The question weights add up to {_number(sum_q)}; they must add up to the section "
                     f"weight, {_number(section['weight'])}."
                 )
-            for position, q in enumerate(section["questions"], start=1):
+            for q, parent, label in flat[section["name"]]:
                 qid = q.get("qid") or None
                 # A question in force, or one deleted earlier and now brought back (restoring the
                 # published model does that): its latest edition.
                 before = (existing.get(qid) or _latest_edition(qid)) if qid else None
-                label = qid or f"question {position} in {section['name']} (new)"
+                if parent is not None:
+                    # A follow-up hangs on a Yes/No question published in this edit, and on one of
+                    # the answers that question offers.
+                    if id(parent) not in published_as:
+                        errors[f"questions.{label}"] = "Its parent question has a problem; fix that first."
+                        continue
+                    if parent["answerType"] != AnswerType.CHOICE:
+                        errors[f"questions.{label}"] = "Only a Yes/No question can have follow-up questions."
+                        continue
+                    if q["showWhen"] not in parent["allowedAnswers"]:
+                        errors[f"questions.{label}"] = (
+                            f"It is asked when its parent is answered {q['showWhen']}, which the parent does "
+                            "not offer. Choose one of the parent's answers."
+                        )
+                        continue
                 if qid and before is None:
                     errors[f"questions.{qid}"] = "Unknown question. Reload the settings and try again."
                     continue
@@ -506,9 +587,15 @@ def _publish_structure(request, body: dict):
                         continue
                 else:
                     checks = list(before.checks) if before else []
+                # A new follow-up is numbered under its parent (A1-1, A1-2 ...); a new question
+                # takes the next N code.
+                published_as[id(q)] = qid or (
+                    codes.follow_up(published_as[id(parent)]) if parent is not None else codes.question()
+                )
                 rows.append({
-                    "section": section["name"], "qid": qid or next(fresh), "text": q["text"],
-                    "polarity": q["polarity"], "answer_type": q["answerType"], "weight": q["weight"],
+                    "section": section["name"], "qid": published_as[id(q)], "text": q["text"],
+                    "polarity": q["polarity"], "answer_type": q["answerType"],
+                    "weight": q["weight"] if parent is None else Decimal(0),
                     "is_knockout": before.is_knockout if before else False,
                     "added_here": before.added_here if before else True,
                     "evidence_required": rule, "evidence_options": options,
@@ -519,6 +606,8 @@ def _publish_structure(request, body: dict):
                     "accepts_supporting": (
                         before.accepts_supporting if before else takes_documents and q["maxFiles"] == 2
                     ),
+                    "parent_qid": published_as[id(parent)] if parent is not None else None,
+                    "show_when": q["showWhen"] if parent is not None else "",
                 })
     except EngineUnavailable:
         raise ServiceUnavailable() from None
@@ -546,10 +635,14 @@ def _publish_structure(request, body: dict):
             )
             for i, section in enumerate(data)
         }
-        Question.objects.bulk_create([
-            Question(version=new, position=i + 1, **{**row, "section": sections[row["section"]]})
+        _create_questions([
+            Question(
+                version=new, position=i + 1,
+                **{k: v for k, v in row.items() if k not in ("parent_qid", "section")},
+                section=sections[row["section"]],
+            )
             for i, row in enumerate(rows)
-        ])
+        ], {row["qid"]: row["parent_qid"] for row in rows})
         _make_active(current, new)
         if retyped:
             # Forms not yet submitted follow the new version: a Yes saved for a question now answered
@@ -586,8 +679,13 @@ def _drop_unneeded_draft_documents(before: dict, new: QuestionnaireVersion) -> N
     """After a question's document rule or answer type changes, a form not yet submitted can hold
     a document the question no longer asks for (one now taking none, or a Yes's document for a
     question now answered in words). Such documents are taken off, as changing the answer itself
-    would do, so the form is never left holding one it cannot show or remove."""
-    published = Question.objects.filter(version=new)
+    would do, so the form is never left holding one it cannot show or remove.
+
+    The same goes for follow-up questions: one the new version no longer asks for a draft's saved
+    answers (its asking answer changed, or it was made a follow-up) has its answer cleared and its
+    documents taken off, as hiding it on the form does."""
+    published = Question.objects.filter(version=new).select_related("parent")
+    _drop_hidden_follow_ups({q.qid: q for q in published if q.parent_id})
     changed = {
         q.qid: q for q in published
         if q.qid in before and (
@@ -614,6 +712,49 @@ def _drop_unneeded_draft_documents(before: dict, new: QuestionnaireVersion) -> N
         remove_files(unneeded)
 
 
+def _drop_hidden_follow_ups(follow_ups: dict[str, Question]) -> None:
+    """Clears, on every form not yet submitted, the answers and documents of the follow-ups
+    (`follow_ups`: code -> question, of the version in force) its saved answers do not ask."""
+    if not follow_ups:
+        return
+    drafts = Q(assessment__stage=Stage.NOT_SUBMITTED)
+    held_answers = list(
+        AnswerValue.objects.filter(drafts, qid__in=follow_ups).values_list("pk", "assessment_id", "qid")
+    )
+    held_files = list(
+        EvidenceFile.objects.filter(drafts, qid__in=follow_ups, superseded_at__isnull=True)
+    )
+    holders = {a for _, a, _ in held_answers} | {e.assessment_id for e in held_files}
+    if not holders:
+        return
+    # Each holding draft's answers to the parents (unsaved: what the form starts from).
+    parents = {q.parent.qid: q.parent for q in follow_ups.values()}
+    saved: dict[int, dict[str, str]] = {}
+    for a, qid, value in AnswerValue.objects.filter(assessment_id__in=holders, qid__in=parents).values_list(
+        "assessment_id", "qid", "value"
+    ):
+        saved.setdefault(a, {})[qid] = value
+    shown = {a: catalogue.asked(follow_ups, catalogue.with_defaults(parents, saved.get(a, {}))) for a in holders}
+    hidden_answers = [pk for pk, a, qid in held_answers if qid not in shown[a]]
+    if hidden_answers:
+        AnswerValue.objects.filter(pk__in=hidden_answers).delete()
+    hidden_files = [e for e in held_files if e.qid not in shown[e.assessment_id]]
+    if hidden_files:
+        remove_files(hidden_files)
+
+
+def _create_questions(questions: list[Question], parents: dict[str, str | None]) -> None:
+    """Saves a newly published version's questions (`parents`: question code -> the code of the
+    question it follows on from, or None). The others first, then each follow-up pointing at its
+    parent in that same version: a follow-up is never stored without one."""
+    Question.objects.bulk_create([q for q in questions if not parents.get(q.qid)])
+    published = {q.qid: q for q in questions}
+    follow_ups = [q for q in questions if parents.get(q.qid)]
+    for q in follow_ups:
+        q.parent = published[parents[q.qid]]
+    Question.objects.bulk_create(follow_ups)
+
+
 def _latest_edition(qid: str) -> Question | None:
     """The question with this code as last published, in any version."""
     return Question.objects.filter(qid=qid).order_by("-version_id").first()
@@ -628,4 +769,5 @@ def _row_of(q: Question) -> dict:
         "added_here": q.added_here,
         "allows_na": q.allows_na, "checks": list(q.checks), "allowed_answers": list(q.allowed_answers),
         "file_types": list(q.file_types), "max_files": q.max_files, "accepts_supporting": q.accepts_supporting,
+        "parent_qid": catalogue.parent_qid(q), "show_when": q.show_when,
     }

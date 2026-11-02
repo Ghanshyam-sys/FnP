@@ -99,6 +99,20 @@
   border-top: 1px solid var(--hairline);
 }
 
+/* A follow-up question: set in under the question that asks it, with a rule down its side. */
+.qcard.is-follow-up {
+  margin-left: 1.25rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--accent-wash);
+}
+
+.qcard-follow-up {
+  margin: 0 0 0.5rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
 .qcard-main {
   display: flex;
   flex-wrap: wrap;

@@ -33,6 +33,9 @@ export interface ResponseItem {
   evidence: EvidenceRef[];
   /** Named checks the authentication engine runs for this question (v2 test set). */
   checks_to_perform: string[];
+  /** A follow-up question: the question it follows on from and the answer that asks it. */
+  parentQid?: string | null;
+  showWhen?: string | null;
 }
 
 /**
