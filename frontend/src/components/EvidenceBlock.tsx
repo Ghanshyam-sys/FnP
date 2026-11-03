@@ -15,6 +15,7 @@ import { FileTextIcon, UploadIcon, XIcon } from "./icons";
 import type { EvidenceOption } from "../domain/catalogue";
 import type { EvidenceRef, EvidenceRole } from "../domain/types";
 import type { LibraryDocument } from "../api/types";
+import { isParentsDocument, parentOffer, parentPlan, type ParentDocument, type ParentOffer } from "../domain/parentDocument";
 
 import { DOCUMENT_DRAG, type AttachSource } from "../domain/attachSource";
 import { leftFor, useDocumentDrag, useDragOver, type DocumentDrag } from "../state/documentDrag";
@@ -233,21 +234,6 @@ function dragFit(
   return { active: drag.files, ok: drag.files, note: "" };
 }
 
-/**
- * A follow-up question's parent's document (its main one), which the follow-up can use too rather
- * than having it uploaded again.
- */
-export interface ParentDocument {
-  /** The parent question's code. */
-  parentQid: string;
-  /** Its copy in "Your documents". */
-  documentId: string;
-  fileName: string;
-  /** The type it is attached to the parent as, and the words given for "Other". */
-  optionCode: string;
-  description: string;
-}
-
 /** The document-type picker plus the attach button, used for both roles. */
 function Picker({
   qid,
@@ -269,8 +255,8 @@ function Picker({
   library: LibraryDocument[];
   /** The library documents already on this question. */
   attachedHere: string[];
-  /** For a follow-up: its parent's document, offered to use here too. */
-  fromParent?: ParentDocument;
+  /** For a follow-up: its parent's document, offered to use here too (already checked to fit). */
+  fromParent?: ParentOffer;
   onAttach: AttachHandler;
 }) {
   const isSupporting = role === "supporting";
@@ -283,8 +269,11 @@ function Picker({
   const [heldId, setHeldId] = useState("");
   const [dropOver, setDropOver] = useDragOver();
   const [hint, setHint] = useState("");
-  // What is being sent: a new file, or a document from "Your documents".
-  const [sending, setSending] = useState<"file" | "doc" | null>(null);
+  // What is being sent: a new file, a document from "Your documents", or the parent question's.
+  const [sending, setSending] = useState<"file" | "doc" | "parent" | null>(null);
+  // The held document is the parent question's, taken with "Use the same document": choosing its
+  // type attaches it, so it is never left looking attached when it is not.
+  const [heldFromParent, setHeldFromParent] = useState(false);
   const uploading = sending !== null;
   const [error, setError] = useState("");
   const chooser = useRef<HTMLInputElement>(null);
@@ -303,8 +292,8 @@ function Picker({
   // The question's own types to drop on: "Other" needs words, so it asks for them after the drop.
   const several = options.length > 1;
 
-  const send = async (source: AttachSource, code = optionCode, words = description) => {
-    setSending(source instanceof File ? "file" : "doc");
+  const send = async (source: AttachSource, code = optionCode, words = description, asParent = false) => {
+    setSending(source instanceof File ? "file" : asParent ? "parent" : "doc");
     setError("");
     try {
       await onAttach(code, role, source, code === OTHER_CODE ? words.trim() : undefined);
@@ -312,6 +301,7 @@ function Picker({
       setDescription("");
       setHeldId("");
       setPendingFile(null);
+      setHeldFromParent(false);
       setHint("");
     } catch (err) {
       setError(uploadMessage(err));
@@ -332,6 +322,7 @@ function Picker({
 
   // Keeps what was dropped until the type (or, for "Other", its description) is given.
   const holdFor = (dropped: { doc: LibraryDocument } | { file: File }, message: string) => {
+    setHeldFromParent(false);
     if ("doc" in dropped) {
       setPendingFile(null);
       setHeldId(dropped.doc.id);
@@ -368,23 +359,31 @@ function Picker({
   };
 
   // A follow-up can take its parent's document as it is: attached at once as the same type when this
-  // question takes that type; otherwise held until the type (or, for "Other", its words) is given.
-  const parentDoc = fromParent ? library.find((d) => d.id === fromParent.documentId) : undefined;
+  // question takes that type; otherwise held until the words for "Other", or one of this question's
+  // own types, is given (choosing the type attaches it).
   const useParentDocument = () => {
-    if (!fromParent || !parentDoc || uploading) return;
+    if (!fromParent || uploading) return;
     setError("");
-    const code = fromParent.optionCode;
-    if (options.some((o) => o.code === code)) {
-      setOptionCode(code);
-      if (code !== OTHER_CODE || fromParent.description.trim()) {
-        void send({ documentId: parentDoc.id }, code, fromParent.description);
-        return;
-      }
+    const { doc } = fromParent;
+    const plan = parentPlan(fromParent, options);
+    if (plan.kind === "attach") {
+      setOptionCode(plan.optionCode);
+      // Kept, so a refused attach can be tried again with the main button as it stands.
+      setDescription(plan.optionCode === OTHER_CODE ? plan.description : "");
+      void send({ documentId: doc.id }, plan.optionCode, plan.description, true);
+      return;
     }
-    holdFor({ doc: parentDoc }, `Choose the document type, then attach "${parentDoc.fileName}".`);
-    if (code === OTHER_CODE && options.some((o) => o.code === code)) {
+    if (plan.kind === "describe") {
+      setOptionCode(OTHER_CODE);
+      holdFor({ doc }, `Say what "${doc.fileName}" is, then attach it.`);
       window.setTimeout(() => describe.current?.focus(), 0);
+    } else {
+      // Not one of this question's types: none is chosen for the applicant.
+      setOptionCode("");
+      holdFor({ doc }, `Choose its document type to attach "${doc.fileName}".`);
+      window.setTimeout(() => document.getElementById(selectId)?.focus(), 0);
     }
+    setHeldFromParent(true);
   };
 
   const draggedName = drag.doc?.fileName;
@@ -395,7 +394,20 @@ function Picker({
   const letGo = () => {
     setPendingFile(null);
     setHeldId("");
+    setHeldFromParent(false);
     setHint("");
+  };
+  const chooseType = (code: string) => {
+    setOptionCode(code);
+    if (!heldFromParent || !heldDoc) return;
+    // The parent's document waiting for its type is attached as the one chosen; "Other" first needs
+    // its words, then the main button.
+    if (code !== OTHER_CODE) {
+      if (!uploading) void send({ documentId: heldDoc.id }, code, "", true);
+    } else {
+      setHint(`Say what "${heldDoc.fileName}" is, then attach it.`);
+      window.setTimeout(() => describe.current?.focus(), 0);
+    }
   };
   // Held over the box: its types open to drop on (with one type, the box itself is the target).
   const showTypes = dropOver && several && fit.ok !== false && !uploading;
@@ -459,13 +471,13 @@ function Picker({
           />
         ) : (
           <>
-            {fromParent && parentDoc && !heldName && (
+            {fromParent && !heldName && (
               <span className="evidence-from-parent">
                 <span>
-                  {fromParent.parentQid} already has <strong>{parentDoc.fileName}</strong>.
+                  {fromParent.parentQid} already has <strong>{fromParent.doc.fileName}</strong>.
                 </span>
                 <button type="button" className="btn btn-ghost btn-sm" disabled={uploading} onClick={useParentDocument}>
-                  {sending === "doc" ? "Attaching…" : "Use the same document"}
+                  {sending === "parent" ? "Attaching…" : "Use the same document"}
                 </button>
               </span>
             )}
@@ -476,7 +488,7 @@ function Picker({
               id={selectId}
               className="input"
               value={optionCode}
-              onChange={(e) => setOptionCode(e.target.value)}
+              onChange={(e) => chooseType(e.target.value)}
               aria-describedby={error ? errorId : undefined}
             >
               <option value="" disabled>
@@ -566,7 +578,7 @@ function Picker({
         >
           {sending === "file"
             ? "Uploading…"
-            : sending === "doc"
+            : sending === "doc" || sending === "parent"
               ? "Attaching…"
               : pendingFile
                 ? "Attach dropped file"
@@ -736,11 +748,7 @@ export default function EvidenceBlock({
   const [filesHere, setFilesHere] = useDragOver();
   // The parent's document is offered only in a format this question takes (and while it is still
   // in "Your documents" and not on this question already).
-  const parentChoice = choices.find((d) => d.id === fromParent?.documentId);
-  const offerParent =
-    fromParent && parentChoice && fileTypes.map(sameFormat).includes(sameFormat(parentChoice.format))
-      ? fromParent
-      : undefined;
+  const offerParent = parentOffer(fromParent, choices, fileTypes);
 
   if (primary.length === 0) {
     return (
@@ -785,7 +793,7 @@ export default function EvidenceBlock({
           file={file}
           label={labelFor(file)}
           showRole={allowSupporting}
-          sameAs={fromParent && file.documentId && file.documentId === fromParent.documentId ? fromParent.parentQid : undefined}
+          sameAs={isParentsDocument(fromParent, file.documentId) ? fromParent?.parentQid : undefined}
           onRemove={() => onRemove(file.id)}
         />
       ))}
