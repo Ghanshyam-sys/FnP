@@ -23,6 +23,7 @@ export function evidenceRef(item: EvidenceItem): EvidenceRef {
     description: item.description,
     fileName: item.fileName,
     url: item.url,
+    documentId: item.documentId ?? null,
   };
 }
 

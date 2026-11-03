@@ -343,3 +343,36 @@ def test_the_editor_is_told_every_code_ever_used(reviewer):
     used = reviewer.get("/api/questionnaire").json()["codesUsed"]
     # Deleted codes too, so the code it shows for a new one is the code applying gives it.
     assert FU in used and "A1" in used and used == sorted(used)
+
+
+def test_a_follow_up_can_use_its_parents_document(reviewer, applicant):
+    # A follow-up needing the same kind of document as its parent (A1 always takes one).
+    parent = publish_follow_up(reviewer, evidenceRequired="always", evidenceOptions=["NATIONAL_ID"])
+    aid = reviewer.post("/api/assessments", NEW).json()["id"]
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {parent: "Yes"}})
+    upload = {"file": SimpleUploadedFile("id.pdf", PDF), "qid": parent, "optionCode": "NATIONAL_ID"}
+    on_parent = applicant.post(f"/api/assessments/{aid}/evidence", upload, multipart=True).json()
+
+    # The same document, from "Your documents", with no new upload.
+    reuse = {"documentId": on_parent["documentId"], "qid": FU, "optionCode": "NATIONAL_ID"}
+    on_follow_up = applicant.post(f"/api/assessments/{aid}/evidence", reuse, multipart=True)
+    assert on_follow_up.status_code == 201 and on_follow_up.json()["documentId"] == on_parent["documentId"]
+    form = applicant.get(f"/api/assessments/{aid}/form").json()
+    assert len(form["documents"]) == 1
+    assert {u["qid"] for u in form["documents"][0]["usedBy"]} == {parent, FU}
+
+    # Both questions carry it to the engine.
+    assessment = Assessment.objects.get(public_id=aid)
+    questions = catalogue.questions(catalogue.version_for(assessment).pk)
+    answers = catalogue.with_defaults(questions, dict(assessment.answers.values_list("qid", "value")))
+    payload = adapt.submission_payload(
+        assessment, questions, answers, None, list(assessment.evidence.all()), None, catalogue.asked(questions, answers)
+    )
+    sent = {q["qid"]: q for s in payload["sections"] for q in s["questions"]}
+    assert sent[parent]["evidence"] == sent[FU]["evidence"] == [{"doc_type": "national_id", "role": "primary"}]
+
+    # Hiding the follow-up takes it off the follow-up only: the parent keeps it.
+    applicant.patch(f"/api/assessments/{aid}/form", {"answers": {parent: "No"}})
+    held = EvidenceFile.objects.filter(assessment=assessment, superseded_at__isnull=True)
+    assert set(held.values_list("qid", flat=True)) == {parent}
+    assert assessment.library.count() == 1

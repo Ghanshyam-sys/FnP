@@ -262,6 +262,17 @@
   overflow-wrap: anywhere;
 }
 
+/* A follow-up's offer to use its parent's document as it is. */
+.evidence-from-parent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.75rem;
+  font-size: var(--fs-sm);
+  color: var(--ink-2);
+  overflow-wrap: anywhere;
+}
+
 .evidence-drop-note {
   font-size: var(--fs-xs);
   font-weight: 600;

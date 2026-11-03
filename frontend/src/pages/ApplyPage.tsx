@@ -16,6 +16,7 @@ import { useApplication } from "../api/useApplication";
 import QuestionCard from "../components/QuestionCard";
 import LeaveLockedPage from "../components/LeaveLockedPage";
 import EvidenceBlock from "../components/EvidenceBlock";
+import type { ParentDocument } from "../components/EvidenceBlock";
 import { sourceFields, type AttachSource } from "../domain/attachSource";
 import DocumentLibrary from "../components/DocumentLibrary";
 import PageHeader, { AssignmentMeta } from "../components/PageHeader";
@@ -107,6 +108,21 @@ export default function ApplyPage() {
   const cv = form.cv_verification;
   const { cvMissing, requiredTotal, missingTotal, missingIds } = evidenceGaps(form);
   const ruleBreaks = documentRuleBreaks(raw, catalogue.cvFileTypes);
+  // A follow-up question can use its parent's document (its main one) rather than have it uploaded
+  // again.
+  const parentDocument = (qid: string): ParentDocument | undefined => {
+    const r = form.responses.find((x) => x.qid === qid);
+    const parent = r?.parentQid ? form.responses.find((x) => x.qid === r.parentQid) : undefined;
+    const doc = parent?.evidence.find((e) => e.role !== "supporting" && e.documentId);
+    if (!parent || !doc?.documentId) return undefined;
+    return {
+      parentQid: parent.qid,
+      documentId: doc.documentId,
+      fileName: doc.fileName,
+      optionCode: doc.option_code,
+      description: doc.description,
+    };
+  };
 
   const toggleSection = (section: string, isOpen: boolean) =>
     setOpenSections((prev) => ({ ...prev, [section]: !isOpen }));
@@ -247,6 +263,7 @@ export default function ApplyPage() {
                               defaultCode={defaultOptionCode(catalogue, r.qid)}
                               labelFor={(file) => documentLabel(catalogue, file, r.qid)}
                               library={library}
+                              fromParent={parentDocument(r.qid)}
                               onAnswerChange={(answer) => saveAnswer(r.qid, answer)}
                               onAttach={attach(r.qid)}
                               onRemove={removeEvidence}

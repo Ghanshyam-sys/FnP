@@ -3,7 +3,7 @@ import TextAnswer from "./TextAnswer";
 import EvidenceBlock from "./EvidenceBlock";
 import { answerOptions } from "../domain/catalogue";
 import { followUpLabel } from "../domain/followUps";
-import type { AttachHandler } from "./EvidenceBlock";
+import type { AttachHandler, ParentDocument } from "./EvidenceBlock";
 import type { CatalogueQuestion, LibraryDocument } from "../api/types";
 import type { EvidenceOption } from "../domain/catalogue";
 import type { Answer, EvidenceRef, ResponseItem } from "../domain/types";
@@ -15,6 +15,7 @@ export default function QuestionCard({
   defaultCode,
   labelFor,
   library,
+  fromParent,
   onAnswerChange,
   onAttach,
   onRemove,
@@ -27,6 +28,8 @@ export default function QuestionCard({
   labelFor: (file: EvidenceRef) => string;
   /** "Your documents", to attach one from there. */
   library?: LibraryDocument[];
+  /** For a follow-up question: its parent's document, which it can use too. */
+  fromParent?: ParentDocument;
   onAnswerChange: (answer: string) => void;
   onAttach: AttachHandler;
   onRemove: (evidenceId: string) => Promise<unknown>;
@@ -71,6 +74,7 @@ export default function QuestionCard({
           allowSupporting={question.maxFiles > 1}
           labelFor={labelFor}
           library={library}
+          fromParent={fromParent}
           onAttach={onAttach}
           onRemove={onRemove}
         />

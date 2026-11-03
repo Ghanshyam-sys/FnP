@@ -20,6 +20,8 @@ export interface EvidenceRef {
   fileName: string;
   /** Where the document can be opened (access-checked by the backend). */
   url: string;
+  /** Its copy in "Your documents" (null from an older server): the same document on two questions shares it. */
+  documentId?: string | null;
 }
 
 export interface ResponseItem {
