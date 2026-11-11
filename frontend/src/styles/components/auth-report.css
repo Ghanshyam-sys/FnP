@@ -16,7 +16,7 @@
   padding: 0.4rem 1rem;
   border-radius: var(--r-pill);
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink-2);
   text-decoration: none;
 }
@@ -63,13 +63,13 @@
   font-size: var(--fs-2xs);
   text-transform: uppercase;
   letter-spacing: 0.07em;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink-3);
 }
 
 .auth-stat-value {
-  font-size: 1.25rem;
-  font-weight: 600;
+  font-size: var(--fs-h3);
+  font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
@@ -130,7 +130,7 @@
 }
 
 .auth-question-toggle:focus-visible::after {
-  outline: 2px solid var(--accent-bright);
+  outline: 2px solid var(--ochre);
   outline-offset: -2px;
   border-radius: var(--r-xs);
 }
@@ -180,7 +180,7 @@
 
 .auth-confidence {
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   min-width: 2.5rem;
@@ -260,7 +260,7 @@
 
 .check-label {
   font-size: var(--fs-md);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--ink);
 }
 
@@ -269,7 +269,7 @@
   align-items: center;
   gap: 0.45rem;
   font-size: var(--fs-sm);
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink-2);
   font-variant-numeric: tabular-nums;
   flex-shrink: 0;

@@ -64,7 +64,7 @@
   font-size: var(--fs-sm);
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--ink-2);
   margin-right: auto;
 }
@@ -78,7 +78,7 @@
   background: var(--warning-wash);
   color: var(--warning-ink);
   font-size: var(--fs-2xs);
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
 }
 
@@ -144,7 +144,7 @@
 }
 
 .qtext {
-  font-size: 0.875rem;
+  font-size: var(--fs-body);
   line-height: 1.5;
   color: var(--ink);
 }
@@ -152,7 +152,7 @@
 .required-mark {
   margin-left: 0.2rem;
   color: var(--critical);
-  font-weight: 600;
+  font-weight: 700;
 }
 
 /* ============================================================
@@ -187,7 +187,7 @@
 .segment.is-selected {
   background: var(--surface-raised);
   color: var(--accent);
-  font-weight: 600;
+  font-weight: 700;
   box-shadow: var(--shadow-sm);
 }
 
